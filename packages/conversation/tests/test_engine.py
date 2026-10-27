@@ -1,0 +1,259 @@
+"""T024 agent loop v1 (FR-024, FR-025; plan.md §4.1): retrieval → tool loop → AgentTurnOutput →
+the checks outside the model, with one guided retry (AS-3.3, AS-3.4; R2–R5).
+"""
+
+import asyncio
+from typing import Any
+from uuid import uuid4
+
+import pytest
+
+from vitrina_conversation.api import AgentDeps, Exchange, TurnRequest, run_turn
+from vitrina_conversation.contract import output_schema, tool_specs
+from vitrina_conversation.testing import ScriptedChat, Shop, final_answer, tool_call
+from vitrina_core.providers import ChatRequest, ChatResponse, ProviderUnavailableError
+
+FALLBACK = "No tengo ese dato, te comunico con Ana"
+CONVERSATION = uuid4()
+
+
+async def no_sleep(_seconds: float) -> None:
+    return None
+
+
+def deps(chat: Any, shop: Shop, **options: Any) -> AgentDeps:
+    return AgentDeps(chat=chat, catalog=shop.catalog, model="spark-test", sleep=no_sleep, **options)
+
+
+def request(shop: Shop, message: str, **options: Any) -> TurnRequest:
+    return TurnRequest(seller=shop.seller, conversation_id=CONVERSATION, message=message, **options)
+
+
+async def test_fr_024_the_model_gets_prompt_history_tools_and_schema(shop: Shop) -> None:
+    chat = ScriptedChat([final_answer("¡Hola, veci! ¿En qué te ayudo?", confidence=0.95)])
+    history = (Exchange("Hola", "¡Hola! ¿En qué te ayudo?"),)
+
+    await run_turn(
+        request(shop, "¿Cuánto vale la mochila azul?", history=history), deps(chat, shop)
+    )
+
+    (sent,) = chat.requests
+    assert (sent.model, sent.purpose, sent.tool_choice) == ("spark-test", "agent", "auto")
+    assert [message.role for message in sent.messages] == ["system", "user", "assistant", "user"]
+    assert sent.messages[-1].content == "¿Cuánto vale la mochila azul?"
+    assert str(shop.ids["mochila-azul"]) in str(sent.messages[0].content)
+    assert [tool.name for tool in sent.tools] == [spec.name for spec in tool_specs()]
+    assert sent.response_format is not None
+    assert sent.response_format.json_schema == output_schema()
+
+
+async def test_as_3_3_a_tool_backed_cited_answer_reaches_the_customer(shop: Shop) -> None:
+    reply = "El envío dentro de Medellín vale $8.000 y llega en 1 día hábil."
+    chat = ScriptedChat(
+        [
+            tool_call("search_catalog", query="envío Medellín"),
+            final_answer(reply, shop.ids["envio-medellin"]),
+        ]
+    )
+
+    result = await run_turn(request(shop, "¿cuánto vale el envío a Medellín?"), deps(chat, shop))
+
+    assert result.final_reply == reply
+    assert result.cited_ids == (shop.ids["envio-medellin"],)
+    assert result.review is not None
+    assert result.review.price.passed
+    assert result.review.confidence >= 0.6
+    assert result.handoff is None
+    (record,) = result.tool_calls
+    assert (record.name, record.status) == ("search_catalog", "ok")
+    tool_message = chat.requests[1].messages[-1]
+    assert tool_message.role == "tool"
+    assert str(shop.ids["envio-medellin"]) in str(tool_message.content)
+    assert len(result.model_calls) == 2
+
+
+async def test_as_3_4_an_invented_price_gets_one_guided_retry(shop: Shop) -> None:
+    fact = shop.ids["envio-medellin"]
+    chat = ScriptedChat(
+        [final_answer("El envío vale $12.000.", fact), final_answer("El envío vale $8.000.", fact)]
+    )
+
+    result = await run_turn(request(shop, "¿cuánto vale el envío?"), deps(chat, shop))
+
+    assert result.final_reply == "El envío vale $8.000."
+    assert result.review is not None
+    assert result.review.retried
+    retry = chat.requests[1].messages[-1]
+    assert retry.role == "system"
+    assert "$12.000" in str(retry.content)
+    assert result.handoff is None
+
+
+async def test_as_3_4_a_second_invented_price_falls_back_and_hands_off(shop: Shop) -> None:
+    fact = shop.ids["envio-medellin"]
+    chat = ScriptedChat([final_answer("Vale $12.000.", fact), final_answer("Vale $13.000.", fact)])
+
+    result = await run_turn(request(shop, "¿cuánto vale el envío?"), deps(chat, shop))
+
+    assert result.final_reply == FALLBACK
+    assert result.handoff is not None
+    assert result.handoff.reason == "price_unverified"
+    assert result.cited_ids == ()
+
+
+async def test_fr_024_tool_rounds_are_capped(shop: Shop) -> None:
+    chat = ScriptedChat(
+        [tool_call("search_catalog", query="mochila") for _ in range(4)]
+        + [final_answer("¡Hola!", confidence=0.95)]
+    )
+
+    result = await run_turn(request(shop, "Hola"), deps(chat, shop))
+
+    assert len(chat.requests) == 5
+    assert chat.requests[-1].tool_choice == "none"
+    assert len(result.tool_calls) == 4
+    assert result.final_reply == "¡Hola!"
+
+
+async def test_fr_025_fenced_json_is_read_without_a_repair_call(shop: Shop) -> None:
+    chat = ScriptedChat(["```json\n" + final_answer("¡Hola!", confidence=0.95) + "\n```"])
+
+    result = await run_turn(request(shop, "Hola"), deps(chat, shop))
+
+    assert result.final_reply == "¡Hola!"
+    assert len(chat.requests) == 1
+
+
+async def test_fr_025_an_unreadable_answer_gets_one_repair_call(shop: Shop) -> None:
+    reply = "La mochila azul vale $85.000."
+    chat = ScriptedChat(
+        ["Claro, la mochila azul vale $85.000", final_answer(reply, shop.ids["mochila-azul"])]
+    )
+
+    result = await run_turn(request(shop, "¿Cuánto vale?"), deps(chat, shop))
+
+    assert result.final_reply == reply
+    repair = chat.requests[1]
+    assert (repair.messages[-1].role, repair.tool_choice) == ("system", "none")
+
+
+async def test_fr_025_an_unrepairable_answer_falls_back_as_low_confidence(shop: Shop) -> None:
+    chat = ScriptedChat(["no sé", "tampoco sé"])
+
+    result = await run_turn(request(shop, "¿Cuánto vale?"), deps(chat, shop))
+
+    assert (result.output, result.final_reply, result.handoff) == (None, FALLBACK, None)
+    assert result.low_confidence_streak == 1
+
+
+async def test_r4_the_streak_continues_from_the_conversation(shop: Shop) -> None:
+    chat = ScriptedChat([final_answer("Creo que sí.", shop.ids["mochila-azul"], confidence=0.3)])
+
+    result = await run_turn(
+        request(shop, "¿La tienen en verde?", low_confidence_streak=1), deps(chat, shop)
+    )
+
+    assert result.final_reply == FALLBACK
+    assert result.handoff is not None
+    assert result.handoff.reason == "low_confidence_twice"
+    assert result.low_confidence_streak == 2
+
+
+async def test_r5_a_handoff_reason_without_the_tool_opens_a_handoff(shop: Shop) -> None:
+    chat = ScriptedChat(
+        [final_answer("Te comunico con Ana.", confidence=0.95, handoff_reason="customer_request")]
+    )
+
+    result = await run_turn(request(shop, "Quiero hablar con una persona"), deps(chat, shop))
+
+    assert result.handoff is not None
+    assert result.handoff.reason == "customer_request"
+    assert "Quiero hablar con una persona" in result.handoff.summary
+
+
+async def test_r5_a_handoff_tool_call_is_not_doubled(shop: Shop) -> None:
+    chat = ScriptedChat(
+        [
+            tool_call(
+                "handoff_to_human", reason="complaint_refund", summary="Quiere devolver la mochila."
+            ),
+            final_answer(
+                "Lamento lo ocurrido, te comunico con Ana.", handoff_reason="complaint_refund"
+            ),
+        ]
+    )
+
+    result = await run_turn(request(shop, "La mochila llegó rota"), deps(chat, shop))
+
+    assert result.handoff is not None
+    assert result.handoff.summary == "Quiere devolver la mochila."
+
+
+async def test_as_4_2_an_objection_tag_is_recorded_with_the_customers_words(shop: Shop) -> None:
+    message = "Uy, $8.000 de envío está caro"
+    chat = ScriptedChat(
+        [
+            final_answer(
+                "Entiendo. El envío dentro de Medellín vale $8.000.",
+                shop.ids["envio-medellin"],
+                objection_tag="shipping",
+            )
+        ]
+    )
+
+    result = await run_turn(request(shop, message), deps(chat, shop))
+
+    (objection,) = result.actions.objections
+    assert (objection.tag, objection.quote) == ("shipping", message)
+
+
+async def test_as_3_10_an_off_topic_answer_is_flagged(shop: Shop) -> None:
+    reply = "Solo te puedo ayudar con Mochilas Ana. ¿Buscas alguna mochila?"
+    chat = ScriptedChat([final_answer(reply, confidence=0.95, objection_tag="off_topic")])
+
+    result = await run_turn(request(shop, "¿Quién ganó el partido?"), deps(chat, shop))
+
+    assert result.off_topic
+    assert result.final_reply == reply
+
+
+async def test_art_viii_a_provider_hiccup_is_retried(shop: Shop) -> None:
+    chat = ScriptedChat(
+        [
+            ProviderUnavailableError("down for a moment", provider="meta_model_api"),
+            final_answer("¡Hola!", confidence=0.95),
+        ]
+    )
+
+    result = await run_turn(request(shop, "Hola"), deps(chat, shop))
+
+    assert result.final_reply == "¡Hola!"
+    assert len(chat.requests) == 2
+
+
+async def test_art_viii_a_turn_has_a_time_budget(shop: Shop) -> None:
+    class SlowChat:
+        async def complete(self, request: ChatRequest) -> ChatResponse:
+            await asyncio.sleep(5)
+            raise AssertionError("the budget should have stopped the turn")
+
+    with pytest.raises(TimeoutError):
+        await run_turn(request(shop, "Hola"), deps(SlowChat(), shop, budget_s=0.05))
+
+
+async def test_r1_draft_items_never_reach_the_model(shop: Shop) -> None:
+    chat = ScriptedChat([final_answer("¡Hola!", confidence=0.95)])
+
+    await run_turn(request(shop, "mochila edición especial"), deps(chat, shop))
+
+    assert str(shop.ids["borrador"]) not in str(chat.requests[0].messages[0].content)
+
+
+async def test_fr_024_only_the_last_turns_of_history_are_sent(shop: Shop) -> None:
+    chat = ScriptedChat([final_answer("¡Hola!", confidence=0.95)])
+    history = tuple(Exchange(f"mensaje {n}", f"respuesta {n}") for n in range(5))
+
+    await run_turn(request(shop, "Hola", history=history), deps(chat, shop, history_turns=2))
+
+    sent = [message.content for message in chat.requests[0].messages[1:]]
+    assert sent == ["mensaje 3", "respuesta 3", "mensaje 4", "respuesta 4", "Hola"]
