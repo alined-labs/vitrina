@@ -38,7 +38,8 @@ check: lint types test drift ## Everything a commit must pass
 migrate: ## Upgrade DB_SCHEMA on DATABASE_URL to the latest migration
 	$(UV) run alembic upgrade head
 
-evals: ## Replay evals in this process, MX0 only (conversations_es; fails on an invented price)
+evals: ## Replay evals in this process, MX0 only (fails on an invented price or a consent error)
+	$(UV) run python -m vitrina_evals --suite consent_scheduler --out tmp/evals
 	$(UV) run python -m vitrina_evals --suite conversations_es --out tmp/evals
 
 gen-client: ## TypeScript client from contracts/openapi.yaml (T013, MX1)
