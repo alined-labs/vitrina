@@ -42,7 +42,7 @@ evals: ## Replay evals, MX0 only (runner lands with T028)
 	@echo "make evals: no suites yet; the replay runner lands with T028"
 
 gen-client: ## TypeScript client from contracts/openapi.yaml (T013, MX1)
-	@echo "make gen-client: lands with T013 (MX1)" >&2; exit 1
+	./scripts/gen-client
 
 api: ## Run the API with reload on :8000
 	$(UV) run uvicorn vitrina_api.main:create_app --factory --reload --port 8000

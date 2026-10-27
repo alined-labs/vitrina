@@ -1,0 +1,25 @@
+#!/bin/sh
+# gen-client (T013): TypeScript types for the dashboard from the frozen API contract.
+#   scripts/gen-client          write apps/dashboard/src/lib/api/schema.d.ts
+#   scripts/gen-client --check  exit 1 when the committed file differs from the contract
+# Needs `pnpm install` in apps/dashboard first.
+set -eu
+root=$(cd "$(dirname "$0")/.." && pwd -P)
+spec=$root/specs/001-vitrina-api/contracts/openapi.yaml
+out=$root/apps/dashboard/src/lib/api/schema.d.ts
+[ -d "$root/apps/dashboard/node_modules" ] || { echo "gen-client: run 'pnpm install' in apps/dashboard first" >&2; exit 1; }
+
+generate() { pnpm --silent --dir "$root/apps/dashboard" exec openapi-typescript "$spec" --output "$1" >/dev/null; }
+
+case ${1:-} in
+  --check)
+    tmp=$(mktemp); trap 'rm -f "$tmp"' EXIT
+    generate "$tmp"
+    if cmp -s "$tmp" "$out"; then echo "gen-client: up to date"; else echo "gen-client: $out is stale; run scripts/gen-client" >&2; exit 1; fi
+    ;;
+  "")
+    generate "$out"
+    echo "gen-client: wrote apps/dashboard/src/lib/api/schema.d.ts"
+    ;;
+  *) echo "usage: scripts/gen-client [--check]" >&2; exit 2 ;;
+esac
