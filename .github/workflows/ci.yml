@@ -77,6 +77,8 @@ jobs:
           --health-interval 5s --health-timeout 5s --health-retries 12
     env:
       DATABASE_URL: postgresql://postgres:postgres@localhost:5432/vitrina
+      # Fail instead of skipping, so a green db job means the tests ran on Postgres.
+      CI_DB_REQUIRED: "1"
     steps:
       - uses: actions/checkout@v7
       - uses: astral-sh/setup-uv@v7

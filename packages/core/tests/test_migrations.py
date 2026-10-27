@@ -93,6 +93,10 @@ def test_downgrade_drops_every_table() -> None:
 def database() -> Iterator[tuple[str, str]]:
     url = os.environ.get("DATABASE_URL")
     if not url:
+        if os.environ.get("CI_DB_REQUIRED"):
+            pytest.fail(
+                "CI_DB_REQUIRED is set but DATABASE_URL is not: the db job must reach Postgres"
+            )
         pytest.skip("DATABASE_URL is not set (CI runs these against its Postgres service)")
     schema = f"test_{uuid4().hex[:12]}"
     yield url, schema
