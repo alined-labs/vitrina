@@ -330,6 +330,7 @@ class _Turn:
             citations,
             owner_name=seller.owner_name,
             business_name=seller.business_name,
+            customer_message=self.request.message,
             low_confidence_threshold=seller.low_confidence_threshold,
             low_confidence_streak=self.request.low_confidence_streak,
             retried=retried,

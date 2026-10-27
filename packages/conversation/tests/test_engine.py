@@ -338,3 +338,11 @@ async def test_r3_an_uncited_claim_never_reaches_the_customer(shop: Shop) -> Non
 
     assert result.final_reply == FALLBACK
     assert result.low_confidence_streak == 1
+
+
+async def test_r3_a_bare_yes_to_the_customers_question_never_reaches_them(shop: Shop) -> None:
+    chat = ScriptedChat([final_answer("Dale, listo.", confidence=0.95)])
+
+    result = await run_turn(request(shop, "¿Tienen la mochila en verde?"), deps(chat, shop))
+
+    assert result.final_reply == FALLBACK
