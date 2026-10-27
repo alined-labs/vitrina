@@ -139,3 +139,57 @@ def test_facts_update_and_delete(client: TestClient) -> None:
 def test_catalog_routes_need_a_seller_token(client: TestClient) -> None:
     assert client.get("/v1/products").status_code == 401
     assert client.post("/v1/facts", json={"kind": "faq", "text": "Hola"}).status_code == 401
+
+
+PNG = b"\x89PNG\r\n\x1a\n synthetic menu photo"
+
+
+def test_as_1_3_import_refuses_files_that_are_not_photos(client: TestClient) -> None:
+    response = client.post(
+        "/v1/products/import",
+        files={"image": ("menu.pdf", b"%PDF-1.7 not a photo", "image/jpeg")},
+        headers=bearer(),
+    )
+
+    assert response.status_code == 400
+    assert response.json()["errors"] == [
+        {"field": "image", "message": "send a JPEG, PNG or WebP photo"}
+    ]
+
+
+def test_fr_010_import_refuses_photos_over_10_mb(client: TestClient) -> None:
+    big = PNG + b"\x00" * (10 * 1024 * 1024)
+
+    response = client.post(
+        "/v1/products/import", files={"image": ("menu.png", big, "image/png")}, headers=bearer()
+    )
+
+    assert response.status_code == 400
+    assert response.json()["errors"][0]["message"] == "the photo is larger than 10 MB"
+
+
+def test_as_1_3_import_validates_the_hint(client: TestClient) -> None:
+    response = client.post(
+        "/v1/products/import",
+        files={"image": ("menu.png", PNG, "image/png")},
+        data={"hint": "x" * 301},
+        headers=bearer(),
+    )
+
+    assert response.status_code == 400
+    assert response.json()["errors"][0]["field"] == "hint"
+
+
+def test_as_1_3_import_without_a_database_says_so(client: TestClient) -> None:
+    response = client.post(
+        "/v1/products/import", files={"image": ("menu.png", PNG, "image/png")}, headers=bearer()
+    )
+
+    assert response.status_code == 503
+    assert response.json()["code"] == "PROVIDER_UNAVAILABLE"
+
+
+def test_import_needs_a_seller(client: TestClient) -> None:
+    response = client.post("/v1/products/import", files={"image": ("menu.png", PNG, "image/png")})
+
+    assert response.status_code == 401

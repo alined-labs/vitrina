@@ -43,6 +43,7 @@ async def serve(settings: Settings, stop: asyncio.Event | None = None) -> None:
             sessions=sessions,
             providers=providers,
             storage=storage,
+            settings=settings,
         )
         await worker.run(stop)
     finally:

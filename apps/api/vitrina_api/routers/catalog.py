@@ -1,13 +1,12 @@
 """Catalog router. Owner: MX0 (plan.md §3).
 
 Contract paths: /products, /products/import, /products/{product_id}, /facts, /facts/{fact_id}.
-``/products/import`` arrives with T021.
 """
 
 from typing import Annotated
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, Query, Request
+from fastapi import APIRouter, Depends, File, Form, Query, Request, UploadFile
 
 from vitrina_catalog.api import (
     CatalogStore,
@@ -20,8 +19,10 @@ from vitrina_catalog.api import (
     ProductStatus,
     ProductUpdate,
 )
+from vitrina_catalog.importer import IMPORT_TASK, photo_type
 from vitrina_core.auth import SellerId
 from vitrina_core.http import (
+    FieldError,
     IdempotencyKey,
     Page,
     PageQuery,
@@ -29,8 +30,14 @@ from vitrina_core.http import (
     ProblemError,
     problem_responses,
 )
+from vitrina_core.ids import new_id
+from vitrina_core.jobs import Job, PostgresJobQueue
+from vitrina_core.storage import blob_key
 
 router = APIRouter(tags=["Catalog"])
+
+MAX_PHOTO_BYTES = 10 * 1024 * 1024  # FR-010: images up to 10 MB
+EXTENSIONS = {"image/jpeg": "jpg", "image/png": "png", "image/webp": "webp"}
 
 
 def catalog_store(request: Request) -> CatalogStore:
@@ -71,6 +78,59 @@ async def create_product(
     seller_id: SellerId, store: Store, product: ProductCreate, _key: IdempotencyKey = None
 ) -> Product:
     return await store.create_product(seller_id, product)
+
+
+@router.post(
+    "/products/import",
+    status_code=202,
+    operation_id="importProductsFromImage",
+    summary="Extract draft products from a photo of a menu or price list",
+    description=(
+        "Returns a Job whose result is a list of `draft` products that must be approved (AS-1.3)."
+    ),
+    responses=problem_responses(400),
+)
+async def import_products(
+    request: Request,
+    seller_id: SellerId,
+    image: Annotated[UploadFile, File()],
+    hint: Annotated[
+        str | None, Form(max_length=300, description='Optional context, e.g. "menú de almuerzos"')
+    ] = None,
+    _key: IdempotencyKey = None,
+) -> Job:
+    photo = await image.read(MAX_PHOTO_BYTES + 1)
+    mime_type = photo_type(photo)
+    if len(photo) > MAX_PHOTO_BYTES or mime_type is None:
+        message = (
+            "the photo is larger than 10 MB"
+            if len(photo) > MAX_PHOTO_BYTES
+            else "send a JPEG, PNG or WebP photo"
+        )
+        raise ProblemError(
+            ProblemCode.VALIDATION_ERROR, errors=[FieldError(field="image", message=message)]
+        )
+    jobs: PostgresJobQueue | None = request.app.state.jobs
+    if jobs is None or request.app.state.sessions is None:
+        raise ProblemError(
+            ProblemCode.PROVIDER_UNAVAILABLE,
+            detail="product import needs the database (DATABASE_URL)",
+        )
+    # Stored before the job exists, so the worker never sees a job without its photo.
+    key = blob_key(seller_id, "imports", new_id(), EXTENSIONS[mime_type])
+    await request.app.state.storage.put(key, photo, mime_type)
+    payload = {"image_key": key, **({"hint": hint} if hint else {})}
+    async with request.app.state.sessions() as session, session.begin():
+        job_id = await jobs.enqueue(
+            session,
+            kind="product_import",
+            task=IMPORT_TASK,
+            payload=payload,
+            owner_seller_id=seller_id,
+        )
+    job = await jobs.get_for_seller(seller_id, job_id)
+    assert job is not None
+    return job
 
 
 @router.get(

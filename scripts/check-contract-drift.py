@@ -212,6 +212,17 @@ def _without_null(schema: Any) -> Any:
     return schema
 
 
+FORM_MEDIA_TYPES = {"multipart/form-data", "application/x-www-form-urlencoded"}
+
+
+def _form_fields_without_null(schema: Any) -> Any:
+    """Form fields are text or files, never JSON null, like query values."""
+    if isinstance(schema, dict) and isinstance(schema.get("properties"), dict):
+        fields = {name: _without_null(field) for name, field in schema["properties"].items()}
+        return {**schema, "properties": fields}
+    return schema
+
+
 # ── operations ────────────────────────────────────────────────────────────────────────
 
 
@@ -241,11 +252,16 @@ def _normalize_operation(
         normalized["requestBody"] = {
             "required": bool(body.get("required", False)),
             "content": {
-                media_type: {"schema": normalize_schema(item.get("schema", {}))}
+                media_type: {"schema": _body_schema(media_type, item.get("schema", {}))}
                 for media_type, item in body.get("content", {}).items()
             },
         }
     return normalized
+
+
+def _body_schema(media_type: str, schema: Any) -> Any:
+    normalized = normalize_schema(schema)
+    return _form_fields_without_null(normalized) if media_type in FORM_MEDIA_TYPES else normalized
 
 
 def _normalize_response(response: dict[str, Any]) -> dict[str, Any]:

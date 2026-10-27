@@ -31,6 +31,7 @@ from pydantic import SecretStr
 
 from vitrina_core.http.problems import ProblemCode, ProblemError
 from vitrina_core.providers.base import Blob
+from vitrina_core.providers.errors import ProviderError
 from vitrina_core.providers.retry import with_backoff
 from vitrina_core.settings import Settings
 
@@ -45,15 +46,14 @@ _KEY = re.compile(
 _EXTENSION = re.compile(r"[a-z0-9]+")
 
 
-class StorageError(Exception):
-    """A storage call failed; ``retryable`` marks outages worth a backoff retry."""
+class StorageError(ProviderError):
+    """A storage call failed. Like a model provider's: the API answers 503
+    PROVIDER_UNAVAILABLE, and the worker retries a job when ``retryable``."""
 
     def __init__(
         self, message: str, *, retryable: bool = False, status_code: int | None = None
     ) -> None:
-        super().__init__(message)
-        self.retryable = retryable
-        self.status_code = status_code
+        super().__init__(message, provider="storage", retryable=retryable, status_code=status_code)
 
 
 class StorageUnavailableError(StorageError):
@@ -63,9 +63,11 @@ class StorageUnavailableError(StorageError):
         super().__init__(message, retryable=True, status_code=status_code)
 
 
-class BlobNotFoundError(StorageError, LookupError):
+class BlobNotFoundError(LookupError):
+    """No blob at this key: a 404 for the caller to answer, never an outage."""
+
     def __init__(self, key: str) -> None:
-        super().__init__(f"no blob at {key}", status_code=404)
+        super().__init__(f"no blob at {key}")
         self.key = key
 
 
@@ -265,11 +267,7 @@ class SupabaseBlobStore:
                 return response
             raise _error(response, key, self.bucket)
 
-        return await with_backoff(
-            attempt,
-            retry_if=lambda error: isinstance(error, StorageUnavailableError),
-            sleep=self._sleep,
-        )
+        return await with_backoff(attempt, sleep=self._sleep)
 
 
 def _body(response: httpx2.Response) -> dict[str, Any]:
@@ -280,7 +278,7 @@ def _body(response: httpx2.Response) -> dict[str, Any]:
     return body if isinstance(body, dict) else {}
 
 
-def _error(response: httpx2.Response, key: str, bucket: str) -> StorageError:
+def _error(response: httpx2.Response, key: str, bucket: str) -> StorageError | BlobNotFoundError:
     body = _body(response)
     status = response.status_code
     reason = " ".join(str(body.get("message") or body.get("error") or response.text).split())
