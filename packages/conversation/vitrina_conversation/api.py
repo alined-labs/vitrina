@@ -16,6 +16,14 @@ from vitrina_conversation.engine import (
     parse_output,
     run_turn,
 )
+from vitrina_conversation.ingest import (
+    InboundQueue,
+    Ingest,
+    IngestResult,
+    InvalidSignatureError,
+    PayloadTooLargeError,
+    SellerResolver,
+)
 from vitrina_conversation.pacing import Pacer
 from vitrina_conversation.pipeline import Inbound, InboundOutcome, PipelineDeps, process_inbound
 from vitrina_conversation.schemas import AgentTurnRequest, AgentTurnResult, agent_turn_result
@@ -37,9 +45,21 @@ from vitrina_conversation.tools import (
     TurnActions,
 )
 from vitrina_conversation.validation import FALLBACK_REPLY, Review
+from vitrina_conversation.wiring import (
+    PROCESS_INBOUND,
+    BackgroundInboundQueue,
+    PostgresInboundQueue,
+    memory_pipeline,
+    messenger_for,
+    postgres_pipeline,
+    process_stored_message,
+    sellers_in_memory,
+    sellers_on_postgres,
+)
 
 __all__ = [
     "FALLBACK_REPLY",
+    "PROCESS_INBOUND",
     "AdLookup",
     "AgentDeps",
     "AgentTurnOutput",
@@ -47,6 +67,7 @@ __all__ = [
     "AgentTurnResult",
     "ApprovedAds",
     "Attribution",
+    "BackgroundInboundQueue",
     "ConsentAction",
     "ConversationState",
     "ConversationStore",
@@ -56,21 +77,34 @@ __all__ = [
     "InMemoryConversationStore",
     "Inbound",
     "InboundOutcome",
+    "InboundQueue",
+    "Ingest",
+    "IngestResult",
+    "InvalidSignatureError",
     "ObjectionAction",
     "ObjectionTag",
     "OptOutAction",
     "Pacer",
+    "PayloadTooLargeError",
     "PipelineDeps",
     "PostgresConversationStore",
+    "PostgresInboundQueue",
     "ReservedItem",
     "Review",
+    "SellerResolver",
     "StoredMessage",
     "ToolCallRecord",
     "TurnActions",
     "TurnRequest",
     "TurnResult",
     "agent_turn_result",
+    "memory_pipeline",
+    "messenger_for",
     "parse_output",
+    "postgres_pipeline",
     "process_inbound",
+    "process_stored_message",
     "run_turn",
+    "sellers_in_memory",
+    "sellers_on_postgres",
 ]
