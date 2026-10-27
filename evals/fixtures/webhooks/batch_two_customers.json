@@ -1,0 +1,54 @@
+{
+  "object": "whatsapp_business_account",
+  "entry": [
+    {
+      "id": "100000000000002",
+      "changes": [
+        {
+          "value": {
+            "messaging_product": "whatsapp",
+            "metadata": {
+              "display_phone_number": "573000000000",
+              "phone_number_id": "100000000000001"
+            },
+            "contacts": [
+              {
+                "profile": {
+                  "name": "Andr\u00e9s Prueba"
+                },
+                "wa_id": "573000000002"
+              },
+              {
+                "profile": {
+                  "name": "Laura Prueba"
+                },
+                "wa_id": "573000000001"
+              }
+            ],
+            "messages": [
+              {
+                "from": "573000000001",
+                "id": "wamid.VITRINA-FIXTURE-IN-0011",
+                "timestamp": "1793113800",
+                "type": "text",
+                "text": {
+                  "body": "\u00bfTienen env\u00edo a Bogot\u00e1?"
+                }
+              },
+              {
+                "from": "573000000002",
+                "id": "wamid.VITRINA-FIXTURE-IN-0012",
+                "timestamp": "1793113800",
+                "type": "text",
+                "text": {
+                  "body": "Hola, vi el anuncio #AK2"
+                }
+              }
+            ]
+          },
+          "field": "messages"
+        }
+      ]
+    }
+  ]
+}

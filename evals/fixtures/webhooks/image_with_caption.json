@@ -1,0 +1,42 @@
+{
+  "object": "whatsapp_business_account",
+  "entry": [
+    {
+      "id": "100000000000002",
+      "changes": [
+        {
+          "value": {
+            "messaging_product": "whatsapp",
+            "metadata": {
+              "display_phone_number": "573000000000",
+              "phone_number_id": "100000000000001"
+            },
+            "contacts": [
+              {
+                "profile": {
+                  "name": "Laura Prueba"
+                },
+                "wa_id": "573000000001"
+              }
+            ],
+            "messages": [
+              {
+                "from": "573000000001",
+                "id": "wamid.VITRINA-FIXTURE-IN-0004",
+                "timestamp": "1793113380",
+                "type": "image",
+                "image": {
+                  "caption": "\u00bfLo tienen en rojo?",
+                  "mime_type": "image/jpeg",
+                  "sha256": "321b54f611032ca4a65e291a7f647f9d5a6ff75c622398c4679488752022a32c",
+                  "id": "1000000000000101"
+                }
+              }
+            ]
+          },
+          "field": "messages"
+        }
+      ]
+    }
+  ]
+}

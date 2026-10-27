@@ -1,0 +1,40 @@
+{
+  "object": "whatsapp_business_account",
+  "entry": [
+    {
+      "id": "100000000000002",
+      "changes": [
+        {
+          "value": {
+            "messaging_product": "whatsapp",
+            "metadata": {
+              "display_phone_number": "573000000000",
+              "phone_number_id": "100000000000001"
+            },
+            "contacts": [
+              {
+                "profile": {
+                  "name": "Laura Prueba"
+                },
+                "wa_id": "573000000001"
+              }
+            ],
+            "messages": [
+              {
+                "from": "573000000001",
+                "id": "wamid.VITRINA-FIXTURE-IN-0009",
+                "timestamp": "1793113680",
+                "type": "reaction",
+                "reaction": {
+                  "message_id": "wamid.VITRINA-FIXTURE-OUT-0001",
+                  "emoji": "\ud83d\udc4d"
+                }
+              }
+            ]
+          },
+          "field": "messages"
+        }
+      ]
+    }
+  ]
+}

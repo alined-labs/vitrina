@@ -1,0 +1,39 @@
+{
+  "object": "whatsapp_business_account",
+  "entry": [
+    {
+      "id": "100000000000002",
+      "changes": [
+        {
+          "value": {
+            "messaging_product": "whatsapp",
+            "metadata": {
+              "display_phone_number": "573000000000",
+              "phone_number_id": "100000000000001"
+            },
+            "contacts": [
+              {
+                "profile": {
+                  "name": "Laura Prueba"
+                },
+                "wa_id": "573000000001"
+              }
+            ],
+            "messages": [
+              {
+                "from": "573000000001",
+                "id": "wamid.VITRINA-FIXTURE-IN-0002",
+                "timestamp": "1793113260",
+                "type": "text",
+                "text": {
+                  "body": "\u00bfcu\u00e1nto vale el env\u00edo a Medell\u00edn?"
+                }
+              }
+            ]
+          },
+          "field": "messages"
+        }
+      ]
+    }
+  ]
+}
