@@ -1,5 +1,8 @@
 from pathlib import Path
+from uuid import UUID
 
+import jwt
+from fastapi import Request
 from fastapi.testclient import TestClient
 
 from vitrina_api.main import create_app
@@ -31,3 +34,19 @@ def test_fr_084_every_response_carries_a_request_id_and_errors_are_problems() ->
     assert missing.status_code == 404
     assert missing.headers["content-type"] == "application/problem+json"
     assert missing.json()["request_id"] == missing.headers["x-request-id"]
+
+
+async def test_create_app_resolves_supabase_tokens_to_their_seller() -> None:
+    secret = "app-test-jwt-secret-with-32-bytes-or-more"
+    app = create_app(Settings(_env_file=None, supabase_jwt_secret=secret))  # type: ignore[call-arg]
+    seller_id = UUID("00000000-0000-7000-8000-00000000000a")
+    claims = {
+        "sub": "subject",
+        "aud": "authenticated",
+        "exp": 4102444800,
+        "seller_id": str(seller_id),
+    }
+    token = jwt.encode(claims, secret, algorithm="HS256")
+    request = Request({"type": "http", "headers": [(b"authorization", f"Bearer {token}".encode())]})
+
+    assert await app.state.auth.idempotency_scope(request) == seller_id
