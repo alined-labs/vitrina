@@ -3,8 +3,9 @@
 An approved ad's wa.me link pre-fills ``Hola, vi el anuncio #A7``. The first ``#A..`` code
 in an inbound message attributes the conversation, and the first attribution stays (first
 touch). A code no ad of this seller carries marks the conversation ``unknown_code``, and a
-later message can still attribute it. Codes match regardless of case. Ads belong to the
-creative module, so the engine gets an ``AdLookup`` and never reads their table.
+later message can still attribute it. Codes match regardless of case, and since they are base
+32 without I, L, O or U, a retyped O reads as 0 and an I or L as 1. Ads belong to the creative
+module, so the engine gets an ``AdLookup`` and never reads their table.
 """
 
 import re
@@ -19,6 +20,8 @@ AdLookup = Callable[[UUID, str], Awaitable[UUID | None]]
 """``(seller_id, code) -> ad_id`` for the seller's ad with that code, from creative.api."""
 
 AD_CODE = re.compile(r"#(A[0-9A-Z]{1,3})(?![0-9A-Z])", re.IGNORECASE)
+RETYPED = str.maketrans("OIL", "011")
+"""The letters codes never use, as the digits they look like (alphabet in the ad code sequence)."""
 
 
 @dataclass(frozen=True)
@@ -32,9 +35,9 @@ NO_ATTRIBUTION = Attribution("none")
 
 
 def parse_ad_code(text: str) -> str | None:
-    """The first ``#A..`` code in ``text``, upper-cased (``#a7`` → ``A7``)."""
+    """The first ``#A..`` code in ``text``, upper-cased (``#a7`` → ``A7``, ``#AO`` → ``A0``)."""
     match = AD_CODE.search(text)
-    return match.group(1).upper() if match else None
+    return match.group(1).upper().translate(RETYPED) if match else None
 
 
 async def attribute(
