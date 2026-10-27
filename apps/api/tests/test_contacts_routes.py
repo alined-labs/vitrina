@@ -65,9 +65,7 @@ async def test_a_contact_and_its_ledger_are_the_sellers_alone(
 
     assert client.get(f"/v1/contacts/{contact.id}", headers=bearer()).status_code == 200
     assert client.get(f"/v1/contacts/{contact.id}", headers=bearer(OTHER)).status_code == 404
-    assert (
-        client.get(f"/v1/contacts/{contact.id}/consents", headers=bearer(OTHER)).status_code == 404
-    )
+    assert client.get(f"/v1/contacts/{contact.id}/consents", headers=bearer(OTHER)).json() == []
     assert (
         client.post(f"/v1/contacts/{contact.id}/opt-out", headers=bearer(OTHER)).status_code == 404
     )

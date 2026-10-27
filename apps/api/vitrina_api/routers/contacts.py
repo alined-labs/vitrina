@@ -108,10 +108,8 @@ async def erase_contact(
     response_description="Ledger entries, newest first",
 )
 async def list_consents(seller_id: SellerId, store: Store, contact_id: UUID) -> list[ConsentRecord]:
-    try:
-        return await store.consents(seller_id, contact_id)
-    except LookupError as error:
-        raise _not_found(contact_id) from error
+    # The contract answers 200 only: an unknown contact simply has no entries.
+    return await store.consents(seller_id, contact_id)
 
 
 @router.post(
