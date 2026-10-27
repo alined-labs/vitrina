@@ -26,6 +26,8 @@ from vitrina_api.routers import (
     sellers,
     webhooks,
 )
+from vitrina_catalog.api import InMemoryCatalog
+from vitrina_catalog.postgres import PostgresCatalog
 from vitrina_core.auth import (
     Authenticator,
     InMemorySellerDirectory,
@@ -102,6 +104,10 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.state.settings = settings
     app.state.sessions = create_session_factory(engine) if engine is not None else None
     app.state.jobs = PostgresJobQueue(app.state.sessions) if app.state.sessions else None
+    # No database: the in-memory catalog keeps every route usable on a laptop (replay, demos).
+    app.state.catalog = (
+        PostgresCatalog(app.state.sessions) if app.state.sessions else InMemoryCatalog()
+    )
     watch = SpendWatch(settings.spend_limit_usd)
     app.state.ledger = (
         PostgresLedger(app.state.sessions, watch) if app.state.sessions else InMemoryLedger(watch)
