@@ -68,7 +68,7 @@ async def execute(
         return SuiteResult("error", EvalMetrics(), [], "a live run needs the process's providers")
     return await run_conversations(
         load_cases(sample=sample),
-        agent=agent if agent is not None else conversation_agent(),
+        agent=agent if agent is not None else conversation_agent(settings),
         providers=providers,
         ledger=ledger,
     )

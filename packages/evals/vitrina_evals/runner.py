@@ -19,7 +19,7 @@ from vitrina_evals.cases import ConversationCase, build_scene, load_business
 from vitrina_evals.schemas import EvalMetrics
 from vitrina_evals.scoring import CaseScore, TurnOutcome, error_case, score_case, summarize
 
-NO_AGENT = "the conversation engine has no run_turn yet (T024): nothing to evaluate"
+NO_AGENT = "no agent to evaluate: run_turn needs MODEL_AGENT (spec.md §8, Q01)"
 
 
 class Exchange(NamedTuple):
