@@ -1,5 +1,36 @@
-"""Worker entrypoint (``vitrina-worker``)."""
+"""Worker entrypoint (``vitrina-worker``): runs every task the packages register (FR-083)."""
+
+import asyncio
+import contextlib
+import logging
+import signal
+
+from vitrina_core.db import create_engine, create_session_factory
+from vitrina_core.jobs import PostgresJobQueue, TaskRegistry, Worker, load_tasks
+from vitrina_core.settings import Settings, get_settings
+
+logger = logging.getLogger("vitrina.worker")
+
+
+async def serve(settings: Settings, stop: asyncio.Event | None = None) -> None:
+    if not settings.database_url or not settings.db_schema:
+        raise SystemExit("vitrina-worker needs DATABASE_URL and DB_SCHEMA (plan.md §3)")
+    registry = TaskRegistry()
+    load_tasks(registry)
+    engine = create_engine(settings)
+    sessions = create_session_factory(engine)
+    stop = stop or asyncio.Event()
+    loop = asyncio.get_running_loop()
+    for signum in (signal.SIGINT, signal.SIGTERM):
+        with contextlib.suppress(NotImplementedError):
+            loop.add_signal_handler(signum, stop.set)
+    logger.info("worker started with tasks: %s", ", ".join(sorted(registry.names())) or "none")
+    try:
+        await Worker(PostgresJobQueue(sessions), registry, sessions=sessions).run(stop)
+    finally:
+        await engine.dispose()
 
 
 def main() -> None:
-    raise SystemExit("vitrina-worker: the Postgres job queue lands with T008")
+    logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s %(message)s")
+    asyncio.run(serve(get_settings()))
