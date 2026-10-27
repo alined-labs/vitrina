@@ -1,3 +1,4 @@
+from datetime import UTC, datetime
 from uuid import UUID
 
 import jwt
@@ -7,6 +8,8 @@ from fastapi.testclient import TestClient
 from vitrina_api.main import create_app
 from vitrina_catalog.api import InMemoryCatalog
 from vitrina_core.settings import Settings
+from vitrina_core.storage import blob_key
+from vitrina_creative.api import AssetRecord, assets_from_state
 
 SECRET = "catalog-routes-test-secret-with-32-bytes+"
 SELLER = UUID("00000000-0000-7000-8000-00000000000a")
@@ -193,3 +196,34 @@ def test_import_needs_a_seller(client: TestClient) -> None:
     response = client.post("/v1/products/import", files={"image": ("menu.png", PNG, "image/png")})
 
     assert response.status_code == 401
+
+
+async def test_a_product_lists_its_assets_oldest_first(client: TestClient) -> None:
+    created = client.post(
+        "/v1/products", json={"name": "Bolso tejido", "price_cop": 85000}, headers=bearer()
+    ).json()
+    product_id = UUID(created["id"])
+    store = assets_from_state(client.app.state)  # type: ignore[attr-defined]
+    older, newer = (
+        AssetRecord(
+            id=UUID(int=index),
+            seller_id=SELLER,
+            product_id=product_id,
+            kind="image",
+            storage_key=blob_key(SELLER, "assets", UUID(int=index), "jpg"),
+            sha256=str(index) * 64,
+            created_at=datetime(2026, 10, 27, 15, index, tzinfo=UTC),
+        )
+        for index in (1, 2)
+    )
+    await store.add(newer)
+    await store.add(older)
+
+    one = client.get(f"/v1/products/{product_id}", headers=bearer()).json()
+    listed = client.get("/v1/products", headers=bearer()).json()["items"]
+    other_seller = client.get(f"/v1/products/{product_id}", headers=bearer(OTHER))
+
+    assert created["asset_ids"] == []
+    assert one["asset_ids"] == [str(older.id), str(newer.id)]
+    assert listed[0]["asset_ids"] == [str(older.id), str(newer.id)]
+    assert other_seller.status_code == 404
