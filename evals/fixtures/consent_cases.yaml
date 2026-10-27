@@ -1,0 +1,145 @@
+# Eligibility cases for compliance.evaluate (T063, ADR-0008; AS-6.2, AS-6.3, AS-6.4).
+# Times carry their offset; America/Bogota is -05:00 all year. The contact defaults to
+# marketing consent granted, not opted out, no marketing yet and a matching approved ad.
+# Holidays follow the pinned `holidays` library (CO, Emiliani rule; research/OPEN.md Q08).
+
+# ── legal hours: allowed ──
+- id: k01-wednesday-morning
+  at: "2026-10-28T09:00:00-05:00"
+  expect: {decision: allowed, reason: OK}
+- id: k02-monday-at-seven
+  at: "2026-10-26T07:00:00-05:00"
+  expect: {decision: allowed, reason: OK}
+- id: k03-friday-before-seven-pm
+  at: "2026-10-30T18:59:00-05:00"
+  expect: {decision: allowed, reason: OK}
+- id: k04-saturday-at-eight
+  at: "2026-10-31T08:00:00-05:00"
+  expect: {decision: allowed, reason: OK}
+- id: k05-saturday-before-three-pm
+  at: "2026-10-31T14:59:00-05:00"
+  expect: {decision: allowed, reason: OK}
+- id: k06-utc-input-inside-bogota-hours
+  at: "2026-10-28T23:30:00Z"
+  expect: {decision: allowed, reason: OK}
+- id: k07-ordinary-saturday
+  at: "2026-11-07T08:30:00-05:00"
+  expect: {decision: allowed, reason: OK}
+
+# ── legal hours: deferred to the next window ──
+- id: k08-before-seven-am
+  at: "2026-10-28T06:59:00-05:00"
+  expect: {decision: deferred, reason: OUTSIDE_HOURS_LEY_2300, next_allowed_at: "2026-10-28T07:00:00-05:00"}
+- id: k09-seven-pm-is-already-out
+  at: "2026-10-28T19:00:00-05:00"
+  expect: {decision: deferred, reason: OUTSIDE_HOURS_LEY_2300, next_allowed_at: "2026-10-29T07:00:00-05:00"}
+- id: k10-friday-night-to-saturday
+  at: "2026-10-30T20:30:00-05:00"
+  expect: {decision: deferred, reason: OUTSIDE_HOURS_LEY_2300, next_allowed_at: "2026-10-31T08:00:00-05:00"}
+- id: k11-saturday-afternoon-skips-holiday-monday
+  at: "2026-10-31T15:00:00-05:00"
+  expect: {decision: deferred, reason: OUTSIDE_HOURS_LEY_2300, next_allowed_at: "2026-11-03T07:00:00-05:00"}
+- id: k12-sunday
+  at: "2026-11-01T10:00:00-05:00"
+  expect: {decision: deferred, reason: OUTSIDE_HOURS_LEY_2300, next_allowed_at: "2026-11-03T07:00:00-05:00"}
+- id: k13-all-saints-moved-to-monday
+  at: "2026-11-02T10:00:00-05:00"
+  expect: {decision: deferred, reason: OUTSIDE_HOURS_LEY_2300, next_allowed_at: "2026-11-03T07:00:00-05:00"}
+- id: k14-independence-of-cartagena-moved
+  at: "2026-11-16T09:00:00-05:00"
+  expect: {decision: deferred, reason: OUTSIDE_HOURS_LEY_2300, next_allowed_at: "2026-11-17T07:00:00-05:00"}
+- id: k15-saturday-evening-before-holiday-monday
+  at: "2026-11-14T16:00:00-05:00"
+  expect: {decision: deferred, reason: OUTSIDE_HOURS_LEY_2300, next_allowed_at: "2026-11-17T07:00:00-05:00"}
+- id: k16-christmas-eve-night
+  at: "2026-12-24T19:30:00-05:00"
+  expect: {decision: deferred, reason: OUTSIDE_HOURS_LEY_2300, next_allowed_at: "2026-12-26T08:00:00-05:00"}
+- id: k17-christmas-day
+  at: "2026-12-25T12:00:00-05:00"
+  expect: {decision: deferred, reason: OUTSIDE_HOURS_LEY_2300, next_allowed_at: "2026-12-26T08:00:00-05:00"}
+- id: k18-new-years-eve-night
+  at: "2026-12-31T20:00:00-05:00"
+  expect: {decision: deferred, reason: OUTSIDE_HOURS_LEY_2300, next_allowed_at: "2027-01-02T08:00:00-05:00"}
+- id: k19-maundy-thursday-and-good-friday
+  at: "2026-04-02T10:00:00-05:00"
+  expect: {decision: deferred, reason: OUTSIDE_HOURS_LEY_2300, next_allowed_at: "2026-04-04T08:00:00-05:00"}
+- id: k20-epiphany-moved-2027
+  at: "2027-01-11T08:00:00-05:00"
+  expect: {decision: deferred, reason: OUTSIDE_HOURS_LEY_2300, next_allowed_at: "2027-01-12T07:00:00-05:00"}
+- id: k21-immaculate-conception
+  at: "2026-12-08T11:00:00-05:00"
+  expect: {decision: deferred, reason: OUTSIDE_HOURS_LEY_2300, next_allowed_at: "2026-12-09T07:00:00-05:00"}
+- id: k22-columbus-day
+  at: "2026-10-12T09:00:00-05:00"
+  expect: {decision: deferred, reason: OUTSIDE_HOURS_LEY_2300, next_allowed_at: "2026-10-13T07:00:00-05:00"}
+- id: k23-utc-input-after-bogota-hours
+  at: "2026-10-29T00:30:00Z"
+  expect: {decision: deferred, reason: OUTSIDE_HOURS_LEY_2300, next_allowed_at: "2026-10-29T07:00:00-05:00"}
+- id: k24-sunday-early
+  at: "2026-11-08T07:30:00-05:00"
+  expect: {decision: deferred, reason: OUTSIDE_HOURS_LEY_2300, next_allowed_at: "2026-11-09T07:00:00-05:00"}
+- id: k25-friday-at-seven-pm
+  at: "2026-11-13T19:00:00-05:00"
+  expect: {decision: deferred, reason: OUTSIDE_HOURS_LEY_2300, next_allowed_at: "2026-11-14T08:00:00-05:00"}
+
+# ── consent, opt-out, frequency and ads, in the fixed order (FR-061) ──
+- id: k26-no-consent
+  at: "2026-10-28T09:00:00-05:00"
+  contact: {consent: false}
+  expect: {decision: blocked, reason: NO_CONSENT_LEY_1581}
+- id: k27-opted-out
+  at: "2026-10-28T09:00:00-05:00"
+  contact: {opted_out: true}
+  expect: {decision: blocked, reason: OPTED_OUT}
+- id: k28-opt-out-before-consent
+  at: "2026-10-28T09:00:00-05:00"
+  contact: {opted_out: true, consent: false}
+  expect: {decision: blocked, reason: OPTED_OUT}
+- id: k29-no-consent-is-never-deferred
+  at: "2026-11-01T10:00:00-05:00"
+  contact: {consent: false}
+  expect: {decision: blocked, reason: NO_CONSENT_LEY_1581}
+- id: k30-opted-out-on-a-sunday
+  at: "2026-11-01T10:00:00-05:00"
+  contact: {opted_out: true}
+  expect: {decision: blocked, reason: OPTED_OUT}
+- id: k31-marketing-three-days-ago
+  at: "2026-10-28T09:00:00-05:00"
+  contact: {last_marketing_sent_at: "2026-10-25T09:00:00-05:00"}
+  expect: {decision: blocked, reason: FREQUENCY_CAP}
+- id: k32-exactly-seven-days-later
+  at: "2026-10-28T09:00:00-05:00"
+  contact: {last_marketing_sent_at: "2026-10-21T09:00:00-05:00"}
+  expect: {decision: allowed, reason: OK}
+- id: k33-one-hour-short-of-seven-days
+  at: "2026-10-28T09:00:00-05:00"
+  contact: {last_marketing_sent_at: "2026-10-21T10:00:00-05:00"}
+  expect: {decision: blocked, reason: FREQUENCY_CAP}
+- id: k34-frequency-before-hours
+  at: "2026-10-28T21:00:00-05:00"
+  contact: {last_marketing_sent_at: "2026-10-26T09:00:00-05:00"}
+  expect: {decision: blocked, reason: FREQUENCY_CAP}
+- id: k35-consent-before-frequency
+  at: "2026-10-28T09:00:00-05:00"
+  contact: {consent: false, last_marketing_sent_at: "2026-10-26T09:00:00-05:00"}
+  expect: {decision: blocked, reason: NO_CONSENT_LEY_1581}
+- id: k36-no-matching-ad
+  at: "2026-10-28T09:00:00-05:00"
+  contact: {matching_ad: false}
+  expect: {decision: blocked, reason: NO_MATCHING_AD}
+- id: k37-hours-before-ad
+  at: "2026-10-28T21:00:00-05:00"
+  contact: {matching_ad: false}
+  expect: {decision: deferred, reason: OUTSIDE_HOURS_LEY_2300, next_allowed_at: "2026-10-29T07:00:00-05:00"}
+- id: k38-consent-before-ad
+  at: "2026-10-28T09:00:00-05:00"
+  contact: {consent: false, matching_ad: false}
+  expect: {decision: blocked, reason: NO_CONSENT_LEY_1581}
+- id: k39-eight-days-later
+  at: "2026-10-28T09:00:00-05:00"
+  contact: {last_marketing_sent_at: "2026-10-20T09:00:00-05:00"}
+  expect: {decision: allowed, reason: OK}
+- id: k40-everything-blocks-opt-out-wins
+  at: "2026-11-02T22:00:00-05:00"
+  contact: {opted_out: true, consent: false, last_marketing_sent_at: "2026-11-01T09:00:00-05:00", matching_ad: false}
+  expect: {decision: blocked, reason: OPTED_OUT}
