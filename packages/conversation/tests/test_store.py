@@ -33,6 +33,26 @@ async def test_as_3_1_the_same_whatsapp_message_is_stored_once() -> None:
     assert stored[1] is None
 
 
+async def test_as_3_6_a_transcript_stays_with_its_seller() -> None:
+    store = InMemoryConversationStore()
+    conversation = await store.open_conversation(SELLER, CONTACT)
+    stored = await store.add_message(
+        SELLER, conversation.id, direction="inbound", sender="customer", type="audio", text=None
+    )
+    assert stored is not None
+    heard = {"kind": "audio", "text": "Hola, ¿tienen mochilas?"}
+
+    await store.set_transcript(SELLER, stored.id, "Hola, ¿tienen mochilas?", normalized=heard)
+    await store.set_transcript(uuid4(), stored.id, "otro vendedor", normalized={})
+
+    (row,) = store.messages
+    assert (row.stored.transcript, row.stored.normalized, row.normalized) == (
+        "Hola, ¿tienen mochilas?",
+        heard,
+        heard,
+    )
+
+
 async def test_fr_028_status_callbacks_never_move_a_message_backwards() -> None:
     store = InMemoryConversationStore()
     conversation = await store.open_conversation(SELLER, CONTACT)
