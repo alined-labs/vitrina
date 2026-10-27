@@ -25,6 +25,8 @@ dev = [
 
 [tool.uv]
 package = false
+# uv.lock is written by uv 0.13; older uv versions on a machine or in CI must not rewrite it.
+required-version = ">=0.13"
 
 [tool.uv.workspace]
 members = ["apps/api", "apps/worker", "packages/*", "providers/*"]

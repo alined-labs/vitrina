@@ -1,0 +1,60 @@
+# CI (T004): the gates of `make check` plus the replay evals. No secrets and no network
+# calls to providers: everything runs in replay mode (constitution Art. VII.2, NFR-07).
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+  merge_group:
+  workflow_dispatch:
+
+concurrency:
+  group: ci-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+env:
+  REPLAY: "true"
+  UV_LOCKED: "1"
+
+jobs:
+  check:
+    name: check
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v7
+      - uses: astral-sh/setup-uv@v7
+        with:
+          enable-cache: true
+      - id: sync
+        run: make sync
+      # Every gate reports even when an earlier one fails, as long as the install worked.
+      - name: lint (ruff)
+        if: ${{ !cancelled() && steps.sync.outcome == 'success' }}
+        run: make lint
+      - name: types (mypy)
+        if: ${{ !cancelled() && steps.sync.outcome == 'success' }}
+        run: make types
+      - name: tests (pytest -n 2)
+        if: ${{ !cancelled() && steps.sync.outcome == 'success' }}
+        run: make test
+      - name: contract drift
+        if: ${{ !cancelled() && steps.sync.outcome == 'success' }}
+        run: make drift
+
+  evals:
+    name: evals
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v7
+      - uses: astral-sh/setup-uv@v7
+        with:
+          enable-cache: true
+      - run: make sync
+      - name: replay evals
+        run: make evals
