@@ -1,0 +1,16 @@
+# Only what the API and worker need; secrets never enter the image.
+.git
+.github
+.env
+.env.*
+!.env.example
+.venv
+**/__pycache__
+**/*.pyc
+.pytest_cache
+.mypy_cache
+.ruff_cache
+.hypothesis
+tmp
+node_modules
+apps/dashboard

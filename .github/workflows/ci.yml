@@ -59,6 +59,28 @@ jobs:
       - name: replay evals
         run: make evals
 
+  # The deployable image (plan.md §1): built and started here, never on the 8 GB machines.
+  image:
+    name: image
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v7
+      - name: build the API and worker image
+        run: docker build -t vitrina:ci .
+      - name: the API starts and answers without keys or a database
+        run: |
+          docker run -d --name api -p 8080:8080 vitrina:ci
+          for attempt in $(seq 1 30); do
+            if curl -fsS http://localhost:8080/v1/health; then exit 0; fi
+            sleep 1
+          done
+          docker logs api
+          exit 1
+      - name: the worker refuses to start without a database
+        run: |
+          if docker run --rm vitrina:ci vitrina-worker; then exit 1; fi
+
   # Migrations and repository tests on a real Postgres with pgvector (plan.md §1: Postgres 16).
   # This container is CI's own; the 8 GB machines never run a local Postgres (ADR-0013).
   db:
