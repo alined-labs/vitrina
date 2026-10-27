@@ -4,8 +4,11 @@ import { authEnabled, supabaseAnonKey, supabaseUrl } from "@/lib/env";
 
 // Refreshes the seller's Supabase session on every page request and sends signed-out
 // visitors to /login. In local mode (no Supabase settings) every page stays open.
+// Foto → Vitrina is public (FR-072): the upload page and the shareable /v/{slug} pages.
+const PUBLIC_PAGES = /^\/(foto|v\/[a-z0-9-]+)\/?$/;
+
 export async function middleware(request: NextRequest) {
-  if (!authEnabled) return NextResponse.next();
+  if (!authEnabled || PUBLIC_PAGES.test(request.nextUrl.pathname)) return NextResponse.next();
 
   let response = NextResponse.next({ request });
   const supabase = createServerClient(supabaseUrl, supabaseAnonKey, {
