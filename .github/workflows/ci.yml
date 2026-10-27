@@ -2,15 +2,15 @@
 # calls to providers: everything runs in replay mode (constitution Art. VII.2, NFR-07).
 name: CI
 
+# Every branch lives in this repository, so a push run checks each commit once and its
+# status shows on the pull request; the merge queue checks the merge result.
 on:
-  pull_request:
   push:
-    branches: [main]
   merge_group:
   workflow_dispatch:
 
 concurrency:
-  group: ci-${{ github.event.pull_request.number || github.ref }}
+  group: ci-${{ github.ref }}
   cancel-in-progress: true
 
 permissions:
@@ -58,3 +58,32 @@ jobs:
       - run: make sync
       - name: replay evals
         run: make evals
+
+  # Migrations and repository tests on a real Postgres with pgvector (plan.md §1: Postgres 16).
+  # This container is CI's own; the 8 GB machines never run a local Postgres (ADR-0013).
+  db:
+    name: db
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    services:
+      postgres:
+        image: pgvector/pgvector:pg16
+        env:
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: vitrina
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 5s --health-timeout 5s --health-retries 12
+    env:
+      DATABASE_URL: postgresql://postgres:postgres@localhost:5432/vitrina
+      # Fail instead of skipping, so a green db job means the tests ran on Postgres.
+      CI_DB_REQUIRED: "1"
+    steps:
+      - uses: actions/checkout@v7
+      - uses: astral-sh/setup-uv@v7
+        with:
+          enable-cache: true
+      - run: make sync
+      - name: migrations and database tests
+        run: make test-db
