@@ -35,10 +35,13 @@ def create_engine(settings: Settings) -> AsyncEngine:
 
     @event.listens_for(engine.sync_engine, "connect")
     def _set_search_path(dbapi_connection: Any, _record: Any) -> None:
-        # A SET per connection also works behind the Supabase session pooler.
+        # A SET per connection also works behind the Supabase session pooler. The DBAPI opens
+        # a transaction for it, so commit: a SET in a transaction that rolls back is undone,
+        # and the next session on this pooled connection would read the wrong schema.
         cursor = dbapi_connection.cursor()
         cursor.execute(f"SET search_path TO {path}")
         cursor.close()
+        dbapi_connection.commit()
 
     return engine
 
