@@ -248,3 +248,85 @@ def test_as_3_3_confidence_exactly_at_the_threshold_passes() -> None:
     output = answer("La mochila vale $85.000.", BAG.id, confidence=0.6)
 
     assert review(output, [BAG], owner_name=OWNER).outcome == "accept"
+
+
+# ── R3: a reply without citations may greet, thank or ask, never state (MX1 review) ──
+
+
+@pytest.mark.parametrize(
+    "reply",
+    [
+        "Sí, el envío es gratis a todo el país.",
+        "Llega mañana mismo a Bello.",
+        "Claro, tenemos la talla M en azul.",
+        "Tenemos la talla M en azul, ¿te la reservo?",
+        "Te la dejo en 3 días.",
+        "¿Te llega en 2 días?",
+    ],
+)
+def test_r3_an_uncited_claim_counts_as_confidence_zero(reply: str) -> None:
+    result = review(answer(reply, confidence=0.9), [], owner_name=OWNER)
+
+    assert (result.outcome, result.final_reply, result.confidence) == ("fallback", FALLBACK, 0.0)
+    assert not result.groundedness.passed
+
+
+@pytest.mark.parametrize(
+    "reply",
+    [
+        "¡Hola, veci! ¿En qué te puedo ayudar?",
+        "Claro, ¿qué talla buscas?",
+        "¡Mil gracias, veci! 🙌",
+        "Con mucho gusto.",
+        "¡Hola! Bienvenida a Mochilas Ana. ¿En qué te ayudo?",
+        "En qué te ayudo?",
+    ],
+)
+def test_r3_greetings_thanks_and_questions_need_no_citation(reply: str) -> None:
+    result = review(
+        answer(reply, confidence=0.9), [], owner_name=OWNER, business_name="Mochilas Ana"
+    )
+
+    assert (result.outcome, result.final_reply) == ("accept", reply)
+    assert result.groundedness.passed
+
+
+def test_r3_an_off_topic_decline_is_not_a_claim_about_the_shop() -> None:
+    output = AgentTurnOutput(
+        reply="Solo te puedo ayudar con Mochilas Ana, veci.",
+        cited_fact_ids=(),
+        confidence=0.9,
+        handoff_reason=None,
+        objection_tag="off_topic",
+        proposed_consent_prompt=False,
+    )
+
+    assert review(output, [], owner_name=OWNER).outcome == "accept"
+
+
+def test_r3_an_off_topic_reply_with_an_amount_is_still_a_claim() -> None:
+    output = AgentTurnOutput(
+        reply="No sé del partido, pero la mochila vale $85.000.",
+        cited_fact_ids=(),
+        confidence=0.9,
+        handoff_reason=None,
+        objection_tag="off_topic",
+        proposed_consent_prompt=False,
+    )
+
+    assert review(output, [], owner_name=OWNER).outcome != "accept"
+
+
+def test_r3_the_fallback_sentence_is_not_a_claim() -> None:
+    result = review(answer(FALLBACK, confidence=0.9), [], owner_name=OWNER)
+
+    assert result.groundedness.passed
+
+
+def test_r3_one_unknown_id_among_valid_ones_still_counts_as_confidence_zero() -> None:
+    output = answer("La mochila vale $85.000.", BAG.id, uuid4())
+
+    result = review(output, [BAG], owner_name=OWNER)
+
+    assert (result.confidence, result.outcome) == (0.0, "fallback")
+    assert len(result.groundedness.uncited_claims) == 1
