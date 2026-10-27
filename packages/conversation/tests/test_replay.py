@@ -201,3 +201,32 @@ async def test_fr_071_a_replay_never_takes_over_a_live_conversation(stage: Stage
         await start_replay(stage.store, stage.compliance, stage.seller_id, fixture)
 
     assert stage.store.conversations[live.id].mode == "agent"
+
+
+async def test_as_8_1_the_agent_sees_each_messages_recorded_time(stage: Stage) -> None:
+    fixture = replay_fixture("anuncio-a7-envio")
+    assert fixture is not None
+    stage.chat.script.extend([final_answer(GREETING, confidence=0.95)] * 3)
+    await start_replay(stage.store, stage.compliance, stage.seller_id, fixture)
+
+    await play(fixture, stage.deps, stage.seller_id, uuid4(), speed=10, sleep=stage.clock.sleep)
+
+    for request in stage.chat.requests:
+        assert "martes 27 de octubre de 2026, 11:00" in str(request.messages[0].content)
+
+
+async def test_as_8_1_a_fixture_asks_the_model_the_same_way_every_time(stage: Stage) -> None:
+    """What cassettes need: replays answered from recorded model outputs must match them."""
+    fixture = replay_fixture("anuncio-a7-envio")
+    assert fixture is not None
+    stage.chat.script.extend([final_answer(GREETING, confidence=0.95)] * 6)
+
+    for _ in range(2):
+        await start_replay(stage.store, stage.compliance, stage.seller_id, fixture)
+        await play(fixture, stage.deps, stage.seller_id, uuid4(), speed=10, sleep=stage.clock.sleep)
+
+    first, second = stage.chat.requests[:3], stage.chat.requests[3:]
+    assert [request.model_dump() for request in first] == [
+        request.model_dump() for request in second
+    ]
+    assert stage.chat.classified[:2] == stage.chat.classified[2:]
