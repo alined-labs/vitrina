@@ -135,9 +135,14 @@ def normalize_schema(schema: Any) -> Any:
         return {"not": {}}
     if not isinstance(schema, dict):
         return schema
-    result = {key: value for key, value in schema.items() if key not in ANNOTATIONS}
-    if "default" in result and result["default"] is None:
-        del result["default"]
+    # FastAPI writes the document with exclude_none, so a null-valued keyword (``default:
+    # null``, or a YAML slip such as a comma inside a flow mapping, A-005) never appears in
+    # the app; only ``const: null`` means something.
+    result = {
+        key: value
+        for key, value in schema.items()
+        if key not in ANNOTATIONS and (value is not None or key == "const")
+    }
 
     if "allOf" in result:
         merged: dict[str, Any] = {}

@@ -401,3 +401,12 @@ def test_real_app_matches_the_contract() -> None:
 
     assert report.problems == []
     assert "GET /health" in report.implemented
+
+
+def test_null_valued_keywords_never_drift_because_fastapi_cannot_emit_them() -> None:
+    # A-005: `{ type: string, description: Spanish, shown to the seller }` in a YAML flow
+    # mapping yields a key "shown to the seller" whose value is null.
+    contract = {"type": "string", "description": "Spanish", "shown to the seller": None}
+
+    assert drift.normalize_schema(contract) == drift.normalize_schema({"type": "string"})
+    assert drift.normalize_schema({"const": None}) == {"enum": [None]}
