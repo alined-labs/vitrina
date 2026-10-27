@@ -1,5 +1,7 @@
-"""Fixtures shared by every package's tests."""
+"""Fixtures and hooks shared by every package's tests."""
 
+import os
+import sys
 from collections.abc import AsyncIterator, Iterator
 from uuid import uuid4
 
@@ -43,3 +45,14 @@ async def db_sessions(
         yield create_session_factory(engine)
     finally:
         await engine.dispose()
+
+
+def pytest_runtest_logreport(report: pytest.TestReport) -> None:
+    """In GitHub Actions, print each failure as an annotation: readable without log access."""
+    if report.failed and os.environ.get("GITHUB_ACTIONS") == "true":
+        path, line, _ = report.location
+        message = report.longreprtext[-1500:]
+        for raw, escaped in (("%", "%25"), ("\r", "%0D"), ("\n", "%0A")):
+            message = message.replace(raw, escaped)
+        annotation = f"::error file={path},line={(line or 0) + 1},title={report.nodeid}::{message}"
+        sys.stdout.write(f"\n{annotation}\n")

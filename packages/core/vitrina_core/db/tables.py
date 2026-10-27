@@ -31,3 +31,32 @@ sellers = sa.Table(
         "created_at", sa.DateTime(timezone=True), server_default=sa.func.now(), nullable=False
     ),
 )
+
+# The Job resource and the queue behind it (FR-083; migrations 0001 and 0002).
+jobs = sa.Table(
+    "jobs",
+    metadata,
+    sa.Column("id", sa.Uuid, primary_key=True),
+    sa.Column("owner_seller_id", sa.Uuid, sa.ForeignKey("sellers.id", ondelete="CASCADE")),
+    sa.Column("kind", sa.Text, nullable=False),
+    sa.Column("status", sa.Text, nullable=False, server_default="queued"),
+    sa.Column("stage", sa.Text),
+    sa.Column("progress", sa.Numeric(4, 3), nullable=False, server_default="0"),
+    sa.Column("result_ref", sa.Text),
+    sa.Column("error", JSONB),
+    sa.Column("idempotency_key", sa.Text),
+    sa.Column("started_at", sa.DateTime(timezone=True)),
+    sa.Column("finished_at", sa.DateTime(timezone=True)),
+    sa.Column(
+        "created_at", sa.DateTime(timezone=True), server_default=sa.func.now(), nullable=False
+    ),
+    sa.Column("task", sa.Text, nullable=False, server_default=""),
+    sa.Column("payload", JSONB, nullable=False, server_default=sa.text("'{}'::jsonb")),
+    sa.Column("attempts", sa.Integer, nullable=False, server_default="0"),
+    sa.Column("max_attempts", sa.Integer, nullable=False, server_default="3"),
+    sa.Column(
+        "run_after", sa.DateTime(timezone=True), server_default=sa.func.now(), nullable=False
+    ),
+    sa.Column("locked_by", sa.Text),
+    sa.Column("heartbeat_at", sa.DateTime(timezone=True)),
+)
