@@ -74,3 +74,9 @@ def test_as_6_1_the_consent_question_is_the_sellers(shop: Shop) -> None:
     seller = shop.seller.model_copy(update={"consent_prompt_text": "¿Te aviso de las promos?"})
 
     assert '"¿Te aviso de las promos?"' in render_system_prompt(seller, [], NOW)
+
+
+def test_as_3_10_off_topic_declines_end_with_a_question_back_to_the_shop(shop: Shop) -> None:
+    prompt = render_system_prompt(shop.seller, [], NOW)
+
+    assert '"¿Te ayudo con algo de Mochilas Ana?"' in prompt

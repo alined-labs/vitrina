@@ -252,6 +252,7 @@ class _Turn:
             output,
             citations,
             owner_name=seller.owner_name,
+            business_name=seller.business_name,
             low_confidence_threshold=seller.low_confidence_threshold,
             low_confidence_streak=self.request.low_confidence_streak,
             retried=retried,

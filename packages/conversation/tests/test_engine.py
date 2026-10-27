@@ -257,3 +257,21 @@ async def test_fr_024_only_the_last_turns_of_history_are_sent(shop: Shop) -> Non
 
     sent = [message.content for message in chat.requests[0].messages[1:]]
     assert sent == ["mensaje 3", "respuesta 3", "mensaje 4", "respuesta 4", "Hola"]
+
+
+async def test_r3_a_greeting_that_names_the_shop_needs_no_citation(shop: Shop) -> None:
+    reply = "¡Hola! Bienvenida a Mochilas Ana. ¿En qué te ayudo?"
+    chat = ScriptedChat([final_answer(reply, confidence=0.95)])
+
+    result = await run_turn(request(shop, "Hola"), deps(chat, shop))
+
+    assert result.final_reply == reply
+
+
+async def test_r3_an_uncited_claim_never_reaches_the_customer(shop: Shop) -> None:
+    chat = ScriptedChat([final_answer("Sí, el envío es gratis a todo el país.", confidence=0.95)])
+
+    result = await run_turn(request(shop, "¿El envío es gratis?"), deps(chat, shop))
+
+    assert result.final_reply == FALLBACK
+    assert result.low_confidence_streak == 1
