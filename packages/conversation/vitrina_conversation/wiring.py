@@ -27,6 +27,7 @@ from vitrina_compliance.api import ComplianceStore, ContactIdentity, PostgresCom
 from vitrina_compliance.erasure import request_erasure
 from vitrina_conversation.booking import BookingStore, PostgresBookings
 from vitrina_conversation.engine import AgentDeps
+from vitrina_conversation.image import Photos
 from vitrina_conversation.ingest import SellerResolver
 from vitrina_conversation.pacing import Pacer
 from vitrina_conversation.pipeline import Inbound, InboundOutcome, PipelineDeps, process_inbound
@@ -105,6 +106,20 @@ def voice_notes(
     )
 
 
+def photos_for(
+    settings: Settings, providers: Providers, messenger: Messenger, catalog: Catalog
+) -> Photos | None:
+    """T050: the Cloud API downloads the photo (the local mock has none); Spark reads it."""
+    if not isinstance(messenger, WhatsAppClient):
+        return None
+    return Photos(
+        download=messenger.download_media,
+        chat=providers.chat,
+        model=settings.model_id("agent"),
+        catalog=catalog,
+    )
+
+
 def postgres_pipeline(
     *,
     settings: Settings,
@@ -160,6 +175,7 @@ def postgres_pipeline(
         ad_lookup=ad_lookup,
         request_erasure=erase,
         voice=voice_notes(settings, providers, messenger),
+        photos=photos_for(settings, providers, messenger, catalog),
     )
 
 

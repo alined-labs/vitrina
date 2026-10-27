@@ -53,6 +53,22 @@ async def test_as_3_6_a_transcript_stays_with_its_seller() -> None:
     )
 
 
+async def test_as_3_5_what_a_photo_shows_stays_with_its_seller() -> None:
+    store = InMemoryConversationStore()
+    conversation = await store.open_conversation(SELLER, CONTACT)
+    stored = await store.add_message(
+        SELLER, conversation.id, direction="inbound", sender="customer", type="image", text=None
+    )
+    assert stored is not None
+    seen = {"kind": "image", "image": {"description": "Mochila azul"}}
+
+    await store.set_normalized(SELLER, stored.id, seen)
+    await store.set_normalized(uuid4(), stored.id, {})
+
+    (row,) = store.messages
+    assert (row.stored.normalized, row.normalized) == (seen, seen)
+
+
 async def test_fr_028_status_callbacks_never_move_a_message_backwards() -> None:
     store = InMemoryConversationStore()
     conversation = await store.open_conversation(SELLER, CONTACT)

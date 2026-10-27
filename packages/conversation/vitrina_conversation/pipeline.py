@@ -9,8 +9,8 @@ objections, consent, opt-out, reservations and bookings with their ``ad.*`` even
 pacing (R12, AS-3.11) and its delivery status kept (FR-028) → the approved ad images the
 agent chose (``send_ad_asset``, T043), each in its own paced slot, only after an accepted
 reply that hands nothing off. Media the agent cannot read yet gets a short note (FR-022;
-images arrive with T050), and so does a voice note Transcribe could not hear; reactions get
-no reply.
+a photo is described by Spark and matched to the catalog first, T050), and so does a voice
+note Transcribe could not hear or a photo with no product to read; reactions get no reply.
 
 When the model is unavailable the customer still gets an answer: the fallback reply, and a
 handoff so the owner picks up (constitution Art. III.3, Art. VIII).
@@ -32,7 +32,8 @@ from vitrina_compliance.api import (
 )
 from vitrina_conversation.attribution import AdLookup, attribute, chat_started_payload
 from vitrina_conversation.engine import AgentDeps, Exchange, TurnRequest, TurnResult, run_turn
-from vitrina_conversation.normalize import normalize
+from vitrina_conversation.image import PhotoReader, PhotoReading
+from vitrina_conversation.normalize import NormalizedImage, normalize
 from vitrina_conversation.pacing import Pacer
 from vitrina_conversation.store import ConversationState, ConversationStore, Event, StoredMessage
 from vitrina_conversation.tools import HandoffAction, QueuedAsset
@@ -50,6 +51,7 @@ OPT_OUT_REPLY = (
 ERASURE_REPLY = "Recibimos tu solicitud. Borraremos tus datos en las próximas 24 horas."
 TEXT_ONLY_REPLY = "Por ahora solo puedo leer mensajes de texto. ¿Me escribes tu pregunta?"
 VOICE_NOT_HEARD_REPLY = "No pude escuchar bien tu nota de voz. ¿Me escribes tu pregunta?"
+PHOTO_NOT_SEEN_REPLY = "No logré ver un producto en la foto. ¿Me cuentas qué estás buscando?"
 
 OutcomeStatus = Literal[
     "replied",
@@ -97,6 +99,8 @@ class PipelineDeps:
     request_erasure: Callable[[UUID, UUID], Awaitable[None]] | None = None
     voice: Voice | None = None
     """Voice notes to text (T051); without it they get the text-only note."""
+    photos: PhotoReader | None = None
+    """Customer photos to words and catalog matches (T050); without it only captions count."""
     clock: Callable[[], datetime] = _utcnow
     history_turns: int = 10
 
@@ -219,6 +223,21 @@ class _Inbound:
         question = normalized.text if isinstance(normalized.text, str) else ""
         if unheard:
             return await self._reply(VOICE_NOT_HEARD_REPLY, "replied")
+        if inbound.kind == "image" and inbound.media_id and deps.photos is not None:
+            reading = await self._read_photo(deps.photos, inbound.media_id)
+            if reading is not None and reading.description is not None:
+                image = NormalizedImage(
+                    description=reading.description,
+                    matched_product_ids=list(reading.matched_product_ids),
+                )
+                normalized = normalized.model_copy(update={"image": image})
+                await deps.store.set_normalized(
+                    self.seller_id, self.evidence, normalized.model_dump(mode="json")
+                )
+                seen = f"[Foto del cliente: {reading.description}]"
+                question = f"{question.strip()}\n{seen}" if question.strip() else seen
+            elif not question.strip():
+                return await self._reply(PHOTO_NOT_SEEN_REPLY, "replied")
         if normalized.kind == "unsupported" or not question.strip():
             return await self._reply(TEXT_ONLY_REPLY, "replied")
 
@@ -244,6 +263,14 @@ class _Inbound:
         if outcome.status == "replied" and accepted and turn.actions.handoff is None:
             await self._send_assets(turn.actions.ad_assets)
         return outcome
+
+    async def _read_photo(self, photos: PhotoReader, media_id: str) -> PhotoReading | None:
+        """None when the photo cannot be fetched or read; its caption may still be answered."""
+        try:
+            return await photos.read(self.seller_id, media_id)
+        except (ProviderError, TimeoutError) as error:
+            logger.warning("photo not read (%s)", type(error).__name__)
+            return None
 
     async def _transcribe(self, voice: Voice, media_id: str) -> str | None:
         """None when the voice note cannot be heard (download, Transcribe, or only silence)."""
