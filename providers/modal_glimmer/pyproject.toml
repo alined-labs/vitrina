@@ -1,0 +1,18 @@
+[project]
+name = "vitrina-modal-glimmer"
+version = "0.1.0"
+description = "Muse Glimmer on Modal: brand-voice judge and PII guardian."
+requires-python = ">=3.12,<3.13"
+dependencies = [
+    "vitrina-core",
+]
+
+[tool.uv.sources]
+vitrina-core = { workspace = true }
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["vitrina_modal_glimmer"]
