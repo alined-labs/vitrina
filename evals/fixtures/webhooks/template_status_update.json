@@ -1,0 +1,20 @@
+{
+  "object": "whatsapp_business_account",
+  "entry": [
+    {
+      "id": "100000000000002",
+      "time": 1793114100,
+      "changes": [
+        {
+          "value": {
+            "event": "APPROVED",
+            "message_template_id": 1000000000000201,
+            "message_template_name": "vitrina_reactivacion",
+            "message_template_language": "es"
+          },
+          "field": "message_template_status_update"
+        }
+      ]
+    }
+  ]
+}

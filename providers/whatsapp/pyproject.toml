@@ -4,6 +4,8 @@ version = "0.1.0"
 description = "WhatsApp Cloud API adapter: webhook verification, signature check, sends, status callbacks."
 requires-python = ">=3.12,<3.13"
 dependencies = [
+    "httpx2>=2.16",
+    "pydantic>=2.14",
     "vitrina-core",
 ]
 

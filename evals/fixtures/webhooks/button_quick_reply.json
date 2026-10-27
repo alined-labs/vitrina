@@ -1,0 +1,44 @@
+{
+  "object": "whatsapp_business_account",
+  "entry": [
+    {
+      "id": "100000000000002",
+      "changes": [
+        {
+          "value": {
+            "messaging_product": "whatsapp",
+            "metadata": {
+              "display_phone_number": "573000000000",
+              "phone_number_id": "100000000000001"
+            },
+            "contacts": [
+              {
+                "profile": {
+                  "name": "Camila Prueba"
+                },
+                "wa_id": "573000000003"
+              }
+            ],
+            "messages": [
+              {
+                "context": {
+                  "from": "573000000000",
+                  "id": "wamid.VITRINA-FIXTURE-OUT-0002"
+                },
+                "from": "573000000003",
+                "id": "wamid.VITRINA-FIXTURE-IN-0008",
+                "timestamp": "1793113620",
+                "type": "button",
+                "button": {
+                  "payload": "VER_CATALOGO",
+                  "text": "Ver cat\u00e1logo"
+                }
+              }
+            ]
+          },
+          "field": "messages"
+        }
+      ]
+    }
+  ]
+}
