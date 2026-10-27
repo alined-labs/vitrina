@@ -8,6 +8,7 @@ Next.js 15 seller dashboard for Vitrina (plan.md §1, §2), owned by MX1. It is 
 cd apps/dashboard
 pnpm install --frozen-lockfile
 cp .env.example .env.local   # optional: without Supabase settings it runs in local mode
+# local mode against the API: NEXT_PUBLIC_DEV_ACCESS_TOKEN=$(make -s -C ../.. dev-token SUB=dev) in .env.local
 pnpm dev                     # http://localhost:3000; start the API with `make api` from the repo root
 ```
 

@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { NavLinks } from "@/components/nav-links";
 import { SignOutButton } from "@/components/sign-out-button";
+import { devAccessToken } from "@/lib/env";
 import { serverSupabase } from "@/lib/supabase/server";
 
 export default async function PanelLayout({ children }: Readonly<{ children: React.ReactNode }>) {
@@ -25,7 +26,9 @@ export default async function PanelLayout({ children }: Readonly<{ children: Rea
               <SignOutButton />
             </>
           ) : (
-            <span className="rounded bg-amber-100 px-2 py-1 text-amber-900">Modo local: sin inicio de sesión</span>
+            <span className="rounded bg-amber-100 px-2 py-1 text-amber-900">
+              {devAccessToken ? "Modo local: token de desarrollo" : "Modo local: sin inicio de sesión"}
+            </span>
           )}
         </header>
         <main className="flex-1 px-6 py-8">{children}</main>
