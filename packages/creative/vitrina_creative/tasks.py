@@ -21,6 +21,7 @@ from vitrina_creative.pipeline import (
     SellerSnapshot,
     run_pipeline,
 )
+from vitrina_creative.showcase import SHOWCASE_TASK, run_showcase
 from vitrina_creative.verifier import Thresholds
 
 CREATIVE_TASK = "creative.run_job"
@@ -164,3 +165,4 @@ async def _fail(
 
 def register(registry: TaskRegistry) -> None:
     registry.add(CREATIVE_TASK, run_creative_job, timeout_s=900)
+    registry.add(SHOWCASE_TASK, run_showcase, timeout_s=900)

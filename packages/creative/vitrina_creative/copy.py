@@ -55,7 +55,8 @@ class CopyInput:
     city: str
     product_name: str
     product_description: str
-    price_cop: int
+    # None when no price is published (a public showcase may omit it): then no amount at all.
+    price_cop: int | None
     stock: int | None = None
     attributes: dict[str, str] = field(default_factory=dict)
     # Active seller facts (shipping, payment, policies): the only other claims and amounts allowed.
@@ -102,9 +103,14 @@ def plan_grid(
     *,
     allow_scarcity: bool = True,
     allow_handmade: bool = True,
+    allow_price: bool = True,
 ) -> list[tuple[CopyHook, CopyAngle]]:
     """``count`` cells: angles in turn, the hook shifted each lap, so no pair repeats early."""
-    pool = [a for a in (angles or ANGLES) if allow_handmade or a != "handmade"]
+    pool = [
+        a
+        for a in (angles or ANGLES)
+        if (allow_handmade or a != "handmade") and (allow_price or a != "price")
+    ]
     hooks = [h for h in HOOKS if allow_scarcity or h != "scarcity"]
     if not pool:
         raise ValueError("no angle left for this product")
@@ -117,6 +123,24 @@ def plan_grid(
             cells.append((hooks[(index + lap) % len(hooks)], angle))
         lap += 1
     return cells
+
+
+def allowed_amounts(item: CopyInput) -> set[int]:
+    """The product price, when published; the facts' amounts are added by the caller."""
+    return {item.price_cop} if item.price_cop is not None else set()
+
+
+def price_rule(item: CopyInput) -> str:
+    if item.price_cop is None:
+        return (
+            "Este producto no tiene precio publicado: no escribas ningún precio, monto, "
+            'descuento, "antes/ahora" ni porcentaje, salvo los que aparecen en los datos del negocio.'
+        )
+    return (
+        f"El único precio del producto es {format_cop(item.price_cop)}, escrito exactamente así. "
+        'Ningún otro monto, descuento, "antes/ahora" ni porcentaje, salvo los que aparecen en '
+        "los datos del negocio."
+    )
 
 
 def check_copy(text: str, allowed_amounts: set[int]) -> list[str]:
@@ -150,8 +174,9 @@ async def write_copy(
         angles,
         allow_scarcity=item.stock is not None and 0 < item.stock <= LOW_STOCK,
         allow_handmade=is_handmade(item),
+        allow_price=item.price_cop is not None,
     )
-    allowed = {item.price_cop}
+    allowed = allowed_amounts(item)
     for fact in item.facts:
         allowed.update(amounts_cop(fact))
 
@@ -185,7 +210,7 @@ PROMPT = """Eres quien escribe los anuncios de {business}, en {city}. Escribes t
 REGLAS
 1. Escribe un texto por casilla, con el gancho y el ángulo que la casilla indica.
 2. Máximo 300 caracteres por texto, contando el marcador {{wa_link}}, que va una sola vez, al final, tal cual.
-3. El único precio del producto es {price}, escrito exactamente así. Ningún otro monto, descuento, "antes/ahora" ni porcentaje, salvo los que aparecen en los datos del negocio.
+3. {price_rule}
 4. Nada de testimonios, reseñas, clientes inventados, cifras de ventas, "el más vendido", "antes y después" ni promesas que no estén en los datos. social_proof_free significa persuadir sin apelar a lo que otros dicen o compran.
 5. urgency no inventa fechas, plazos ni existencias. scarcity dice el stock tal cual.
 6. Envíos, pagos y políticas solo como aparecen en los datos del negocio.
@@ -227,10 +252,10 @@ async def _write(
 ) -> dict[int, str]:
     """One Spark call for ``slots``; returns the texts it produced, by slot."""
     voice = item.voice
+    price = format_cop(item.price_cop) if item.price_cop is not None else "sin publicar"
     lines = [
         f"PRODUCTO: {item.product_name}. {item.product_description}".strip(),
-        f"Precio: {format_cop(item.price_cop)}"
-        + (f" · Stock: {item.stock} unidades" if item.stock is not None else ""),
+        f"Precio: {price}" + (f" · Stock: {item.stock} unidades" if item.stock is not None else ""),
     ]
     lines += [f"Atributo {key}: {value}" for key, value in item.attributes.items()]
     lines.append("DATOS DEL NEGOCIO:" if item.facts else "DATOS DEL NEGOCIO: ninguno")
@@ -276,7 +301,7 @@ async def _write(
             ChatMessage(
                 role="system",
                 content=PROMPT.format(
-                    business=item.business_name, city=item.city, price=format_cop(item.price_cop)
+                    business=item.business_name, city=item.city, price_rule=price_rule(item)
                 ),
             ),
             ChatMessage(role="user", content="\n".join(lines)),

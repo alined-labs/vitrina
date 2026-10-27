@@ -26,7 +26,7 @@ OnStage = Callable[[str, float], Awaitable[None]]
 @dataclass(frozen=True)
 class ProductSnapshot:
     name: str
-    price_cop: int
+    price_cop: int | None
     description: str = ""
     stock: int | None = None
     attributes: dict[str, str] = field(default_factory=dict)

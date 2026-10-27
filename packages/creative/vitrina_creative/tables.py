@@ -100,3 +100,29 @@ ads = sa.Table(
         "created_at", sa.DateTime(timezone=True), server_default=sa.func.now(), nullable=False
     ),
 )
+
+# Foto → Vitrina (data-model.md public_showcases): no seller; the visitor's address only as a hash.
+public_showcases = sa.Table(
+    "public_showcases",
+    metadata,
+    sa.Column("id", sa.Uuid, primary_key=True),
+    sa.Column("slug", sa.Text, nullable=False),
+    sa.Column("product_name", sa.Text, nullable=False),
+    sa.Column("price_cop", sa.Integer),
+    sa.Column("city", sa.Text),
+    sa.Column("ip_hash", sa.Text, nullable=False),
+    sa.Column("status", sa.Text, nullable=False),
+    sa.Column("scenes", JSONB, nullable=False),
+    sa.Column("copies", JSONB, nullable=False),
+    sa.Column(
+        "created_at", sa.DateTime(timezone=True), server_default=sa.func.now(), nullable=False
+    ),
+)
+
+public_rate_limits = sa.Table(
+    "public_rate_limits",
+    metadata,
+    sa.Column("ip_hash", sa.Text, primary_key=True),
+    sa.Column("window_start", sa.DateTime(timezone=True), primary_key=True),
+    sa.Column("count", sa.Integer, nullable=False),
+)

@@ -18,6 +18,7 @@ from PIL import Image, ImageDraw, ImageFont, PngImagePlugin
 from vitrina_core.providers import Blob
 
 AI_LABEL = "Imagen generada con IA"
+WATERMARK = "Hecho con Vitrina"
 IPTC_SOURCE = "http://cv.iptc.org/newscodes/digitalsourcetype/"
 SourceType = Literal["trainedAlgorithmicMedia", "compositeWithTrainedAlgorithmicMedia"]
 VerificationStatus = Literal["passed", "blocked", "pending"]
@@ -83,6 +84,22 @@ def read_provenance(image: Blob) -> dict[str, str]:
 
 def ai_label(image: Blob, text: str = AI_LABEL) -> Blob:
     """A visible label in the bottom-left corner, sized to the image (Art. IV.3)."""
+    return _badge(image, text, corner="left")
+
+
+def watermark(image: Blob, text: str = WATERMARK) -> Blob:
+    """The public showcase's mark in the bottom-right corner (FR-072)."""
+    return _badge(image, text, corner="right")
+
+
+def showcase_image(image: Blob) -> Blob:
+    """A scene for a public page: AI label and watermark drawn, provenance kept (AS-8.2)."""
+    provenance = provenance_of(image)
+    marked = watermark(ai_label(image))
+    return embed_provenance(marked, provenance) if provenance is not None else marked
+
+
+def _badge(image: Blob, text: str, *, corner: Literal["left", "right"]) -> Blob:
     with Image.open(BytesIO(image.data)) as source:
         canvas = source.convert("RGBA")
     width, height = canvas.size
@@ -93,7 +110,8 @@ def ai_label(image: Blob, text: str = AI_LABEL) -> Blob:
     left, top, right, bottom = draw.textbbox((0, 0), text, font=font)
     pad, margin = round(size * 0.5), round(size * 0.8)
     box_width, box_height = right - left + 2 * pad, bottom - top + 2 * pad
-    x0, y0 = margin, height - margin - box_height
+    x0 = margin if corner == "left" else width - margin - box_width
+    y0 = height - margin - box_height
     draw.rounded_rectangle(
         (x0, y0, x0 + box_width, y0 + box_height), radius=round(size * 0.6), fill=(0, 0, 0, 165)
     )

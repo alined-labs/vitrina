@@ -24,6 +24,7 @@ from vitrina_creative.copy import (
     CopyDraft,
     CopyHook,
     CopyInput,
+    allowed_amounts,
     check_copy,
     rewrite_cells,
 )
@@ -145,7 +146,9 @@ async def judge_copy(
         ]
         cells = [(drafts[index].hook, drafts[index].angle) for index in low]
         rewritten = await rewrite_cells(item, cells, feedback, writer=writer, model=writer_model)
-        allowed = {item.price_cop, *(amount for fact in item.facts for amount in amounts_cop(fact))}
+        allowed = allowed_amounts(item) | {
+            amount for fact in item.facts for amount in amounts_cop(fact)
+        }
         candidates = {
             index: rewritten[position]
             for position, index in enumerate(low)
