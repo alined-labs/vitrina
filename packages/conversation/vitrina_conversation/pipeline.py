@@ -1,14 +1,16 @@
 """The inbound pipeline: one customer message from WhatsApp to the agent's reply (T027).
 
-plan.md §4.1, in order: dedupe by WhatsApp message id (AS-3.1) → opt-out and erasure keywords
-before anything else (R7, FR-063) → normalize (FR-022) → attribution (FR-023, AS-3.2) → in
-human mode the message is only stored (R6) → a yes to a pending consent question is recorded
-(R8) → the agent turn (T024) → its decisions applied: handoff, objections, consent, opt-out,
-reservations with their ``ad.*`` events → the reply sent with pacing (R12, AS-3.11) and its
-delivery status kept (FR-028) → the approved ad images the agent chose (``send_ad_asset``,
-T043), each in its own paced slot, only after an accepted reply that hands nothing off. Media
-the agent cannot read yet gets a short note (FR-022; images and voice notes arrive with T050
-and T051); reactions get no reply.
+plan.md §4.1, in order: dedupe by WhatsApp message id (AS-3.1) → a voice note transcribed and
+its transcript kept on the message (T051, AS-3.6) → opt-out and erasure keywords before
+anything else, spoken ones too (R7, FR-063) → normalize (FR-022) → attribution (FR-023,
+AS-3.2) → in human mode the message is only stored (R6) → a yes to a pending consent
+question is recorded (R8) → the agent turn (T024) → its decisions applied: handoff,
+objections, consent, opt-out, reservations with their ``ad.*`` events → the reply sent with
+pacing (R12, AS-3.11) and its delivery status kept (FR-028) → the approved ad images the
+agent chose (``send_ad_asset``, T043), each in its own paced slot, only after an accepted
+reply that hands nothing off. Media the agent cannot read yet gets a short note (FR-022;
+images arrive with T050), and so does a voice note Transcribe could not hear; reactions get
+no reply.
 
 When the model is unavailable the customer still gets an answer: the fallback reply, and a
 handoff so the owner picks up (constitution Art. III.3, Art. VIII).
@@ -35,6 +37,7 @@ from vitrina_conversation.pacing import Pacer
 from vitrina_conversation.store import ConversationState, ConversationStore, Event, StoredMessage
 from vitrina_conversation.tools import HandoffAction, QueuedAsset
 from vitrina_conversation.validation import FALLBACK_REPLY
+from vitrina_conversation.voice import Voice
 from vitrina_core.ids import new_id
 from vitrina_core.providers import Messenger, OutboundImage, OutboundText, ProviderError
 
@@ -46,6 +49,7 @@ OPT_OUT_REPLY = (
 )
 ERASURE_REPLY = "Recibimos tu solicitud. Borraremos tus datos en las próximas 24 horas."
 TEXT_ONLY_REPLY = "Por ahora solo puedo leer mensajes de texto. ¿Me escribes tu pregunta?"
+VOICE_NOT_HEARD_REPLY = "No pude escuchar bien tu nota de voz. ¿Me escribes tu pregunta?"
 
 OutcomeStatus = Literal[
     "replied",
@@ -77,6 +81,8 @@ class Inbound:
     wa_type: str | None = None
     raw_payload_id: UUID | None = None
     is_replay: bool = False
+    media_id: str | None = None
+    """The Graph API id of an image, voice note or other media."""
 
 
 @dataclass(frozen=True)
@@ -89,6 +95,8 @@ class PipelineDeps:
     pacer: Pacer
     ad_lookup: AdLookup
     request_erasure: Callable[[UUID, UUID], Awaitable[None]] | None = None
+    voice: Voice | None = None
+    """Voice notes to text (T051); without it they get the text-only note."""
     clock: Callable[[], datetime] = _utcnow
     history_turns: int = 10
 
@@ -151,6 +159,16 @@ class _Inbound:
             return InboundOutcome("duplicate", conversation.id)
         self.evidence = stored.id
         text = inbound.text or ""
+        unheard = False
+        if inbound.kind == "audio" and inbound.media_id and deps.voice is not None:
+            transcript = await self._transcribe(deps.voice, inbound.media_id)
+            unheard = transcript is None
+            if transcript is not None:
+                text = transcript
+                normalized = normalize(inbound.kind, text, pending_consent_prompt=pending_prompt)
+                await deps.store.set_transcript(
+                    self.seller_id, stored.id, text, normalized=normalized.model_dump(mode="json")
+                )
 
         if normalized.opt_out_detected:  # R7, FR-063: before anything else
             await opt_out(
@@ -199,7 +217,9 @@ class _Inbound:
             consent_recorded = await self._record_consent(pending_prompt, text)
 
         question = normalized.text if isinstance(normalized.text, str) else ""
-        if normalized.kind in ("audio", "unsupported") or not question.strip():
+        if unheard:
+            return await self._reply(VOICE_NOT_HEARD_REPLY, "replied")
+        if normalized.kind == "unsupported" or not question.strip():
             return await self._reply(TEXT_ONLY_REPLY, "replied")
 
         request = TurnRequest(
@@ -224,6 +244,15 @@ class _Inbound:
         if outcome.status == "replied" and accepted and turn.actions.handoff is None:
             await self._send_assets(turn.actions.ad_assets)
         return outcome
+
+    async def _transcribe(self, voice: Voice, media_id: str) -> str | None:
+        """None when the voice note cannot be heard (download, Transcribe, or only silence)."""
+        try:
+            transcript = await voice.transcribe(media_id)
+        except (ProviderError, TimeoutError) as error:
+            logger.warning("voice note not transcribed (%s)", type(error).__name__)
+            return None
+        return transcript or None
 
     async def _apply(self, turn: TurnResult, text: str) -> None:
         """The turn's decisions. Consent is not among them: R8 records it from the customer's
@@ -413,8 +442,8 @@ def _exchanges(recent: Sequence[StoredMessage]) -> tuple[Exchange, ...]:
     customer: list[str] = []
     for message in recent:
         if message.direction == "inbound":
-            if message.text:
-                customer.append(message.text)
+            if words := message.text or message.transcript:
+                customer.append(words)
         elif customer and message.text:
             exchanges.append(Exchange("\n".join(customer), message.text))
             customer = []

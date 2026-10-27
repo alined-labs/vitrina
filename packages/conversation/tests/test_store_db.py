@@ -129,6 +129,34 @@ async def test_db_t043_an_ad_image_keeps_the_id_the_tool_gave_and_its_ad(ctx: Ct
     assert (row.media_key, row.text) == (f"ad:{ad_id}", "Así se ve la mochila azul")
 
 
+async def test_db_as_3_6_a_voice_note_keeps_its_transcript(ctx: Ctx) -> None:
+    conversation = await ctx.store.open_conversation(ctx.seller_id, ctx.contact_id)
+    stored = await ctx.store.add_message(
+        ctx.seller_id,
+        conversation.id,
+        direction="inbound",
+        sender="customer",
+        type="audio",
+        text=None,
+        wa_message_id="wamid.VITRINA-DB-IN-VOICE",
+        normalized={"kind": "audio", "text": ""},
+    )
+    assert stored is not None
+    heard = {"kind": "audio", "text": "Hola, ¿tienen mochilas?"}
+
+    await ctx.store.set_transcript(
+        ctx.seller_id, stored.id, "Hola, ¿tienen mochilas?", normalized=heard
+    )
+    await ctx.store.set_transcript(uuid4(), stored.id, "otro vendedor", normalized={})
+
+    (recent,) = await ctx.store.recent_messages(ctx.seller_id, conversation.id, limit=5)
+    assert (recent.text, recent.transcript, recent.normalized) == (
+        None,
+        "Hola, ¿tienen mochilas?",
+        heard,
+    )
+
+
 async def test_db_fr_028_delivery_status_never_moves_backwards(ctx: Ctx) -> None:
     conversation = await ctx.store.open_conversation(ctx.seller_id, ctx.contact_id)
     out = await ctx.store.add_message(
