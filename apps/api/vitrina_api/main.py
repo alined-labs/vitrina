@@ -43,6 +43,7 @@ from vitrina_core.http import (
     install_problem_handlers,
 )
 from vitrina_core.jobs import PostgresJobQueue
+from vitrina_core.ledger import InMemoryLedger, PostgresLedger, SpendWatch
 from vitrina_core.settings import Settings, get_settings
 from vitrina_local_mock import MockOutbox, create_phone_router
 
@@ -101,6 +102,10 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.state.settings = settings
     app.state.sessions = create_session_factory(engine) if engine is not None else None
     app.state.jobs = PostgresJobQueue(app.state.sessions) if app.state.sessions else None
+    watch = SpendWatch(settings.spend_limit_usd)
+    app.state.ledger = (
+        PostgresLedger(app.state.sessions, watch) if app.state.sessions else InMemoryLedger(watch)
+    )
     install_problem_handlers(app)
     for module in ROUTERS:
         app.include_router(module.router, prefix=API_PREFIX)

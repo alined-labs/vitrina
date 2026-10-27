@@ -27,6 +27,7 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from vitrina_core.db.tables import sellers
 from vitrina_core.http import ProblemCode, ProblemError
+from vitrina_core.http.context import seller_id_var
 from vitrina_core.ids import NIL
 
 seller_bearer = HTTPBearer(
@@ -206,6 +207,7 @@ async def require_seller(
 ) -> UUID:
     principal = await authenticator(request).seller(credentials)
     assert principal.seller_id is not None
+    seller_id_var.set(principal.seller_id)  # the ledger attributes model calls to it
     return principal.seller_id
 
 
@@ -223,7 +225,9 @@ async def require_seller_or_service(
     auth = authenticator(request)
     if token is not None:
         return auth.service(token)
-    return await auth.seller(credentials)
+    principal = await auth.seller(credentials)
+    seller_id_var.set(principal.seller_id)
+    return principal
 
 
 async def whatsapp_signature(
