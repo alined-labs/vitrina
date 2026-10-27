@@ -127,6 +127,16 @@ def product_crop(pixels: Pixels, mask: Mask, margin: int = 8) -> Blob:
     return encode_png(cut[y0:y1, x0:x1])
 
 
+def product_cutout(pixels: Pixels, mask: Mask) -> Blob:
+    """The product alone on a transparent background, cropped to its box (compose reference)."""
+    box = mask_bbox(mask)
+    if box is None:
+        raise ValueError("the mask is empty: there is no product to cut out")
+    x0, y0, x1, y1 = box
+    rgba = np.dstack([pixels, mask.astype(np.uint8) * 255])[y0:y1, x0:x1]
+    return encode_png(np.ascontiguousarray(rgba))
+
+
 def _crop(mask: Mask, box: Box) -> Mask:
     x0, y0, x1, y1 = box
     return mask[y0:y1, x0:x1]
