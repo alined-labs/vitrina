@@ -87,3 +87,29 @@ jobs:
       - run: make sync
       - name: migrations and database tests
         run: make test-db
+
+  # The Next.js dashboard (T013, MX1's package): type check, lint, the generated client
+  # against the contract, and a production build.
+  dashboard:
+    name: dashboard
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    defaults:
+      run:
+        working-directory: apps/dashboard
+    env:
+      NEXT_TELEMETRY_DISABLED: "1"
+    steps:
+      - uses: actions/checkout@v7
+      - uses: pnpm/action-setup@v6
+        with:
+          version: 12
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24
+          cache: pnpm
+          cache-dependency-path: apps/dashboard/pnpm-lock.yaml
+      - run: pnpm install --frozen-lockfile
+      - name: check (tsc, eslint, client drift)
+        run: pnpm run check
+      - run: pnpm run build
