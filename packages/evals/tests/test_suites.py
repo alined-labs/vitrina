@@ -125,7 +125,7 @@ def test_as_7_2_an_invented_price_fails_make_evals(
         async def run_turn(self, turn: AgentTurn) -> TurnOutcome:
             return TurnOutcome(reply="Te la dejo en $50.000.")
 
-    monkeypatch.setattr(suites, "conversation_agent", Inventor)
+    monkeypatch.setattr(suites, "conversation_agent", lambda _settings: Inventor())
 
     code = cli.main(["--suite", "conversations_es", "--sample", "1"])
 
