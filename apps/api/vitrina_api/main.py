@@ -5,7 +5,6 @@ from contextlib import asynccontextmanager
 from importlib.metadata import version
 
 from fastapi import FastAPI
-from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from vitrina_api.routers import (
     ads,
@@ -28,9 +27,9 @@ from vitrina_api.routers import (
 )
 from vitrina_catalog.api import InMemoryCatalog
 from vitrina_catalog.postgres import PostgresCatalog
+from vitrina_catalog.sellers import InMemorySellerStore, PostgresSellerStore
 from vitrina_core.auth import (
     Authenticator,
-    InMemorySellerDirectory,
     PostgresSellerDirectory,
     SellerDirectory,
     TokenVerifier,
@@ -73,18 +72,13 @@ ROUTERS = (
 )
 
 
-def authenticator(
-    settings: Settings, sessions: async_sessionmaker[AsyncSession] | None
-) -> Authenticator:
+def authenticator(settings: Settings, directory: SellerDirectory) -> Authenticator:
     """Supabase tokens: HS256 with SUPABASE_JWT_SECRET, or the project keys under SUPABASE_URL."""
     auth_url = f"{settings.supabase_url.rstrip('/')}/auth/v1" if settings.supabase_url else None
     verifier = TokenVerifier(
         secret=settings.supabase_jwt_secret,
         issuer=auth_url,
         jwks_url=f"{auth_url}/.well-known/jwks.json" if auth_url else None,
-    )
-    directory: SellerDirectory = (
-        PostgresSellerDirectory(sessions) if sessions else InMemorySellerDirectory()
     )
     return Authenticator(verifier, directory, settings.service_token)
 
@@ -119,7 +113,13 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         # Outside the contract and hidden from OpenAPI (plan.md §4.6, ADR-0011).
         app.include_router(create_phone_router(MockOutbox(settings.mock_outbox_path)))
 
-    app.state.auth = authenticator(settings, app.state.sessions)
+    if app.state.sessions:
+        app.state.sellers = PostgresSellerStore(app.state.sessions)
+        directory: SellerDirectory = PostgresSellerDirectory(app.state.sessions)
+    else:
+        # No database: sellers created through POST /sellers sign in against the same store.
+        app.state.sellers = directory = InMemorySellerStore()
+    app.state.auth = authenticator(settings, directory)
     store: IdempotencyStore = (
         PostgresIdempotencyStore(app.state.sessions)
         if app.state.sessions
