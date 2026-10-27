@@ -9,6 +9,9 @@ dependencies = [
     "vitrina-core",
 ]
 
+[project.entry-points."vitrina.tasks"]
+compliance = "vitrina_compliance.tasks:register"
+
 [tool.uv.sources]
 vitrina-core = { workspace = true }
 
