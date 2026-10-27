@@ -60,3 +60,23 @@ jobs = sa.Table(
     sa.Column("locked_by", sa.Text),
     sa.Column("heartbeat_at", sa.DateTime(timezone=True)),
 )
+
+# The model-call ledger (FR-084): no prompt text, ever (data-model.md §5).
+model_calls = sa.Table(
+    "model_calls",
+    metadata,
+    sa.Column("id", sa.Uuid, primary_key=True),
+    sa.Column("seller_id", sa.Uuid, sa.ForeignKey("sellers.id", ondelete="CASCADE")),
+    sa.Column("request_id", sa.Text),
+    sa.Column("provider", sa.Text, nullable=False),
+    sa.Column("model", sa.Text, nullable=False),
+    sa.Column("purpose", sa.Text, nullable=False),
+    sa.Column("tokens_in", sa.Integer, nullable=False, server_default="0"),
+    sa.Column("tokens_out", sa.Integer, nullable=False, server_default="0"),
+    sa.Column("latency_ms", sa.Integer, nullable=False, server_default="0"),
+    sa.Column("cost_usd", sa.Numeric(10, 6), nullable=False, server_default="0"),
+    sa.Column("replayed", sa.Boolean, nullable=False, server_default=sa.false()),
+    sa.Column(
+        "created_at", sa.DateTime(timezone=True), server_default=sa.func.now(), nullable=False
+    ),
+)

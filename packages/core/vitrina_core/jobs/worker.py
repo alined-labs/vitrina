@@ -26,6 +26,7 @@ from uuid import UUID
 
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
+from vitrina_core.http.context import seller_id_var
 from vitrina_core.jobs.queue import ClaimedJob, JobQueue
 from vitrina_core.providers import ProviderError
 
@@ -167,6 +168,7 @@ class Worker:
             )
             return
         beat = asyncio.create_task(self._heartbeat(job.id))
+        seller_token = seller_id_var.set(job.owner_seller_id)
         try:
             result = await asyncio.wait_for(
                 task.handler(JobContext(job, self.queue, self.sessions)), task.timeout_s
@@ -192,6 +194,7 @@ class Worker:
         else:
             await self.queue.succeed(job.id, result)
         finally:
+            seller_id_var.reset(seller_token)
             beat.cancel()
 
     async def _failed(self, job: ClaimedJob, code: str, message: str) -> None:

@@ -10,7 +10,7 @@ import re
 from starlette.datastructures import Headers, MutableHeaders
 from starlette.types import ASGIApp, Message, Receive, Scope, Send
 
-from vitrina_core.http.context import request_id_var
+from vitrina_core.http.context import request_id_var, seller_id_var
 from vitrina_core.http.problems import internal_error_response
 from vitrina_core.ids import uuid7
 
@@ -31,6 +31,7 @@ class RequestIdMiddleware:
         incoming = Headers(scope=scope).get("x-request-id")
         request_id = incoming if incoming and _SAFE_ID.match(incoming) else uuid7().hex
         token = request_id_var.set(request_id)
+        seller_token = seller_id_var.set(None)
         started = False
 
         async def send_with_id(message: Message) -> None:
@@ -48,4 +49,5 @@ class RequestIdMiddleware:
                 raise
             await internal_error_response()(scope, receive, send_with_id)
         finally:
+            seller_id_var.reset(seller_token)
             request_id_var.reset(token)
