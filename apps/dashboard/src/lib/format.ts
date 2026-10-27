@@ -14,6 +14,41 @@ export function formatCop(amount: number): string {
   return cop.format(amount);
 }
 
+const usd = new Intl.NumberFormat("es-CO", {
+  style: "currency",
+  currency: "USD",
+  currencyDisplay: "code",
+  minimumFractionDigits: 2,
+  maximumFractionDigits: 4,
+});
+const integer = new Intl.NumberFormat("es-CO", { maximumFractionDigits: 0 });
+
+/** Model and messaging costs, in dollars: 0.4213 → "USD 0,4213". */
+export function formatUsd(amount: number): string {
+  return usd.format(amount);
+}
+
+/** A share between 0 and 1 as a percentage: 0.973 → "97 %"; tiny non-zero shares stay visible. */
+export function formatRate(rate: number): string {
+  if (rate > 0 && rate < 0.01) return "< 1 %";
+  return `${integer.format(rate * 100)} %`;
+}
+
+export function formatCount(value: number): string {
+  return integer.format(value);
+}
+
+/** 850 → "850 ms"; 1240 → "1,2 s". */
+export function formatLatency(ms: number): string {
+  return ms < 1000 ? `${integer.format(ms)} ms` : `${(ms / 1000).toFixed(1).replace(".", ",")} s`;
+}
+
+/** Today's date in Bogotá as YYYY-MM-DD, moved by `days`. */
+export function bogotaDate(days = 0): string {
+  const moment = new Date(Date.now() + days * 86_400_000);
+  return new Intl.DateTimeFormat("en-CA", { timeZone: "America/Bogota" }).format(moment);
+}
+
 // What a seller reads for each problem code. The API's own detail is shown only for the codes
 // whose details are written for sellers (conflicts and validation); other details are for
 // developers and appear only in development builds.
