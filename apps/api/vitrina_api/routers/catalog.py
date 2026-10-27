@@ -33,6 +33,7 @@ from vitrina_core.http import (
 from vitrina_core.ids import new_id
 from vitrina_core.jobs import Job, PostgresJobQueue
 from vitrina_core.storage import blob_key
+from vitrina_creative.api import assets_from_state, list_asset_ids
 
 router = APIRouter(tags=["Catalog"])
 
@@ -53,8 +54,16 @@ def _not_found(kind: str, item_id: UUID) -> ProblemError:
     return ProblemError(ProblemCode.NOT_FOUND, detail=f"no {kind} {item_id} for this seller")
 
 
+async def _with_assets(request: Request, product: Product) -> Product:
+    """``asset_ids`` from the creative module, which owns assets (Art. VI.3), oldest first."""
+    store = assets_from_state(request.app.state)
+    asset_ids = await list_asset_ids(store, product.seller_id, product.id)
+    return product.model_copy(update={"asset_ids": asset_ids})
+
+
 @router.get("/products", operation_id="listProducts", summary="List products")
 async def list_products(
+    request: Request,
     seller_id: SellerId,
     store: Store,
     page: Paging,
@@ -64,6 +73,7 @@ async def list_products(
     items, cursor = await store.list_products(
         seller_id, limit=page.limit, cursor=page.cursor, status=status, q=q
     )
+    items = [await _with_assets(request, product) for product in items]
     return Page[Product](items=items, next_cursor=cursor)
 
 
@@ -75,9 +85,13 @@ async def list_products(
     responses=problem_responses(400),
 )
 async def create_product(
-    seller_id: SellerId, store: Store, product: ProductCreate, _key: IdempotencyKey = None
+    request: Request,
+    seller_id: SellerId,
+    store: Store,
+    product: ProductCreate,
+    _key: IdempotencyKey = None,
 ) -> Product:
-    return await store.create_product(seller_id, product)
+    return await _with_assets(request, await store.create_product(seller_id, product))
 
 
 @router.post(
@@ -139,11 +153,13 @@ async def import_products(
     summary="Get a product",
     responses=problem_responses(404),
 )
-async def get_product(seller_id: SellerId, store: Store, product_id: UUID) -> Product:
+async def get_product(
+    request: Request, seller_id: SellerId, store: Store, product_id: UUID
+) -> Product:
     product = await store.product(seller_id, product_id)
     if product is None:
         raise _not_found("product", product_id)
-    return product
+    return await _with_assets(request, product)
 
 
 @router.patch(
@@ -153,12 +169,12 @@ async def get_product(seller_id: SellerId, store: Store, product_id: UUID) -> Pr
     responses=problem_responses(404),
 )
 async def update_product(
-    seller_id: SellerId, store: Store, product_id: UUID, changes: ProductUpdate
+    request: Request, seller_id: SellerId, store: Store, product_id: UUID, changes: ProductUpdate
 ) -> Product:
     product = await store.update_product(seller_id, product_id, changes)
     if product is None:
         raise _not_found("product", product_id)
-    return product
+    return await _with_assets(request, product)
 
 
 @router.delete(
