@@ -230,3 +230,12 @@ async def test_r5_a_second_handoff_call_keeps_the_first_handoff(shop: Shop) -> N
         "Primera.",
     )
     assert first.result["handoff_id"] == second.result["handoff_id"]
+
+
+async def test_as_4_2_an_objection_keeps_only_a_product_this_shop_sells(shop: Shop) -> None:
+    box = toolbox(shop)
+
+    await box.run(call("record_objection", tag="price", quote="caro", product_id=uuid4()))
+
+    (objection,) = box.actions.objections
+    assert objection.product_id is None

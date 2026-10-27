@@ -7,12 +7,14 @@ dependencies = [
     "vitrina-core",
     "vitrina-catalog",
     "vitrina-compliance",
+    "vitrina-whatsapp",
 ]
 
 [tool.uv.sources]
 vitrina-core = { workspace = true }
 vitrina-catalog = { workspace = true }
 vitrina-compliance = { workspace = true }
+vitrina-whatsapp = { workspace = true }
 
 [build-system]
 requires = ["hatchling"]
