@@ -36,6 +36,14 @@ class Settings(BaseSettings):
     supabase_service_role_key: SecretStr | None = None
     service_token: SecretStr | None = None
 
+    # Blob storage (I-15): local files without Supabase (tests, replay, B8), else one private
+    # Supabase Storage bucket. Local signed URLs are served by the API at PUBLIC_API_URL.
+    storage_backend: Literal["local", "supabase"] = "local"
+    storage_dir: Path = REPO_ROOT / "tmp" / "storage"
+    storage_bucket: str = "vitrina"
+    signed_url_ttl_s: int = Field(default=900, gt=0)
+    public_api_url: str = "http://localhost:8000"
+
     # Meta Model API, OpenAI-compatible (plan.md §1, ADR-0003).
     meta_api_base_url: str = "https://api.meta.ai/v1"
     meta_api_key: SecretStr | None = None

@@ -22,6 +22,7 @@ from vitrina_core.ledger import InMemoryLedger
 from vitrina_core.providers import ProviderError
 from vitrina_core.providers.compose import Providers, compose
 from vitrina_core.settings import Settings
+from vitrina_core.storage import BlobStore, LocalBlobStore
 
 JOB = UUID("00000000-0000-7000-8000-000000000001")
 SELLER = UUID("00000000-0000-7000-8000-00000000000a")
@@ -218,3 +219,17 @@ async def test_a_handler_reaches_the_workers_providers(tmp_path: Path) -> None:
     await Worker(queue, registry, providers=providers).run_once()
 
     assert seen == [providers]
+
+
+async def test_a_handler_reaches_the_workers_blob_store(tmp_path: Path) -> None:
+    storage = LocalBlobStore(tmp_path, public_url="http://localhost:8000")
+    registry = TaskRegistry()
+    seen: list[BlobStore | None] = []
+
+    @registry.task("catalog.import_products")
+    async def import_products(ctx: JobContext) -> None:
+        seen.append(ctx.storage)
+
+    await Worker(FakeQueue([claimed()]), registry, storage=storage).run_once()
+
+    assert seen == [storage]
