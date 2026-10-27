@@ -5,7 +5,7 @@ UV ?= uv
 PYTEST_WORKERS ?= 2
 
 .DEFAULT_GOAL := help
-.PHONY: help sync lint fmt types test drift check evals gen-client api worker
+.PHONY: help sync lint fmt types test test-db drift check migrate evals gen-client api worker
 
 help: ## List the targets
 	@grep -E '^[a-z-]+:.*## ' $(MAKEFILE_LIST) | awk 'BEGIN {FS = ":.*## "} {printf "  %-11s %s\n", $$1, $$2}'
@@ -27,10 +27,16 @@ types: ## mypy (strict on vitrina_core)
 test: ## pytest without live providers (NFR-07)
 	$(UV) run pytest -n $(PYTEST_WORKERS)
 
+test-db: ## Migration and database tests; needs DATABASE_URL (CI runs them on its Postgres)
+	$(UV) run pytest -m db -p no:xdist
+
 drift: ## Generated OpenAPI vs contracts/openapi.yaml (T003)
 	$(UV) run python scripts/check-contract-drift.py
 
 check: lint types test drift ## Everything a commit must pass
+
+migrate: ## Upgrade DB_SCHEMA on DATABASE_URL to the latest migration
+	$(UV) run alembic upgrade head
 
 evals: ## Replay evals, MX0 only (runner lands with T028)
 	@echo "make evals: no suites yet; the replay runner lands with T028"

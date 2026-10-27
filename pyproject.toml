@@ -99,6 +99,7 @@ testpaths = ["apps", "packages", "providers", "scripts"]
 addopts = ["-ra", "--strict-markers", "--strict-config", "--import-mode=importlib", "-m", "not live"]
 markers = [
     "live: calls a real provider; needs credentials and network (run by hand with -m live)",
+    "db: needs DATABASE_URL (Postgres with pgvector); CI runs them against its Postgres service",
 ]
 asyncio_mode = "auto"
 asyncio_default_fixture_loop_scope = "function"
