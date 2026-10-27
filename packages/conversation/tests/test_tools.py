@@ -416,3 +416,55 @@ async def test_as_4_2_an_objection_keeps_only_a_product_this_shop_sells(shop: Sh
 
     (objection,) = box.actions.objections
     assert objection.product_id is None
+
+
+def lower_threshold(shop: Shop, amount: int) -> Shop:
+    seller = shop.seller.model_copy(update={"handoff_amount_threshold_cop": amount})
+    return Shop(seller, shop.catalog, shop.ids)
+
+
+async def test_as_3_8_an_order_above_the_threshold_goes_to_the_owner(shop: Shop) -> None:
+    box = toolbox(lower_threshold(shop, 150000), dry_run=False)
+
+    record = await box.run(call("reserve_item", product_id=shop.ids["mochila-azul"], quantity=2))
+
+    assert (record.result["status"], record.result["handoff"]) == (
+        "reserved",
+        "amount_over_threshold",
+    )
+    handoff = box.actions.handoff
+    assert handoff is not None
+    assert (handoff.reason, handoff.urgency) == ("amount_over_threshold", "high")
+    assert "2 × Mochila azul" in handoff.summary
+    assert "$170.000" in handoff.summary
+    assert len(box.actions.reservations) == 1
+
+
+async def test_as_3_8_an_order_at_the_threshold_stays_with_the_agent(shop: Shop) -> None:
+    box = toolbox(lower_threshold(shop, 170000), dry_run=False)
+
+    record = await box.run(call("reserve_item", product_id=shop.ids["mochila-azul"], quantity=2))
+
+    assert "handoff" not in record.result
+    assert box.actions.handoff is None
+
+
+async def test_r9_the_threshold_handoff_is_decided_in_a_dry_run(shop: Shop) -> None:
+    box = toolbox(lower_threshold(shop, 150000))
+
+    record = await box.run(call("reserve_item", product_id=shop.ids["mochila-azul"], quantity=2))
+
+    assert record.status == "skipped_dry_run"
+    assert box.actions.handoff is not None
+    assert box.actions.handoff.reason == "amount_over_threshold"
+    assert box.actions.reservations == []
+
+
+async def test_r5_an_earlier_handoff_is_kept_over_the_threshold_one(shop: Shop) -> None:
+    box = toolbox(lower_threshold(shop, 150000), dry_run=False)
+    await box.run(call("handoff_to_human", reason="complaint_refund", summary="Reclamo."))
+
+    await box.run(call("reserve_item", product_id=shop.ids["mochila-azul"], quantity=2))
+
+    assert box.actions.handoff is not None
+    assert box.actions.handoff.reason == "complaint_refund"

@@ -877,3 +877,26 @@ async def test_as_3_5_a_kept_photo_is_read_by_its_media_id(world: World) -> None
     )
 
     assert photos.seen == ["1000000000000101"]
+
+
+async def test_as_3_8_an_order_above_the_threshold_hands_the_chat_over(world: World) -> None:
+    product = world.shop.ids["mochila-azul"]
+    seller = world.shop.seller.model_copy(update={"handoff_amount_threshold_cop": 150000})
+
+    async def settings(seller_id: UUID) -> SellerSettings | None:
+        return seller
+
+    world.deps = replace(world.deps, seller_settings=settings)
+    world.script(
+        tool_call("reserve_item", product_id=product, quantity=2),
+        final_answer("Listo, te separé las 2 mochilas; Ana te escribe para cerrar.", product),
+    )
+
+    outcome = await world.say("vi el #A7, quiero 2 mochilas azules")
+
+    assert world.conversation(outcome).mode == "human"
+    ((_, handoff),) = world.store.handoffs
+    assert handoff.reason == "amount_over_threshold"
+    kinds = [kind for _, kind, _ in world.store.events]
+    assert "ad.reservation" in kinds
+    assert "ad.handoff" in kinds

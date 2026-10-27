@@ -1,11 +1,12 @@
 """The agent's system prompt (es-CO) and the notes the engine adds during a turn (FR-024).
 
-The text is draft v0.1.2, derived from ``contracts/agent-tools.json`` (tools, output schema,
+The text is draft v0.1.3, derived from ``contracts/agent-tools.json`` (tools, output schema,
 R1–R12); prompt changes are logged with the reason for each (v0.1.1: no city, which the
 settings do not carry; off-topic declines end with a question back to the shop, because R3
 only lets a citation-free reply greet, thank or ask. v0.1.2: a customer photo arrives as
 "[Foto del cliente: …]" (T050), and ``image_ref`` is no longer suggested, since the model
-never sees a media id). Placeholders are filled from the seller's settings, the items
+never sees a media id. v0.1.3: the order amount above which the owner takes over is in the
+context, since rule 6 names it and the model had no way to know it, AS-3.8). Placeholders are filled from the seller's settings, the items
 retrieved for this message and the seller's local time.
 """
 
@@ -98,6 +99,7 @@ Responde siempre con un único objeto JSON y nada más:
 CONTEXTO DE ESTA CONVERSACIÓN
 - Fecha y hora local del negocio: {today_local}
 - Horario del negocio: {business_hours}
+- Monto que el negocio definió para pasar un pedido a {owner_name}: más de {order_threshold}
 - Datos recuperados del catálogo, cada uno con su fact_id:
 {retrieved_context}"""
 
@@ -128,6 +130,7 @@ def render_system_prompt(
         consent_prompt_text=seller.consent_prompt_text,
         today_local=local_time(now, seller.timezone),
         business_hours=render_hours(seller.business_hours),
+        order_threshold=format_cop(seller.handoff_amount_threshold_cop),
         retrieved_context=render_context(retrieved),
     )
 
