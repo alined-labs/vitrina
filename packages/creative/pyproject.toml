@@ -6,6 +6,8 @@ requires-python = ">=3.12,<3.13"
 dependencies = [
     "vitrina-core",
     "vitrina-catalog",
+    "pillow>=11",
+    "numpy>=2",
 ]
 
 [tool.uv.sources]
