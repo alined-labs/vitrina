@@ -79,3 +79,24 @@ copy_variants = sa.Table(
         "created_at", sa.DateTime(timezone=True), server_default=sa.func.now(), nullable=False
     ),
 )
+
+# Ads (data-model.md ads): the database assigns code, wa_link and approved_at on approval
+# (next_ad_code, ads_assign_code) and refuses an approved ad on a creative that did not pass.
+ads = sa.Table(
+    "ads",
+    metadata,
+    sa.Column("id", sa.Uuid, primary_key=True),
+    sa.Column("seller_id", sa.Uuid, nullable=False),
+    sa.Column("product_id", sa.Uuid, nullable=False),
+    sa.Column("creative_id", sa.Uuid, nullable=False),
+    sa.Column("copy_variant_id", sa.Uuid, nullable=False),
+    sa.Column("brief_id", sa.Uuid),
+    sa.Column("code", sa.Text),
+    sa.Column("wa_link", sa.Text),
+    sa.Column("angle", sa.Text),
+    sa.Column("status", sa.Text, nullable=False),
+    sa.Column("approved_at", sa.DateTime(timezone=True)),
+    sa.Column(
+        "created_at", sa.DateTime(timezone=True), server_default=sa.func.now(), nullable=False
+    ),
+)

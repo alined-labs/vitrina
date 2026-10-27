@@ -33,6 +33,11 @@ async def run_creative_job(ctx: JobContext) -> str:
             "INTERNAL_ERROR", "creative jobs need the database, storage and providers"
         )
     store = CreativeJobStore(ctx.sessions)
+    done = await store.get(seller_id, ctx.job_id)
+    if done is not None and done["status"] == "succeeded":
+        # A retry after success (the worker lost the result): rerunning would overwrite the
+        # stored scenes that approved ads point at, so the first result stands.
+        return f"/v1/creative/jobs/{ctx.job_id}"
     try:
         data = await load_input(ctx.payload, seller_id, ctx.storage)
         models = PipelineModels(
