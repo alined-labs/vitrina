@@ -28,6 +28,7 @@ from vitrina_api.routers import (
 from vitrina_catalog.api import InMemoryCatalog
 from vitrina_catalog.postgres import PostgresCatalog
 from vitrina_catalog.sellers import InMemorySellerStore, PostgresSellerStore
+from vitrina_compliance.api import ContactIdentity, InMemoryCompliance, PostgresCompliance
 from vitrina_core.auth import (
     Authenticator,
     PostgresSellerDirectory,
@@ -107,6 +108,16 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.state.storage = storage
     app.state.eval_runs = (
         PostgresEvalRuns(app.state.sessions) if app.state.sessions else InMemoryEvalRuns()
+    )
+    identity = (
+        ContactIdentity(pepper=settings.contact_hash_pepper, key=settings.contact_encryption_key)
+        if settings.contact_hash_pepper and settings.contact_encryption_key
+        else None
+    )
+    app.state.compliance = (
+        PostgresCompliance(app.state.sessions, identity)
+        if app.state.sessions
+        else InMemoryCompliance(identity)
     )
     watch = SpendWatch(settings.spend_limit_usd)
     app.state.ledger = (

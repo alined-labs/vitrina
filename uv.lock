@@ -1108,12 +1108,14 @@ name = "vitrina-compliance"
 version = "0.1.0"
 source = { editable = "packages/compliance" }
 dependencies = [
+    { name = "cryptography" },
     { name = "holidays" },
     { name = "vitrina-core" },
 ]
 
 [package.metadata]
 requires-dist = [
+    { name = "cryptography", specifier = ">=44" },
     { name = "holidays", specifier = "==0.107" },
     { name = "vitrina-core", editable = "packages/core" },
 ]
