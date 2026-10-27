@@ -86,6 +86,11 @@ extra_checks = true
 no_implicit_reexport = true
 warn_return_any = true
 
+# asyncpg ships no type information; only test support and raw-driver code use it.
+[[tool.mypy.overrides]]
+module = ["asyncpg", "asyncpg.*"]
+ignore_missing_imports = true
+
 [tool.pydantic-mypy]
 init_forbid_extra = true
 init_typed = true

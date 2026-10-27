@@ -19,3 +19,15 @@ def test_mock_phone_view_is_mounted_only_when_the_mock_is_on(tmp_path: Path) -> 
 
     assert TestClient(create_app(on)).get("/mock/whatsapp").status_code == 200
     assert TestClient(create_app(off)).get("/mock/whatsapp").status_code == 404
+
+
+def test_fr_084_every_response_carries_a_request_id_and_errors_are_problems() -> None:
+    client = TestClient(create_app())
+
+    health = client.get("/v1/health")
+    missing = client.get("/v1/nowhere")
+
+    assert health.headers["x-request-id"]
+    assert missing.status_code == 404
+    assert missing.headers["content-type"] == "application/problem+json"
+    assert missing.json()["request_id"] == missing.headers["x-request-id"]

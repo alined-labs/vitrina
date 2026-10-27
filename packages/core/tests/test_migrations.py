@@ -6,18 +6,14 @@ throwaway schema each.
 """
 
 import asyncio
-import io
-import os
 import re
-from collections.abc import Iterator
 from uuid import uuid4
 
 import asyncpg
 import pytest
 from alembic import command
-from alembic.config import Config
 
-from vitrina_core.settings import REPO_ROOT
+from vitrina_core.testing import alembic_config, connect
 
 TABLES = {
     "sellers", "products", "facts", "assets", "creative_jobs", "creatives", "copy_variants", "ads",
@@ -26,15 +22,6 @@ TABLES = {
     "reactivation_campaigns", "send_decisions", "erasure_receipts", "jobs", "idempotency_keys",
     "model_calls", "eval_runs", "public_showcases", "public_rate_limits", "events",
 }  # fmt: skip
-
-
-def alembic_config(schema: str, url: str | None = None) -> tuple[Config, io.StringIO]:
-    buffer = io.StringIO()
-    config = Config(str(REPO_ROOT / "alembic.ini"), output_buffer=buffer)
-    config.attributes["schema"] = schema
-    if url is not None:
-        config.attributes["url"] = url
-    return config, buffer
 
 
 def offline_sql(schema: str = "ci_offline", direction: str = "upgrade") -> str:
@@ -89,49 +76,17 @@ def test_downgrade_drops_every_table() -> None:
 # ── against a real Postgres ───────────────────────────────────────────────────────────
 
 
-@pytest.fixture
-def database() -> Iterator[tuple[str, str]]:
-    url = os.environ.get("DATABASE_URL")
-    if not url:
-        if os.environ.get("CI_DB_REQUIRED"):
-            pytest.fail(
-                "CI_DB_REQUIRED is set but DATABASE_URL is not: the db job must reach Postgres"
-            )
-        pytest.skip("DATABASE_URL is not set (CI runs these against its Postgres service)")
-    schema = f"test_{uuid4().hex[:12]}"
-    yield url, schema
-    asyncio.run(_drop_schema(url, schema))
-
-
-def _plain(url: str) -> str:
-    return re.sub(r"^postgres(ql)?(\+asyncpg)?://", "postgresql://", url)
-
-
-async def _drop_schema(url: str, schema: str) -> None:
-    connection = await asyncpg.connect(_plain(url))
-    try:
-        await connection.execute(f'DROP SCHEMA IF EXISTS "{schema}" CASCADE')
-    finally:
-        await connection.close()
-
-
-async def _connect(url: str, schema: str) -> asyncpg.Connection:
-    return await asyncpg.connect(
-        _plain(url), server_settings={"search_path": f'"{schema}", public, extensions'}
-    )
-
-
 @pytest.mark.db
 def test_db_upgrade_creates_every_table_and_downgrade_removes_them(
-    database: tuple[str, str],
+    fresh_schema: tuple[str, str],
 ) -> None:
-    url, schema = database
+    url, schema = fresh_schema
     config, _ = alembic_config(schema, url)
 
     command.upgrade(config, "head")
 
     async def tables() -> set[str]:
-        connection = await _connect(url, schema)
+        connection = await connect(url, schema)
         try:
             rows = await connection.fetch(
                 "SELECT table_name FROM information_schema.tables WHERE table_schema = $1", schema
@@ -146,12 +101,12 @@ def test_db_upgrade_creates_every_table_and_downgrade_removes_them(
 
 
 @pytest.mark.db
-def test_db_invariants_hold(database: tuple[str, str]) -> None:
-    url, schema = database
+def test_db_invariants_hold(fresh_schema: tuple[str, str]) -> None:
+    url, schema = fresh_schema
     command.upgrade(alembic_config(schema, url)[0], "head")
 
     async def check() -> None:
-        connection = await _connect(url, schema)
+        connection = await connect(url, schema)
         try:
             seller = await connection.fetchval(
                 """INSERT INTO sellers (id, business_name, owner_name, whatsapp_number, city)
