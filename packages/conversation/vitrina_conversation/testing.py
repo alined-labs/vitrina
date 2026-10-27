@@ -2,16 +2,19 @@
 
 ``ScriptedChat`` stands in for Muse Spark: it answers from a script (a final JSON answer, a
 tool call, or a provider failure) and records every request, so tests can assert what the
-engine sent. MX0's eval tests can use it too.
+engine sent. MX0's eval tests can use it too. ``AdGallery`` stands in for the creative
+module's approved ads (I-10).
 """
 
 import json
+from collections.abc import Mapping
 from dataclasses import dataclass, field
 from uuid import UUID, uuid4
 
 from vitrina_catalog.api import InMemoryCatalog, SellerSettings
 from vitrina_catalog.sellers import BrandVoiceProfile
 from vitrina_core.providers import (
+    Blob,
     CallMeta,
     ChatMessage,
     ChatRequest,
@@ -20,6 +23,7 @@ from vitrina_core.providers import (
     ToolCall,
 )
 from vitrina_core.settings import REPO_ROOT
+from vitrina_creative.api import ApprovedAsset
 
 SHOP_SELLER_ID = UUID("0b6f5c0e-3a52-4d55-9d0a-6c1a3f1e2b10")
 
@@ -130,6 +134,41 @@ class ScriptedChat:
             finish_reason="tool_calls" if message.tool_calls else "stop",
             meta=CallMeta(provider="local_mock", model=request.model, purpose=request.purpose),
         )
+
+
+@dataclass
+class AdGallery:
+    """``send_ad_asset``'s backend: one approved ad per product, and every lookup it got."""
+
+    assets: dict[UUID, ApprovedAsset] = field(default_factory=dict)
+    calls: list[tuple[UUID, UUID, UUID | None, Mapping[str, str] | None]] = field(
+        default_factory=list
+    )
+
+    def approve(self, product_id: UUID, code: str = "A7") -> ApprovedAsset:
+        asset = ApprovedAsset(
+            ad_id=uuid4(),
+            code=code,
+            image=Blob(data=b"\x89PNG\r\n\x1a\n" + code.encode(), mime_type="image/png"),
+            caption=f"Mira el anuncio #{code}",
+            wa_link=f"https://wa.me/573000000101?text=Hola%2C%20vi%20el%20anuncio%20%23{code}",
+        )
+        self.assets[product_id] = asset
+        return asset
+
+    async def __call__(
+        self,
+        seller_id: UUID,
+        product_id: UUID,
+        *,
+        ad_id: UUID | None = None,
+        variant_hint: Mapping[str, str] | None = None,
+    ) -> ApprovedAsset | None:
+        self.calls.append((seller_id, product_id, ad_id, variant_hint))
+        asset = self.assets.get(product_id)
+        if asset is None or ad_id not in (None, asset.ad_id):
+            return None
+        return asset
 
 
 WEBHOOK_FIXTURES = REPO_ROOT / "evals" / "fixtures" / "webhooks"

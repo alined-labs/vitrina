@@ -5,8 +5,10 @@ before anything else (R7, FR-063) → normalize (FR-022) → attribution (FR-023
 human mode the message is only stored (R6) → a yes to a pending consent question is recorded
 (R8) → the agent turn (T024) → its decisions applied: handoff, objections, consent, opt-out,
 reservations with their ``ad.*`` events → the reply sent with pacing (R12, AS-3.11) and its
-delivery status kept (FR-028). Media the agent cannot read yet gets a short note (FR-022;
-images and voice notes arrive with T050 and T051); reactions get no reply.
+delivery status kept (FR-028) → the approved ad images the agent chose (``send_ad_asset``,
+T043), each in its own paced slot, only after an accepted reply that hands nothing off. Media
+the agent cannot read yet gets a short note (FR-022; images and voice notes arrive with T050
+and T051); reactions get no reply.
 
 When the model is unavailable the customer still gets an answer: the fallback reply, and a
 handoff so the owner picks up (constitution Art. III.3, Art. VIII).
@@ -31,10 +33,10 @@ from vitrina_conversation.engine import AgentDeps, Exchange, TurnRequest, TurnRe
 from vitrina_conversation.normalize import normalize
 from vitrina_conversation.pacing import Pacer
 from vitrina_conversation.store import ConversationState, ConversationStore, Event, StoredMessage
-from vitrina_conversation.tools import HandoffAction
+from vitrina_conversation.tools import HandoffAction, QueuedAsset
 from vitrina_conversation.validation import FALLBACK_REPLY
 from vitrina_core.ids import new_id
-from vitrina_core.providers import Messenger, OutboundText, ProviderError
+from vitrina_core.providers import Messenger, OutboundImage, OutboundText, ProviderError
 
 logger = logging.getLogger(__name__)
 
@@ -131,9 +133,7 @@ class _Inbound:
         recent = await deps.store.recent_messages(
             self.seller_id, conversation.id, limit=deps.history_turns * 2 + 1
         )
-        pending_prompt = (
-            self.seller.consent_prompt_text if recent and recent[-1].proposed_consent else None
-        )
+        pending_prompt = self.seller.consent_prompt_text if _consent_pending(recent) else None
         normalized = normalize(inbound.kind, inbound.text, pending_consent_prompt=pending_prompt)
         stored = await deps.store.add_message(
             self.seller_id,
@@ -219,7 +219,11 @@ class _Inbound:
             )
             return await self._unavailable(question)
         await self._apply(turn, question)
-        return await self._reply(turn.final_reply, "replied", turn)
+        outcome = await self._reply(turn.final_reply, "replied", turn)
+        accepted = turn.review is not None and turn.review.outcome == "accept"
+        if outcome.status == "replied" and accepted and turn.actions.handoff is None:
+            await self._send_assets(turn.actions.ad_assets)
+        return outcome
 
     async def _apply(self, turn: TurnResult, text: str) -> None:
         """The turn's decisions. Consent is not among them: R8 records it from the customer's
@@ -348,18 +352,59 @@ class _Inbound:
             is_replay=inbound.is_replay,
         )
         assert stored is not None  # outbound rows carry no WhatsApp id yet
-        recipient = "+" + inbound.wa_id.removeprefix("+")
-        async with deps.pacer.slot(recipient):
-            try:
-                sent = await deps.messenger.send(OutboundText(to=recipient, text=text))
-            except ProviderError as error:
-                logger.warning("reply not sent (%s, retryable=%s)", error, error.retryable)
-                await deps.store.set_delivery(self.seller_id, stored.id, status="failed")
-                return InboundOutcome("send_failed", self.conversation.id, text, turn)
-        await deps.store.set_delivery(
-            self.seller_id, stored.id, status=sent.status, wa_message_id=sent.message_id
-        )
+        if not await self._send(stored.id, OutboundText(to=self.recipient, text=text)):
+            return InboundOutcome("send_failed", self.conversation.id, text, turn)
         return InboundOutcome(status, self.conversation.id, text, turn)
+
+    async def _send_assets(self, assets: Sequence[QueuedAsset]) -> None:
+        """T043: each image is stored under the id the tool gave the model; its ``media_ref``
+        is ``ad:<ad_id>``, for the dashboard to show the ad (``GET /ads/{ad_id}``)."""
+        for asset in assets:
+            stored = await self.deps.store.add_message(
+                self.seller_id,
+                self.conversation.id,
+                direction="outbound",
+                sender="agent",
+                type="image",
+                text=asset.caption,
+                delivery_status="queued",
+                is_replay=self.inbound.is_replay,
+                message_id=asset.message_id,
+                media_key=f"ad:{asset.ad_id}",
+            )
+            assert stored is not None
+            image = OutboundImage(to=self.recipient, image=asset.image, caption=asset.caption)
+            await self._send(stored.id, image)
+
+    async def _send(self, message_id: UUID, message: OutboundText | OutboundImage) -> bool:
+        """One paced send (R12); its delivery status is kept either way (FR-028)."""
+        deps = self.deps
+        async with deps.pacer.slot(message.to):
+            try:
+                sent = await deps.messenger.send(message)
+            except ProviderError as error:
+                logger.warning(
+                    "%s message not sent (%s, retryable=%s)", message.kind, error, error.retryable
+                )
+                await deps.store.set_delivery(self.seller_id, message_id, status="failed")
+                return False
+        await deps.store.set_delivery(
+            self.seller_id, message_id, status=sent.status, wa_message_id=sent.message_id
+        )
+        return True
+
+    @property
+    def recipient(self) -> str:
+        return "+" + self.inbound.wa_id.removeprefix("+")
+
+
+def _consent_pending(recent: Sequence[StoredMessage]) -> bool:
+    """R8: the last reply ended with the consent question; ad images sent after it are skipped."""
+    for message in reversed(recent):
+        if message.direction == "outbound" and message.type == "image":
+            continue
+        return message.proposed_consent
+    return False
 
 
 def _exchanges(recent: Sequence[StoredMessage]) -> tuple[Exchange, ...]:

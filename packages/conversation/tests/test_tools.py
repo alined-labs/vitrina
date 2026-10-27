@@ -12,7 +12,7 @@ from uuid import uuid4
 import pytest
 
 from vitrina_conversation.contract import tool_specs
-from vitrina_conversation.testing import Shop
+from vitrina_conversation.testing import AdGallery, Shop
 from vitrina_conversation.tools import ARGUMENTS, ToolBox
 from vitrina_core.providers import ToolCall
 
@@ -203,19 +203,127 @@ async def test_as_6_5_opt_out_records_the_request(shop: Shop, erase: bool, statu
     assert box.actions.opt_out.erase is erase
 
 
-@pytest.mark.parametrize(
-    ("name", "arguments"),
-    [
-        ("book_slot", {"service": "Corte", "starts_at": "2026-10-28T10:00:00-05:00"}),
-        ("send_ad_asset", {"product_id": str(uuid4())}),
-    ],
-)
-async def test_tools_without_a_backend_yet_answer_with_an_error(
-    shop: Shop, name: str, arguments: dict[str, object]
-) -> None:
-    record = await toolbox(shop, dry_run=False).run(call(name, **arguments))
+async def test_book_slot_without_a_backend_yet_answers_with_an_error(shop: Shop) -> None:
+    record = await toolbox(shop, dry_run=False).run(
+        call("book_slot", service="Corte", starts_at="2026-10-28T10:00:00-05:00")
+    )
 
     assert record.status == "error"
+
+
+async def test_t043_send_ad_asset_queues_the_approved_image(shop: Shop) -> None:
+    gallery = AdGallery()
+    asset = gallery.approve(shop.ids["mochila-azul"])
+    box = toolbox(shop, dry_run=False, ad_assets=gallery)
+
+    record = await box.run(call("send_ad_asset", product_id=shop.ids["mochila-azul"]))
+
+    assert record.status == "ok"
+    assert (record.result["status"], record.result["ad_id"]) == ("queued", str(asset.ad_id))
+    (queued,) = box.actions.ad_assets
+    assert str(queued.message_id) == record.result["message_id"]
+    assert (queued.ad_id, queued.product_id, queued.image) == (
+        asset.ad_id,
+        shop.ids["mochila-azul"],
+        asset.image,
+    )
+    assert queued.caption is None
+
+
+async def test_t043_the_ad_and_the_variant_hint_reach_the_creative_module(shop: Shop) -> None:
+    gallery = AdGallery()
+    asset = gallery.approve(shop.ids["mochila-azul"])
+    box = toolbox(shop, dry_run=False, ad_assets=gallery)
+
+    await box.run(
+        call(
+            "send_ad_asset",
+            product_id=shop.ids["mochila-azul"],
+            ad_id=asset.ad_id,
+            variant_hint={"color": "azul"},
+        )
+    )
+
+    assert gallery.calls == [
+        (shop.seller.seller_id, shop.ids["mochila-azul"], asset.ad_id, {"color": "azul"})
+    ]
+
+
+@pytest.mark.parametrize("approved", [False, True], ids=["no-ad", "no-backend"])
+async def test_t043_without_an_approved_ad_nothing_is_queued(shop: Shop, approved: bool) -> None:
+    gallery = AdGallery()
+    if approved:  # the ad exists, but this deployment has no creative module to ask
+        gallery.approve(shop.ids["mochila-azul"])
+    box = toolbox(shop, dry_run=False, ad_assets=None if approved else gallery)
+
+    record = await box.run(call("send_ad_asset", product_id=shop.ids["mochila-azul"]))
+
+    assert (record.status, record.result) == (
+        "ok",
+        {"status": "no_approved_ad", "ad_id": None, "message_id": None},
+    )
+    assert box.actions.ad_assets == []
+
+
+async def test_r9_a_dry_run_sends_no_ad_image(shop: Shop) -> None:
+    gallery = AdGallery()
+    gallery.approve(shop.ids["mochila-azul"])
+    box = toolbox(shop, ad_assets=gallery)
+
+    record = await box.run(call("send_ad_asset", product_id=shop.ids["mochila-azul"]))
+
+    assert (record.status, record.result) == ("skipped_dry_run", {"status": "skipped_dry_run"})
+    assert (box.actions.ad_assets, gallery.calls) == ([], [])
+
+
+async def test_t043_an_ad_of_another_shops_product_is_not_sent(shop: Shop) -> None:
+    stranger = shop.catalog.add_product(uuid4(), "Ajena", price_cop=1000)
+    gallery = AdGallery()
+    gallery.approve(stranger)
+    box = toolbox(shop, dry_run=False, ad_assets=gallery)
+
+    record = await box.run(call("send_ad_asset", product_id=stranger))
+
+    assert record.status == "error"
+    assert (box.actions.ad_assets, gallery.calls) == ([], [])
+
+
+async def test_t043_the_same_ad_goes_once_per_turn(shop: Shop) -> None:
+    gallery = AdGallery()
+    gallery.approve(shop.ids["mochila-azul"])
+    box = toolbox(shop, dry_run=False, ad_assets=gallery)
+
+    first = await box.run(call("send_ad_asset", product_id=shop.ids["mochila-azul"]))
+    second = await box.run(call("send_ad_asset", product_id=shop.ids["mochila-azul"]))
+
+    assert len(box.actions.ad_assets) == 1
+    assert first.result == second.result
+
+
+@pytest.mark.parametrize(
+    ("caption", "kept"),
+    [
+        ("Así se ve la mochila azul", True),
+        ("La mochila azul, a $85.000", True),
+        ("Hoy te la dejo en $70.000", False),
+        ("Con el envío de 8 mil", False),
+        ("   ", False),
+    ],
+)
+async def test_r2_a_caption_keeps_only_the_products_own_amounts(
+    shop: Shop, caption: str, kept: bool
+) -> None:
+    gallery = AdGallery()
+    gallery.approve(shop.ids["mochila-azul"])
+    box = toolbox(shop, dry_run=False, ad_assets=gallery)
+
+    record = await box.run(
+        call("send_ad_asset", product_id=shop.ids["mochila-azul"], caption=caption)
+    )
+
+    assert record.result["status"] == "queued"
+    (queued,) = box.actions.ad_assets
+    assert queued.caption == (caption if kept else None)
 
 
 async def test_r5_a_second_handoff_call_keeps_the_first_handoff(shop: Shop) -> None:

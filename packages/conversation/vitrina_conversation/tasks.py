@@ -38,6 +38,7 @@ async def process_inbound_job(ctx: JobContext) -> str | None:
             providers=ctx.providers,
             messenger=_messenger(ctx.settings),
             pacer=_PACER,
+            storage=ctx.storage,
         )
     except LookupError as error:  # MODEL_AGENT unset (Q01)
         raise JobFailedError("PROVIDER_UNAVAILABLE", str(error)) from error

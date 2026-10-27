@@ -23,9 +23,10 @@ from vitrina_conversation.api import (
     process_inbound,
 )
 from vitrina_conversation.pipeline import ERASURE_REPLY, OPT_OUT_REPLY, TEXT_ONLY_REPLY
-from vitrina_conversation.testing import ScriptedChat, Shop, final_answer, tool_call
+from vitrina_conversation.testing import AdGallery, ScriptedChat, Shop, final_answer, tool_call
 from vitrina_core.providers import (
     ChatMessage,
+    OutboundImage,
     OutboundMessage,
     OutboundText,
     ProviderError,
@@ -53,9 +54,11 @@ class RecordingMessenger:
     clock: FakeClock
     sent: list[tuple[float, OutboundMessage]] = field(default_factory=list)
     failure: ProviderError | None = None
+    failing_kinds: tuple[str, ...] = ()
+    """Message kinds the failure applies to; all of them when empty."""
 
     async def send(self, message: OutboundMessage) -> SendResult:
-        if self.failure is not None:
+        if self.failure is not None and message.kind in (self.failing_kinds or (message.kind,)):
             raise self.failure
         self.sent.append((self.clock.now, message))
         return SendResult(message_id=f"wamid.VITRINA-TEST-OUT-{len(self.sent):04d}", status="sent")
@@ -63,6 +66,10 @@ class RecordingMessenger:
     @property
     def texts(self) -> list[str]:
         return [message.text for _, message in self.sent if isinstance(message, OutboundText)]
+
+    @property
+    def images(self) -> list[OutboundImage]:
+        return [message for _, message in self.sent if isinstance(message, OutboundImage)]
 
 
 @dataclass
@@ -74,6 +81,7 @@ class World:
     messenger: RecordingMessenger
     clock: FakeClock
     erasures: list[tuple[UUID, UUID]]
+    gallery: AdGallery
     deps: PipelineDeps
 
     @property
@@ -120,6 +128,7 @@ def world(shop: Shop) -> World:
     )
     messenger = RecordingMessenger(clock)
     erasures: list[tuple[UUID, UUID]] = []
+    gallery = AdGallery()
 
     async def settings(seller_id: UUID) -> SellerSettings | None:
         return shop.seller if seller_id == shop.seller.seller_id else None
@@ -134,13 +143,15 @@ def world(shop: Shop) -> World:
         store=store,
         compliance=compliance,
         seller_settings=settings,
-        agent=AgentDeps(chat=chat, catalog=shop.catalog, model="spark-test", sleep=no_sleep),
+        agent=AgentDeps(
+            chat=chat, catalog=shop.catalog, model="spark-test", sleep=no_sleep, ad_assets=gallery
+        ),
         messenger=messenger,
         pacer=Pacer(clock=clock, sleep=clock.sleep),
         ad_lookup=ads,
         request_erasure=erase,
     )
-    return World(shop, chat, store, compliance, messenger, clock, erasures, deps)
+    return World(shop, chat, store, compliance, messenger, clock, erasures, gallery, deps)
 
 
 GREETING = "¡Hola! ¿En qué te ayudo?"
@@ -423,3 +434,118 @@ async def test_as_6_1_consent_is_recorded_once_even_if_the_model_also_records_it
 
     records = await world.compliance.consents(world.seller_id, await world.contact_id())
     assert len(records) == 1
+
+
+async def test_t043_the_ad_image_follows_the_reply_6_seconds_later(world: World) -> None:
+    product = world.shop.ids["mochila-azul"]
+    asset = world.gallery.approve(product)
+    reply = "Claro, te envío la foto de la mochila azul."
+    caption = "Así se ve la mochila azul"
+    world.script(
+        tool_call("send_ad_asset", product_id=product, caption=caption),
+        final_answer(reply, product),
+    )
+
+    outcome = await world.say("¿Tienen foto de la mochila azul?")
+
+    assert (outcome.status, world.messenger.texts) == ("replied", [reply])
+    (image,) = world.messenger.images
+    assert (image.to, image.image, image.caption) == ("+573000000001", asset.image, caption)
+    replied_at, sent_at = (at for at, _ in world.messenger.sent)
+    assert sent_at - replied_at >= 6.0
+    assert outcome.turn is not None
+    (queued,) = outcome.turn.actions.ad_assets
+    stored = world.store.messages[-1].stored
+    assert (stored.id, stored.type, stored.sender, stored.text, stored.media_key) == (
+        queued.message_id,
+        "image",
+        "agent",
+        caption,
+        f"ad:{asset.ad_id}",
+    )
+    assert (stored.delivery_status, stored.wa_message_id) == (
+        "sent",
+        "wamid.VITRINA-TEST-OUT-0002",
+    )
+
+
+@pytest.mark.parametrize("why", ["invented-price", "low-confidence"])
+async def test_t043_no_ad_image_goes_with_a_fallback(world: World, why: str) -> None:
+    product = world.shop.ids["mochila-azul"]
+    world.gallery.approve(product)
+    if why == "invented-price":  # R2 twice: the fallback and a handoff
+        invented = final_answer("Te la dejo en $70.000, mira la foto.", product)
+        world.script(tool_call("send_ad_asset", product_id=product), invented, invented)
+    else:  # R4 once: the fallback, no handoff yet
+        unsure = final_answer("Te envío la foto de la mochila azul.", product, confidence=0.3)
+        world.script(tool_call("send_ad_asset", product_id=product), unsure)
+
+    outcome = await world.say("¿Me la dejas más barata?")
+
+    assert (world.messenger.texts, world.messenger.images) == ([FALLBACK], [])
+    assert [row for row in world.store.messages if row.stored.type == "image"] == []
+    assert world.conversation(outcome).mode == ("human" if why == "invented-price" else "agent")
+
+
+async def test_t043_no_ad_image_goes_with_a_handoff(world: World) -> None:
+    product = world.shop.ids["mochila-azul"]
+    world.gallery.approve(product)
+    world.script(
+        tool_call("send_ad_asset", product_id=product),
+        final_answer("Te comunico con Ana.", confidence=0.95, handoff_reason="customer_request"),
+    )
+
+    await world.say("Mándame la foto y comunícame con Ana")
+
+    assert (world.messenger.texts, world.messenger.images) == (["Te comunico con Ana."], [])
+
+
+async def test_fr_028_an_ad_image_that_fails_is_recorded_as_failed(world: World) -> None:
+    product = world.shop.ids["mochila-azul"]
+    world.gallery.approve(product)
+    world.messenger.failure = ProviderError("media upload refused", provider="whatsapp")
+    world.messenger.failing_kinds = ("image",)
+    world.script(
+        tool_call("send_ad_asset", product_id=product),
+        final_answer("Te envío la foto de la mochila azul.", product),
+    )
+
+    outcome = await world.say("¿Tienen foto de la mochila azul?")
+
+    assert outcome.status == "replied"
+    (image_row,) = [row for row in world.store.messages if row.stored.type == "image"]
+    assert image_row.stored.delivery_status == "failed"
+
+
+async def test_fr_028_no_ad_image_follows_a_reply_that_failed(world: World) -> None:
+    product = world.shop.ids["mochila-azul"]
+    world.gallery.approve(product)
+    world.messenger.failure = ProviderError("number not on WhatsApp", provider="whatsapp")
+    world.script(
+        tool_call("send_ad_asset", product_id=product),
+        final_answer("Te envío la foto de la mochila azul.", product),
+    )
+
+    outcome = await world.say("¿Tienen foto de la mochila azul?")
+
+    assert outcome.status == "send_failed"
+    assert [row for row in world.store.messages if row.stored.type == "image"] == []
+
+
+async def test_r8_an_ad_image_after_the_consent_question_keeps_it_pending(world: World) -> None:
+    product = world.shop.ids["mochila-azul"]
+    world.gallery.approve(product)
+    prompt = world.shop.seller.consent_prompt_text
+    world.script(
+        tool_call("send_ad_asset", product_id=product),
+        final_answer(
+            f"Te envío la foto de la mochila azul. {prompt}", product, proposed_consent_prompt=True
+        ),
+        final_answer("¡Listo, veci! ¿Te ayudo con algo más?", confidence=0.95),
+    )
+    await world.say("¿Tienen foto de la mochila azul?")
+
+    await world.say("Sí, dale")
+
+    (record,) = await world.compliance.consents(world.seller_id, await world.contact_id())
+    assert (record.status, record.text_shown) == ("granted", prompt)
