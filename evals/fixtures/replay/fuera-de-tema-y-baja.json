@@ -1,0 +1,123 @@
+{
+  "name": "Fuera de tema y BAJA",
+  "description": "Una clienta pregunta algo ajeno a la tienda, vuelve al cat\u00e1logo y termina con BAJA.",
+  "webhooks": [
+    {
+      "object": "whatsapp_business_account",
+      "entry": [
+        {
+          "id": "100000000000002",
+          "changes": [
+            {
+              "value": {
+                "messaging_product": "whatsapp",
+                "metadata": {
+                  "display_phone_number": "573000000000",
+                  "phone_number_id": "100000000000001"
+                },
+                "contacts": [
+                  {
+                    "profile": {
+                      "name": "Ana Mar\u00eda Prueba"
+                    },
+                    "wa_id": "573000000013"
+                  }
+                ],
+                "messages": [
+                  {
+                    "from": "573000000013",
+                    "id": "wamid.VITRINA-REPLAY-03-01",
+                    "timestamp": "1793124000",
+                    "type": "text",
+                    "text": {
+                      "body": "\u00bfQui\u00e9n gan\u00f3 el partido anoche?"
+                    }
+                  }
+                ]
+              },
+              "field": "messages"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "object": "whatsapp_business_account",
+      "entry": [
+        {
+          "id": "100000000000002",
+          "changes": [
+            {
+              "value": {
+                "messaging_product": "whatsapp",
+                "metadata": {
+                  "display_phone_number": "573000000000",
+                  "phone_number_id": "100000000000001"
+                },
+                "contacts": [
+                  {
+                    "profile": {
+                      "name": "Ana Mar\u00eda Prueba"
+                    },
+                    "wa_id": "573000000013"
+                  }
+                ],
+                "messages": [
+                  {
+                    "from": "573000000013",
+                    "id": "wamid.VITRINA-REPLAY-03-02",
+                    "timestamp": "1793124020",
+                    "type": "text",
+                    "text": {
+                      "body": "Ok, \u00bfy tienen mochilas rojas?"
+                    }
+                  }
+                ]
+              },
+              "field": "messages"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "object": "whatsapp_business_account",
+      "entry": [
+        {
+          "id": "100000000000002",
+          "changes": [
+            {
+              "value": {
+                "messaging_product": "whatsapp",
+                "metadata": {
+                  "display_phone_number": "573000000000",
+                  "phone_number_id": "100000000000001"
+                },
+                "contacts": [
+                  {
+                    "profile": {
+                      "name": "Ana Mar\u00eda Prueba"
+                    },
+                    "wa_id": "573000000013"
+                  }
+                ],
+                "messages": [
+                  {
+                    "from": "573000000013",
+                    "id": "wamid.VITRINA-REPLAY-03-03",
+                    "timestamp": "1793124040",
+                    "type": "text",
+                    "text": {
+                      "body": "BAJA"
+                    }
+                  }
+                ]
+              },
+              "field": "messages"
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}
