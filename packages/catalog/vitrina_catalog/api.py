@@ -34,9 +34,16 @@ from vitrina_catalog.schemas import (
     ProductCreate,
     ProductUpdate,
 )
+from vitrina_catalog.sellers import (
+    BrandVoiceProfile,
+    Seller,
+    SellerSettings,
+    SellerStore,
+)
 
 __all__ = [
     "RESERVATION_TTL",
+    "BrandVoiceProfile",
     "Catalog",
     "CatalogStore",
     "Citation",
@@ -55,5 +62,8 @@ __all__ = [
     "Reservation",
     "SearchKind",
     "SearchResult",
+    "Seller",
+    "SellerSettings",
+    "SellerStore",
     "StockLevel",
 ]
