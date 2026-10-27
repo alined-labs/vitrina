@@ -4,6 +4,7 @@ version = "0.1.0"
 description = "Consent ledger, opt-out and erasure, legal-hours calendar, eligibility, reactivation campaigns."
 requires-python = ">=3.12,<3.13"
 dependencies = [
+    "holidays==0.107",
     "vitrina-core",
 ]
 
