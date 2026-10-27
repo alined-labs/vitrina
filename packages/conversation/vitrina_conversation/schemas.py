@@ -1,17 +1,22 @@
-"""openapi.yaml schemas of ``POST /agent/turns`` (FR-030) and the mapping from a ``TurnResult``.
+"""openapi.yaml schemas of the agent and conversation routes, and the mappings to them.
+
+``POST /agent/turns`` (FR-030) maps a ``TurnResult``; the conversation routes map store records.
 
 The response's ``AgentTurnOutput`` is the API shape: three required fields and nullable as
 a whole, null when no valid answer came back. The model's own answer is held to the strict
 agent-tools.json shape (``contract.AgentTurnOutput``); research/OPEN.md Q15 and C2.
 """
 
-from typing import Annotated, Any, Literal
+from datetime import datetime
+from typing import Annotated, Any, Literal, cast
 from uuid import UUID
 
 from pydantic import MISSING, BaseModel, Field
 
 from vitrina_conversation.contract import HandoffReason, ObjectionTag
 from vitrina_conversation.engine import TurnResult
+from vitrina_conversation.normalize import NormalizedMessage
+from vitrina_conversation.store import ConversationRecord, StoredMessage
 
 
 class AgentTurnMessage(BaseModel):
@@ -169,4 +174,114 @@ def agent_turn_result(result: TurnResult) -> AgentTurnResult:
             )
             for call in result.model_calls
         ],
+    )
+
+
+# ── Conversations (openapi.yaml Conversation, Handoff, Message; AS-3.8, AS-3.9) ──
+
+MessageType = Literal[
+    "text", "image", "audio", "video", "document", "interactive", "template", "unsupported"
+]
+DeliveryStatus = Literal["queued", "sent", "delivered", "read", "failed", "mocked"]
+
+
+class Handoff(BaseModel):
+    id: UUID | MISSING = MISSING
+    reason: HandoffReason | MISSING = MISSING
+    summary: Annotated[str, Field(max_length=500)] | MISSING = MISSING
+    opened_at: datetime | MISSING = MISSING
+    released_at: datetime | None = None
+    seller_notified: bool | MISSING = MISSING
+
+
+class Conversation(BaseModel):
+    id: UUID
+    seller_id: UUID
+    contact_id: UUID
+    attributed_ad_id: UUID | None = None
+    attributed_ad_code: str | None = None
+    attribution_status: Literal["attributed", "unknown_code", "none"]
+    mode: Literal["agent", "human", "closed"]
+    handoff: Handoff | None = None
+    last_message_at: datetime | MISSING = MISSING
+    summary: str | MISSING = MISSING
+    objection_tags: list[ObjectionTag] | MISSING = MISSING
+    reservation_ids: list[UUID] | MISSING = MISSING
+    is_replay: bool = False
+    created_at: datetime
+
+
+class Message(BaseModel):
+    id: UUID
+    conversation_id: UUID
+    direction: Literal["inbound", "outbound"]
+    sender: Literal["customer", "agent", "seller", "system"] | MISSING = MISSING
+    wa_message_id: str | None = None
+    type: MessageType
+    text: str | None = None
+    transcript: str | None = None
+    media_ref: str | None = None
+    normalized: NormalizedMessage | None = None
+    agent_output: AgentTurnOutput | None = None
+    delivery_status: DeliveryStatus | MISSING = MISSING
+    is_replay: bool = False
+    created_at: datetime
+
+
+class HumanMessageCreate(BaseModel):
+    text: Annotated[str, Field(max_length=4096)]
+
+
+def conversation_view(record: ConversationRecord, *, ad_code: str | None) -> Conversation:
+    state = record.state
+    handoff = record.handoff
+    return Conversation(
+        id=state.id,
+        seller_id=state.seller_id,
+        contact_id=state.contact_id,
+        attributed_ad_id=state.attribution.ad_id,
+        attributed_ad_code=ad_code if state.attribution.status == "attributed" else None,
+        attribution_status=state.attribution.status,
+        mode=state.mode,
+        handoff=(
+            Handoff(
+                id=handoff.id,
+                reason=cast(HandoffReason, handoff.reason),
+                opened_at=handoff.opened_at,
+                released_at=handoff.released_at,
+                seller_notified=handoff.seller_notified,
+                summary=handoff.summary[:500] if handoff.summary else MISSING,
+            )
+            if handoff is not None
+            else None
+        ),
+        last_message_at=record.last_message_at or MISSING,
+        summary=record.summary or MISSING,
+        objection_tags=[cast(ObjectionTag, tag) for tag in record.objection_tags],
+        is_replay=state.is_replay,
+        created_at=record.created_at,
+    )
+
+
+def message_view(message: StoredMessage) -> Message:
+    assert message.created_at is not None  # every stored row has one
+    return Message(
+        id=message.id,
+        conversation_id=message.conversation_id,
+        direction=message.direction,
+        sender=message.sender,
+        wa_message_id=message.wa_message_id,
+        type=cast(MessageType, message.type),
+        text=message.text,
+        transcript=message.transcript,
+        media_ref=message.media_key,
+        normalized=(
+            NormalizedMessage.model_validate(message.normalized) if message.normalized else None
+        ),
+        agent_output=(
+            AgentTurnOutput.model_validate(message.agent_output) if message.agent_output else None
+        ),
+        delivery_status=message.delivery_status or MISSING,
+        is_replay=message.is_replay,
+        created_at=message.created_at,
     )
