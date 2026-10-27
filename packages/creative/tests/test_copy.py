@@ -192,3 +192,28 @@ def test_a_plain_honest_text_passes() -> None:
         check_copy(f"¿Buscas un regalo hecho a mano? Este bolso vale $85.000. {WA_LINK}", {85_000})
         == []
     )
+
+
+async def test_without_a_published_price_no_amount_and_no_price_angle() -> None:
+    unpriced = CopyInput(**{**BAG.__dict__, "price_cop": None, "facts": ()})
+
+    def with_price_once(slots: list[int], attempt: int) -> dict[int, str]:
+        # First try quotes the bag's usual price; the rewrite drops it.
+        if attempt == 1:
+            return {slot: good_text(slot) for slot in slots}
+        return {
+            slot: f"Veci, el bolso {slot} está tejido a mano. Escríbenos: {WA_LINK}"
+            for slot in slots
+        }
+
+    writer = ScriptedWriter(with_price_once)
+    result = await write_copy(unpriced, writer=writer, model="m")
+
+    assert result.variants
+    assert all(variant.angle != "price" for variant in result.variants)
+    assert all("$" not in variant.text for variant in result.variants)
+    system = writer.requests[0].messages[0].content
+    assert isinstance(system, str)
+    assert "no tiene precio publicado" in system
+    assert "sin publicar" in str(writer.requests[0].messages[1].content)
+    assert check_copy(good_text(1), set()) == ["menciona montos que no están en los datos: $85.000"]
