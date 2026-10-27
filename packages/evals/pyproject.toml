@@ -10,6 +10,7 @@ dependencies = [
     "vitrina-creative",
     "vitrina-compliance",
     "vitrina-meta-model-api",
+    "pyyaml>=6.0",
 ]
 
 [project.entry-points."vitrina.tasks"]

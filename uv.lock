@@ -1188,6 +1188,7 @@ name = "vitrina-evals"
 version = "0.1.0"
 source = { editable = "packages/evals" }
 dependencies = [
+    { name = "pyyaml" },
     { name = "vitrina-catalog" },
     { name = "vitrina-compliance" },
     { name = "vitrina-conversation" },
@@ -1198,6 +1199,7 @@ dependencies = [
 
 [package.metadata]
 requires-dist = [
+    { name = "pyyaml", specifier = ">=6.0" },
     { name = "vitrina-catalog", editable = "packages/catalog" },
     { name = "vitrina-compliance", editable = "packages/compliance" },
     { name = "vitrina-conversation", editable = "packages/conversation" },
