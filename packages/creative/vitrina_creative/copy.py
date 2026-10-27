@@ -197,6 +197,25 @@ GANCHOS: question (pregunta), bold_claim (afirmación fuerte y verdadera), story
 Responde solo con JSON y nada más: {{"variants": [{{"slot": 1, "text": "..."}}]}}"""
 
 
+async def rewrite_cells(
+    item: CopyInput,
+    cells: Sequence[tuple[CopyHook, CopyAngle]],
+    problems: Sequence[Sequence[str]],
+    *,
+    writer: ChatModel,
+    model: str,
+) -> dict[int, str]:
+    """Rewrite given cells once, each with its problems listed; texts by cell index."""
+    return await _write(
+        item,
+        list(cells),
+        list(range(len(cells))),
+        {index: list(found) for index, found in enumerate(problems)},
+        writer=writer,
+        model=model,
+    )
+
+
 async def _write(
     item: CopyInput,
     cells: list[tuple[CopyHook, CopyAngle]],
