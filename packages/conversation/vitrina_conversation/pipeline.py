@@ -1,0 +1,398 @@
+"""The inbound pipeline: one customer message from WhatsApp to the agent's reply (T027).
+
+plan.md §4.1, in order: dedupe by WhatsApp message id (AS-3.1) → opt-out and erasure keywords
+before anything else (R7, FR-063) → normalize (FR-022) → attribution (FR-023, AS-3.2) → in
+human mode the message is only stored (R6) → a yes to a pending consent question is recorded
+(R8) → the agent turn (T024) → its decisions applied: handoff, objections, consent, opt-out,
+reservations with their ``ad.*`` events → the reply sent with pacing (R12, AS-3.11) and its
+delivery status kept (FR-028). Media the agent cannot read yet gets a short note (FR-022;
+images and voice notes arrive with T050 and T051); reactions get no reply.
+
+When the model is unavailable the customer still gets an answer: the fallback reply, and a
+handoff so the owner picks up (constitution Art. III.3, Art. VIII).
+"""
+
+import logging
+from collections.abc import Awaitable, Callable, Sequence
+from dataclasses import dataclass, replace
+from datetime import UTC, datetime
+from typing import Literal
+from uuid import UUID
+
+from vitrina_catalog.api import SellerSettings
+from vitrina_compliance.api import (
+    ComplianceStore,
+    ConsentRefusedError,
+    opt_out,
+    record_consent,
+)
+from vitrina_conversation.attribution import AdLookup, attribute, chat_started_payload
+from vitrina_conversation.engine import AgentDeps, Exchange, TurnRequest, TurnResult, run_turn
+from vitrina_conversation.normalize import normalize
+from vitrina_conversation.pacing import Pacer
+from vitrina_conversation.store import ConversationState, ConversationStore, Event, StoredMessage
+from vitrina_conversation.tools import HandoffAction
+from vitrina_conversation.validation import FALLBACK_REPLY
+from vitrina_core.ids import new_id
+from vitrina_core.providers import Messenger, OutboundText, ProviderError
+
+logger = logging.getLogger(__name__)
+
+OPT_OUT_REPLY = (
+    "Listo, no te enviaremos más mensajes promocionales. Si quieres volver a recibirlos, "
+    "escríbenos."
+)
+ERASURE_REPLY = "Recibimos tu solicitud. Borraremos tus datos en las próximas 24 horas."
+TEXT_ONLY_REPLY = "Por ahora solo puedo leer mensajes de texto. ¿Me escribes tu pregunta?"
+
+OutcomeStatus = Literal[
+    "replied",
+    "duplicate",
+    "unknown_seller",
+    "opted_out",
+    "erasure_requested",
+    "human_mode",
+    "stored",
+    "send_failed",
+]
+
+
+def _utcnow() -> datetime:
+    return datetime.now(UTC)
+
+
+@dataclass(frozen=True)
+class Inbound:
+    """One customer message, whatever channel delivered it (webhook, replay, mock phone)."""
+
+    seller_id: UUID
+    wa_id: str
+    message_id: str
+    kind: str
+    """openapi.yaml ``MessageType`` as received (text, image, audio, interactive, …)."""
+    text: str | None
+    profile_name: str | None = None
+    wa_type: str | None = None
+    raw_payload_id: UUID | None = None
+    is_replay: bool = False
+
+
+@dataclass(frozen=True)
+class PipelineDeps:
+    store: ConversationStore
+    compliance: ComplianceStore
+    seller_settings: Callable[[UUID], Awaitable[SellerSettings | None]]
+    agent: AgentDeps
+    messenger: Messenger
+    pacer: Pacer
+    ad_lookup: AdLookup
+    request_erasure: Callable[[UUID, UUID], Awaitable[None]] | None = None
+    clock: Callable[[], datetime] = _utcnow
+    history_turns: int = 10
+
+
+@dataclass(frozen=True)
+class InboundOutcome:
+    status: OutcomeStatus
+    conversation_id: UUID | None = None
+    reply: str | None = None
+    turn: TurnResult | None = None
+
+
+async def process_inbound(inbound: Inbound, deps: PipelineDeps) -> InboundOutcome:
+    seller = await deps.seller_settings(inbound.seller_id)
+    if seller is None:
+        logger.warning("inbound message for an unknown seller; stored only in the raw payload")
+        return InboundOutcome("unknown_seller")
+    return await _Inbound(inbound, deps, seller).run()
+
+
+class _Inbound:
+    contact_id: UUID
+    conversation: ConversationState
+    evidence: UUID
+
+    def __init__(self, inbound: Inbound, deps: PipelineDeps, seller: SellerSettings) -> None:
+        self.inbound = inbound
+        self.deps = deps
+        self.seller = seller
+        self.seller_id = seller.seller_id
+
+    async def run(self) -> InboundOutcome:
+        deps, inbound = self.deps, self.inbound
+        contact = await deps.compliance.resolve_contact(
+            self.seller_id, inbound.wa_id, display_name=inbound.profile_name
+        )
+        self.contact_id = contact.id
+        conversation = await deps.store.open_conversation(
+            self.seller_id, contact.id, is_replay=inbound.is_replay
+        )
+        self.conversation = conversation
+        recent = await deps.store.recent_messages(
+            self.seller_id, conversation.id, limit=deps.history_turns * 2 + 1
+        )
+        pending_prompt = (
+            self.seller.consent_prompt_text if recent and recent[-1].proposed_consent else None
+        )
+        normalized = normalize(inbound.kind, inbound.text, pending_consent_prompt=pending_prompt)
+        stored = await deps.store.add_message(
+            self.seller_id,
+            conversation.id,
+            direction="inbound",
+            sender="customer",
+            type=inbound.kind,
+            text=inbound.text,
+            wa_message_id=inbound.message_id,
+            normalized=normalized.model_dump(mode="json"),
+            is_replay=inbound.is_replay,
+            raw_payload_id=inbound.raw_payload_id,
+        )
+        if stored is None:  # Meta redelivered a message we already have (AS-3.1)
+            return InboundOutcome("duplicate", conversation.id)
+        self.evidence = stored.id
+        text = inbound.text or ""
+
+        if normalized.opt_out_detected:  # R7, FR-063: before anything else
+            await opt_out(
+                deps.compliance,
+                self.seller_id,
+                contact.id,
+                via="keyword",
+                response_text=text,
+                evidence_message_id=stored.id,
+            )
+            return await self._reply(OPT_OUT_REPLY, "opted_out")
+        if normalized.erasure_requested:
+            if deps.request_erasure is not None:
+                await deps.request_erasure(self.seller_id, contact.id)
+            return await self._reply(ERASURE_REPLY, "erasure_requested")
+
+        attribution, started = await attribute(
+            conversation.attribution, text, self.seller_id, deps.ad_lookup
+        )
+        events: list[Event] = []
+        if started and attribution.ad_id is not None:
+            events.append(
+                (
+                    "ad.chat_started",
+                    chat_started_payload(
+                        attribution.ad_id, conversation.id, contact.id, deps.clock()
+                    ),
+                )
+            )
+        await deps.store.update_conversation(
+            self.seller_id,
+            conversation.id,
+            touched_at=deps.clock(),
+            attribution=attribution,
+            events=events,
+        )
+        self.conversation = replace(conversation, attribution=attribution)
+
+        if conversation.mode != "agent":  # R6: the owner is answering
+            return InboundOutcome("human_mode", conversation.id)
+        if inbound.wa_type == "reaction":
+            return InboundOutcome("stored", conversation.id)
+
+        consent_recorded = False
+        if normalized.consent_affirmative and pending_prompt is not None:  # R8
+            consent_recorded = await self._record_consent(pending_prompt, text)
+
+        question = normalized.text if isinstance(normalized.text, str) else ""
+        if normalized.kind in ("audio", "unsupported") or not question.strip():
+            return await self._reply(TEXT_ONLY_REPLY, "replied")
+
+        request = TurnRequest(
+            seller=self.seller,
+            conversation_id=conversation.id,
+            message=question,
+            history=_exchanges(recent),
+            dry_run=False,
+            low_confidence_streak=conversation.low_confidence_streak,
+            pending_consent_prompt=None if consent_recorded else pending_prompt,
+        )
+        try:
+            turn = await run_turn(request, deps.agent)
+        except (ProviderError, TimeoutError) as error:
+            logger.warning(
+                "agent turn failed (%s); falling back to the owner", type(error).__name__
+            )
+            return await self._unavailable(question)
+        await self._apply(turn, question)
+        return await self._reply(turn.final_reply, "replied", turn)
+
+    async def _apply(self, turn: TurnResult, text: str) -> None:
+        """The turn's decisions. Consent is not among them: R8 records it from the customer's
+        own reply above, and the model's record_consent call answers by the same rules."""
+        deps, conversation = self.deps, self.conversation
+        ad_id = conversation.attribution.ad_id
+        actions = turn.actions
+        for objection in actions.objections:
+            events: list[Event] = [
+                (
+                    "objection.recorded",
+                    {
+                        "objection_id": str(objection.id),
+                        "tag": objection.tag,
+                        "product_id": str(objection.product_id) if objection.product_id else None,
+                    },
+                )
+            ]
+            if ad_id is not None:
+                events.append(
+                    (
+                        "ad.objection",
+                        {
+                            "ad_id": str(ad_id),
+                            "conversation_id": str(conversation.id),
+                            "objection_id": str(objection.id),
+                            "tag": objection.tag,
+                        },
+                    )
+                )
+            await deps.store.add_objection(
+                self.seller_id, conversation.id, objection, ad_id=ad_id, events=events
+            )
+        if ad_id is not None and actions.reservations:
+            await deps.store.emit(
+                self.seller_id,
+                [
+                    (
+                        "ad.reservation",
+                        {
+                            "ad_id": str(ad_id),
+                            "conversation_id": str(conversation.id),
+                            "reservation_id": str(item.reservation_id),
+                            "product_id": str(item.product_id),
+                            "quantity": item.quantity,
+                        },
+                    )
+                    for item in actions.reservations
+                ],
+            )
+        if actions.opt_out is not None:
+            await opt_out(
+                deps.compliance,
+                self.seller_id,
+                self.contact_id,
+                via="tool",
+                response_text=text,
+                evidence_message_id=self.evidence,
+            )
+            if actions.opt_out.erase and deps.request_erasure is not None:
+                await deps.request_erasure(self.seller_id, self.contact_id)
+        await deps.store.update_conversation(
+            self.seller_id,
+            conversation.id,
+            touched_at=deps.clock(),
+            low_confidence_streak=turn.low_confidence_streak,
+        )
+        if actions.handoff is not None:
+            await self._hand_off(actions.handoff)
+
+    async def _hand_off(self, handoff: HandoffAction) -> None:
+        conversation = self.conversation
+        events: list[Event] = []
+        if conversation.attribution.ad_id is not None:
+            events.append(
+                (
+                    "ad.handoff",
+                    {
+                        "ad_id": str(conversation.attribution.ad_id),
+                        "conversation_id": str(conversation.id),
+                        "handoff_id": str(handoff.id),
+                        "reason": handoff.reason,
+                    },
+                )
+            )
+        await self.deps.store.open_handoff(self.seller_id, conversation.id, handoff, events=events)
+
+    async def _unavailable(self, question: str) -> InboundOutcome:
+        summary = (
+            f"Motivo: el asistente no estuvo disponible. Último mensaje del cliente: «{question}»"
+        )[:500]
+        await self._hand_off(HandoffAction(new_id(), "other", summary))
+        return await self._reply(
+            FALLBACK_REPLY.format(owner_name=self.seller.owner_name), "replied"
+        )
+
+    async def _record_consent(self, prompt: str, response: str) -> bool:
+        try:
+            await record_consent(
+                self.deps.compliance,
+                self.seller_id,
+                self.contact_id,
+                prompt_text=prompt,
+                response_text=response,
+                evidence_message_id=self.evidence,
+            )
+        except ConsentRefusedError:
+            return False
+        return True
+
+    async def _reply(
+        self, text: str, status: OutcomeStatus, turn: TurnResult | None = None
+    ) -> InboundOutcome:
+        deps, inbound = self.deps, self.inbound
+        output = turn.output.model_dump(mode="json") if turn and turn.output else None
+        stored = await deps.store.add_message(
+            self.seller_id,
+            self.conversation.id,
+            direction="outbound",
+            sender="agent" if turn is not None else "system",
+            type="text",
+            text=text,
+            agent_output=output,
+            validation=_validation(turn),
+            delivery_status="queued",
+            is_replay=inbound.is_replay,
+        )
+        assert stored is not None  # outbound rows carry no WhatsApp id yet
+        recipient = "+" + inbound.wa_id.removeprefix("+")
+        async with deps.pacer.slot(recipient):
+            try:
+                sent = await deps.messenger.send(OutboundText(to=recipient, text=text))
+            except ProviderError as error:
+                logger.warning("reply not sent (%s, retryable=%s)", error, error.retryable)
+                await deps.store.set_delivery(self.seller_id, stored.id, status="failed")
+                return InboundOutcome("send_failed", self.conversation.id, text, turn)
+        await deps.store.set_delivery(
+            self.seller_id, stored.id, status=sent.status, wa_message_id=sent.message_id
+        )
+        return InboundOutcome(status, self.conversation.id, text, turn)
+
+
+def _exchanges(recent: Sequence[StoredMessage]) -> tuple[Exchange, ...]:
+    """Earlier turns as (customer, reply) pairs; consecutive customer messages are joined."""
+    exchanges: list[Exchange] = []
+    customer: list[str] = []
+    for message in recent:
+        if message.direction == "inbound":
+            if message.text:
+                customer.append(message.text)
+        elif customer and message.text:
+            exchanges.append(Exchange("\n".join(customer), message.text))
+            customer = []
+    return tuple(exchanges)
+
+
+def _validation(turn: TurnResult | None) -> dict[str, object] | None:
+    if turn is None or turn.review is None:
+        return None
+    review = turn.review
+    return {
+        "price_validator": {
+            "passed": review.price.passed,
+            "amounts_in_reply": list(review.price.amounts_in_reply),
+            "amounts_in_citations": list(review.price.amounts_in_citations),
+            "violations": list(review.price.violations),
+            "retried": review.retried,
+        },
+        "groundedness": {
+            "passed": review.groundedness.passed,
+            "uncited_claims": list(review.groundedness.uncited_claims),
+        },
+        "scope": {"passed": not turn.off_topic},
+        "outcome": review.outcome,
+        "confidence": review.confidence,
+    }
