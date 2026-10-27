@@ -132,3 +132,16 @@ def test_a_manual_record_is_validated(app_store: tuple[TestClient, InMemoryCompl
     )
 
     assert response.status_code == 400
+
+
+async def test_as_6_6_erasing_needs_the_database_and_a_known_contact(
+    app_store: tuple[TestClient, InMemoryCompliance],
+) -> None:
+    client, store = app_store
+    contact = await store.resolve_contact(SELLER, "573000000001")
+
+    unknown = client.delete(f"/v1/contacts/{UUID(int=1)}", headers=bearer())
+    no_database = client.delete(f"/v1/contacts/{contact.id}", headers=bearer())
+
+    assert unknown.status_code == 404
+    assert no_database.status_code == 503

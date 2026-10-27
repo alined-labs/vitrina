@@ -1,7 +1,6 @@
 """Contacts & Consent router. Owner: MX0 (plan.md §3).
 
 Contract paths: /contacts, /contacts/{contact_id} and its /consents, /opt-out.
-``DELETE /contacts/{contact_id}`` (erasure) arrives with T062.
 """
 
 from typing import Annotated, Literal
@@ -15,6 +14,7 @@ from vitrina_compliance.api import (
     ConsentRecordCreate,
     Contact,
     opt_out,
+    request_erasure,
 )
 from vitrina_core.auth import SellerId
 from vitrina_core.http import (
@@ -25,6 +25,7 @@ from vitrina_core.http import (
     ProblemError,
     problem_responses,
 )
+from vitrina_core.jobs import Job, PostgresJobQueue
 
 router = APIRouter(tags=["Contacts & Consent"])
 
@@ -72,6 +73,32 @@ async def get_contact(seller_id: SellerId, store: Store, contact_id: UUID) -> Co
     if contact is None:
         raise _not_found(contact_id)
     return contact
+
+
+@router.delete(
+    "/contacts/{contact_id}",
+    status_code=202,
+    operation_id="eraseContact",
+    summary="Erase a contact's personal data (Habeas Data request)",
+    description=(
+        "Schedules erasure within 24 h and keeps a non-reversible erasure receipt (FR-065)."
+    ),
+)
+async def erase_contact(
+    request: Request, seller_id: SellerId, store: Store, contact_id: UUID
+) -> Job:
+    if await store.contact(seller_id, contact_id) is None:
+        raise _not_found(contact_id)
+    jobs: PostgresJobQueue | None = request.app.state.jobs
+    if jobs is None or request.app.state.sessions is None:
+        raise ProblemError(
+            ProblemCode.PROVIDER_UNAVAILABLE, detail="erasure needs the database (DATABASE_URL)"
+        )
+    async with request.app.state.sessions() as session, session.begin():
+        job_id = await request_erasure(jobs, session, seller_id, contact_id)
+    job = await jobs.get_for_seller(seller_id, job_id)
+    assert job is not None
+    return job
 
 
 @router.get(
