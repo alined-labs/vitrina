@@ -31,6 +31,7 @@ from vitrina_conversation.contract import (
 )
 from vitrina_conversation.prompts import REPAIR_INSTRUCTION, render_system_prompt
 from vitrina_conversation.tools import (
+    AdAssets,
     ApprovedAds,
     HandoffAction,
     ObjectionAction,
@@ -101,6 +102,7 @@ class AgentDeps:
     temperature: float | None = 0.2
     strict_schema: bool = True
     approved_ads: ApprovedAds | None = None
+    ad_assets: AdAssets | None = None
     clock: Callable[[], datetime] = _utcnow
     sleep: Callable[[float], Awaitable[None]] = asyncio.sleep
 
@@ -166,6 +168,7 @@ class _Turn:
             message=request.message,
             pending_consent_prompt=request.pending_consent_prompt,
             approved_ads=deps.approved_ads,
+            ad_assets=deps.ad_assets,
         )
 
     async def run(self) -> TurnResult:
