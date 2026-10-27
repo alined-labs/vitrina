@@ -43,6 +43,7 @@ from vitrina_creative.provenance import (
 )
 from vitrina_creative.schemas import Creative, CreativeJob, CreativeJobCreate
 from vitrina_creative.segment import SegmentationError, SegmentedPhoto, segment_photo
+from vitrina_creative.start import job_payload, start_job
 from vitrina_creative.tasks import CREATIVE_TASK
 from vitrina_creative.verifier import (
     SourceProduct,
@@ -94,6 +95,7 @@ __all__ = [
     "compose_scenes",
     "creative_view",
     "embed_provenance",
+    "job_payload",
     "job_view",
     "judge_copy",
     "list_asset_ids",
@@ -103,6 +105,7 @@ __all__ = [
     "read_provenance",
     "run_pipeline",
     "segment_photo",
+    "start_job",
     "upload_asset",
     "verify_scene",
     "write_copy",
