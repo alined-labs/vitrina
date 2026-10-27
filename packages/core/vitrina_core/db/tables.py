@@ -80,3 +80,16 @@ model_calls = sa.Table(
         "created_at", sa.DateTime(timezone=True), server_default=sa.func.now(), nullable=False
     ),
 )
+
+# Cross-module events (plan.md §3; data-model.md §4); inserting one notifies listeners.
+events = sa.Table(
+    "events",
+    metadata,
+    sa.Column("id", sa.BigInteger, sa.Identity(always=True), primary_key=True),
+    sa.Column("seller_id", sa.Uuid),
+    sa.Column("type", sa.Text, nullable=False),
+    sa.Column("payload", JSONB, nullable=False, server_default=sa.text("'{}'::jsonb")),
+    sa.Column(
+        "created_at", sa.DateTime(timezone=True), server_default=sa.func.now(), nullable=False
+    ),
+)
