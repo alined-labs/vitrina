@@ -29,11 +29,13 @@ from vitrina_conversation.pipeline import (
     TEXT_ONLY_REPLY,
     VOICE_NOT_HEARD_REPLY,
 )
+from vitrina_conversation.scope import decline_reply
 from vitrina_conversation.testing import (
     AdGallery,
     ScriptedChat,
     Shop,
     final_answer,
+    scope_answer,
     tool_call,
     webhook_fixture,
 )
@@ -699,3 +701,24 @@ async def test_as_3_6_a_kept_voice_note_is_heard_by_its_media_id(world: World) -
 
     assert outcome is not None
     assert (outcome.status, voice.heard) == ("replied", ["1000000000000102"])
+
+
+async def test_as_3_10_an_off_topic_question_is_declined_and_counted(world: World) -> None:
+    world.chat.scope.append(scope_answer(False, "deportes"))
+
+    outcome = await world.say("vi el #A7, ¿quién ganó el partido?")
+
+    assert (outcome.status, world.messenger.texts) == (
+        "replied",
+        [decline_reply(world.shop.seller)],
+    )
+    assert world.chat.requests == []
+    ((_, objection, ad_id),) = world.store.objections
+    assert (objection.tag, ad_id) == ("off_topic", AD_A7)
+    kinds = [kind for _, kind, _ in world.store.events]
+    assert kinds == ["ad.chat_started", "objection.recorded", "ad.objection"]
+    reply = world.store.messages[-1]
+    assert reply.validation is not None
+    assert reply.validation["scope"] == {"passed": False, "reason": "classifier: deportes"}
+    assert reply.stored.agent_output is not None
+    assert reply.stored.agent_output["objection_tag"] == "off_topic"

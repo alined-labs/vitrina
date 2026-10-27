@@ -466,7 +466,7 @@ def _validation(turn: TurnResult | None) -> dict[str, object] | None:
             "passed": review.groundedness.passed,
             "uncited_claims": list(review.groundedness.uncited_claims),
         },
-        "scope": {"passed": not turn.off_topic},
+        "scope": dict(zip(("passed", "reason"), turn.scope_check, strict=True)),
         "outcome": review.outcome,
         "confidence": review.confidence,
     }

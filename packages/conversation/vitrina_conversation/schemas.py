@@ -125,11 +125,8 @@ def agent_turn_result(result: TurnResult) -> AgentTurnResult:
     else:
         price = PriceValidation(passed=True, amounts_in_reply=[], violations=[], retried=False)
         groundedness = GroundednessValidation(passed=False, uncited_claims=[NO_ANSWER])
-    # The scope classifier joins with T054; until then the model's own off-topic tag decides.
-    scope = ScopeValidation(
-        passed=not result.off_topic,
-        reason="off_topic: declined by the agent" if result.off_topic else "on_topic",
-    )
+    passed, reason = result.scope_check
+    scope = ScopeValidation(passed=passed, reason=reason)
     return AgentTurnResult(
         conversation_id=result.conversation_id,
         output=(

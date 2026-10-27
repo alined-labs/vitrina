@@ -98,9 +98,9 @@ async def test_fr_030_a_turn_returns_output_tools_validation_and_the_reply(api: 
     price = body["validation"]["price_validator"]
     assert (price["passed"], price["amounts_in_reply"], price["retried"]) == (True, [8000], False)
     assert body["validation"]["groundedness"]["passed"]
-    assert body["validation"]["scope"]["passed"]
+    assert body["validation"]["scope"] == {"passed": True, "reason": "classifier: en tema"}
     assert {item["kind"] for item in body["retrieved"]} <= {"fact", "product"}
-    assert [call["provider"] for call in body["model_calls"]] == ["local_mock", "local_mock"]
+    assert [call["provider"] for call in body["model_calls"]] == ["local_mock"] * 3  # + scope
 
 
 async def test_fr_030_a_dry_run_is_the_default_and_reserves_nothing(api: Api) -> None:
