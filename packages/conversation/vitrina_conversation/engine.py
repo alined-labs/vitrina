@@ -1,0 +1,312 @@
+"""Agent loop v1 (T024; plan.md §4.1; FR-024, FR-025; ADR-0005, ADR-0006).
+
+One turn: retrieve the seller's active items for the message (R1) → Muse Spark with the
+system prompt, recent history, the contract tools and ``AgentTurnOutput`` as
+``response_format`` → up to ``max_tool_rounds`` tool rounds → parse the answer (fenced or
+padded JSON is read; otherwise one repair call) → the checks outside the model (R2–R5),
+with one guided retry on an invented amount. The whole turn has a time budget; a provider
+that keeps failing or a spent budget raises, so the caller decides what the customer gets.
+
+Opt-out keywords (R7), human mode (R6) and the scope classifier (R10) run before this, in
+the inbound pipeline; the turn applies nothing itself: ``TurnResult.actions`` lists what it
+decided, except reservations, which the tool makes at once outside a dry run.
+"""
+
+import asyncio
+import json
+from collections.abc import Awaitable, Callable, Sequence
+from dataclasses import dataclass
+from datetime import UTC, datetime
+from typing import Literal
+from uuid import UUID
+
+from pydantic import ValidationError
+
+from vitrina_catalog.api import Catalog, Citation, SearchResult, SellerSettings
+from vitrina_conversation.contract import (
+    AgentTurnOutput,
+    HandoffReason,
+    output_schema,
+    tool_specs,
+)
+from vitrina_conversation.prompts import REPAIR_INSTRUCTION, render_system_prompt
+from vitrina_conversation.tools import (
+    ApprovedAds,
+    HandoffAction,
+    ObjectionAction,
+    ToolBox,
+    ToolCallRecord,
+    TurnActions,
+)
+from vitrina_conversation.validation import FALLBACK_REPLY, Review, retry_instruction, review
+from vitrina_core.ids import new_id
+from vitrina_core.providers import (
+    CallMeta,
+    ChatMessage,
+    ChatModel,
+    ChatRequest,
+    ResponseFormat,
+    with_backoff,
+)
+
+REASONS_ES: dict[HandoffReason, str] = {
+    "customer_request": "el cliente pidió hablar con una persona",
+    "complaint_refund": "queja, devolución o reembolso",
+    "payment_issue": "problema con un pago",
+    "medical_topic": "pregunta sobre un tema médico",
+    "low_confidence_twice": "el asistente no tuvo el dato dos veces seguidas",
+    "negative_sentiment": "el cliente está molesto",
+    "amount_over_threshold": "pedido por encima del monto definido",
+    "price_unverified": "el asistente no pudo confirmar un precio",
+    "policy_exception": "pide una excepción a la política",
+    "other": "otro motivo",
+}
+_FIELDS = frozenset(AgentTurnOutput.model_fields)
+
+
+def _utcnow() -> datetime:
+    return datetime.now(UTC)
+
+
+@dataclass(frozen=True)
+class Exchange:
+    """One earlier exchange of the conversation: what the customer wrote, what they got."""
+
+    customer: str
+    reply: str
+
+
+@dataclass(frozen=True)
+class TurnRequest:
+    seller: SellerSettings
+    conversation_id: UUID
+    message: str
+    history: tuple[Exchange, ...] = ()
+    dry_run: bool = True
+    low_confidence_streak: int = 0
+    pending_consent_prompt: str | None = None
+    """The consent question the last outbound message asked, if still unanswered (R8)."""
+
+
+@dataclass(frozen=True)
+class AgentDeps:
+    chat: ChatModel
+    catalog: Catalog
+    model: str
+    """``MODEL_AGENT`` (``settings.model_id("agent")``); never a literal (Q01)."""
+    max_tool_rounds: int = 4
+    budget_s: float = 20.0
+    top_k: int = 5
+    history_turns: int = 10
+    temperature: float | None = 0.2
+    strict_schema: bool = True
+    approved_ads: ApprovedAds | None = None
+    clock: Callable[[], datetime] = _utcnow
+    sleep: Callable[[float], Awaitable[None]] = asyncio.sleep
+
+
+@dataclass(frozen=True)
+class TurnResult:
+    conversation_id: UUID
+    output: AgentTurnOutput | None
+    """The answer the review judged last; None when no valid answer came back."""
+    final_reply: str
+    """What the customer gets after the checks and fallbacks."""
+    review: Review | None
+    cited_ids: tuple[UUID, ...]
+    """Active items the final reply cites; empty for a fallback."""
+    off_topic: bool
+    tool_calls: tuple[ToolCallRecord, ...]
+    retrieved: tuple[SearchResult, ...]
+    model_calls: tuple[CallMeta, ...]
+    actions: TurnActions
+    low_confidence_streak: int
+
+    @property
+    def handoff(self) -> HandoffAction | None:
+        return self.actions.handoff
+
+
+async def run_turn(request: TurnRequest, deps: AgentDeps) -> TurnResult:
+    """Run one agent turn; ``TimeoutError`` when the budget runs out (Art. VIII.1)."""
+    async with asyncio.timeout(deps.budget_s):
+        return await _Turn(request, deps).run()
+
+
+def parse_output(content: str | None) -> AgentTurnOutput | None:
+    """The answer as JSON, or the JSON object inside fences or prose, minus unknown keys."""
+    if not content:
+        return None
+    try:
+        return AgentTurnOutput.model_validate_json(content)
+    except ValidationError:
+        pass
+    start, end = content.find("{"), content.rfind("}")
+    if start == -1 or end <= start:
+        return None
+    try:
+        data = json.loads(content[start : end + 1])
+        if not isinstance(data, dict):
+            return None
+        return AgentTurnOutput.model_validate({k: v for k, v in data.items() if k in _FIELDS})
+    except (ValueError, ValidationError):
+        return None
+
+
+class _Turn:
+    def __init__(self, request: TurnRequest, deps: AgentDeps) -> None:
+        self.request = request
+        self.deps = deps
+        self.calls: list[CallMeta] = []
+        self.box = ToolBox(
+            catalog=deps.catalog,
+            seller=request.seller,
+            conversation_id=request.conversation_id,
+            dry_run=request.dry_run,
+            message=request.message,
+            pending_consent_prompt=request.pending_consent_prompt,
+            approved_ads=deps.approved_ads,
+        )
+
+    async def run(self) -> TurnResult:
+        seller = self.request.seller
+        retrieved = await self.deps.catalog.search(
+            seller.seller_id, self.request.message, top_k=self.deps.top_k
+        )
+        messages = [
+            ChatMessage(
+                role="system",
+                content=render_system_prompt(seller, retrieved, self.deps.clock()),
+            ),
+            *self._history(),
+            ChatMessage(role="user", content=self.request.message),
+        ]
+        output = await self._answer(messages)
+        verdict: Review | None = None
+        citations: list[Citation] = []
+        if output is not None:
+            citations = await self.deps.catalog.citations(seller.seller_id, output.cited_fact_ids)
+            verdict = self._review(output, citations, retried=False)
+            if verdict.outcome == "retry":
+                messages += [
+                    ChatMessage(role="assistant", content=output.model_dump_json()),
+                    ChatMessage(role="system", content=retry_instruction(verdict)),
+                ]
+                second = await self._answer(messages)
+                if second is not None:
+                    output = second
+                    citations = await self.deps.catalog.citations(
+                        seller.seller_id, output.cited_fact_ids
+                    )
+                verdict = self._review(output, citations, retried=True)
+
+        if verdict is None:  # no readable answer at all: confidence 0 (R3, R4)
+            streak = self.request.low_confidence_streak + 1
+            final = FALLBACK_REPLY.format(owner_name=seller.owner_name)
+            handoff_reason: HandoffReason | None = "low_confidence_twice" if streak >= 2 else None
+        else:
+            streak = verdict.low_confidence_streak
+            final = verdict.final_reply or FALLBACK_REPLY.format(owner_name=seller.owner_name)
+            handoff_reason = verdict.handoff_reason
+        accepted = verdict is not None and verdict.outcome == "accept"
+
+        actions = self.box.actions
+        if handoff_reason is not None and actions.handoff is None:  # R5
+            actions.handoff = HandoffAction(new_id(), handoff_reason, self._summary(handoff_reason))
+        tag = output.objection_tag if output is not None else None
+        if tag is not None and all(objection.tag != tag for objection in actions.objections):
+            actions.objections.append(ObjectionAction(new_id(), tag, self.request.message[:200]))
+        known = {citation.id for citation in citations}
+        cited = (
+            tuple(fact_id for fact_id in output.cited_fact_ids if fact_id in known)
+            if accepted and output is not None
+            else ()
+        )
+        return TurnResult(
+            conversation_id=self.request.conversation_id,
+            output=output,
+            final_reply=final,
+            review=verdict,
+            cited_ids=cited,
+            off_topic=accepted and output is not None and output.objection_tag == "off_topic",
+            tool_calls=tuple(self.box.records),
+            retrieved=tuple(retrieved),
+            model_calls=tuple(self.calls),
+            actions=actions,
+            low_confidence_streak=streak,
+        )
+
+    def _history(self) -> list[ChatMessage]:
+        recent = self.request.history[-self.deps.history_turns :] if self.deps.history_turns else ()
+        messages: list[ChatMessage] = []
+        for exchange in recent:
+            messages.append(ChatMessage(role="user", content=exchange.customer))
+            messages.append(ChatMessage(role="assistant", content=exchange.reply))
+        return messages
+
+    def _review(
+        self, output: AgentTurnOutput, citations: Sequence[Citation], *, retried: bool
+    ) -> Review:
+        seller = self.request.seller
+        return review(
+            output,
+            citations,
+            owner_name=seller.owner_name,
+            business_name=seller.business_name,
+            low_confidence_threshold=seller.low_confidence_threshold,
+            low_confidence_streak=self.request.low_confidence_streak,
+            retried=retried,
+        )
+
+    def _summary(self, reason: HandoffReason) -> str:
+        """For the owner when the model handed off without writing a summary (R5)."""
+        text = f"Motivo: {REASONS_ES[reason]}. Último mensaje del cliente: «{self.request.message}»"
+        return text if len(text) <= 500 else text[:499] + "…"
+
+    async def _answer(self, messages: list[ChatMessage]) -> AgentTurnOutput | None:
+        """Tool rounds until a final answer; past the cap the model must answer (no tools)."""
+        for round_number in range(self.deps.max_tool_rounds + 1):
+            tools_allowed = round_number < self.deps.max_tool_rounds
+            message = await self._complete(messages, "auto" if tools_allowed else "none")
+            if message.tool_calls and tools_allowed:
+                messages.append(message)
+                for call in message.tool_calls:
+                    record = await self.box.run(call)
+                    messages.append(
+                        ChatMessage(
+                            role="tool",
+                            tool_call_id=call.id,
+                            content=json.dumps(record.result, ensure_ascii=False),
+                        )
+                    )
+                continue
+            output = parse_output(message.content if isinstance(message.content, str) else None)
+            if output is not None:
+                return output
+            messages += [
+                ChatMessage(role="assistant", content=message.content or ""),
+                ChatMessage(role="system", content=REPAIR_INSTRUCTION),
+            ]
+            repaired = await self._complete(messages, "none")
+            return parse_output(repaired.content if isinstance(repaired.content, str) else None)
+        return None
+
+    async def _complete(
+        self, messages: list[ChatMessage], tool_choice: Literal["auto", "none"]
+    ) -> ChatMessage:
+        request = ChatRequest(
+            model=self.deps.model,
+            purpose="agent",
+            messages=tuple(messages),
+            tools=tool_specs(),
+            tool_choice=tool_choice,
+            response_format=ResponseFormat(
+                name="AgentTurnOutput", json_schema=output_schema(), strict=self.deps.strict_schema
+            ),
+            temperature=self.deps.temperature,
+        )
+        response = await with_backoff(
+            lambda: self.deps.chat.complete(request), sleep=self.deps.sleep
+        )
+        self.calls.append(response.meta)
+        return response.message
