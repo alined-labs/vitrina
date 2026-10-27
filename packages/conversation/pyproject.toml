@@ -15,6 +15,9 @@ dependencies = [
 [project.entry-points."vitrina.tasks"]
 conversation = "vitrina_conversation.tasks:register"
 
+[project.entry-points."vitrina.erasure"]
+conversation = "vitrina_conversation.erasure:erase"
+
 [tool.uv.sources]
 vitrina-core = { workspace = true }
 vitrina-catalog = { workspace = true }
