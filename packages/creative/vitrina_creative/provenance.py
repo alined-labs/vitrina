@@ -11,7 +11,7 @@ import json
 from dataclasses import dataclass
 from datetime import datetime
 from io import BytesIO
-from typing import Literal
+from typing import Literal, cast, get_args
 
 from PIL import Image, ImageDraw, ImageFont, PngImagePlugin
 
@@ -20,6 +20,7 @@ from vitrina_core.providers import Blob
 AI_LABEL = "Imagen generada con IA"
 IPTC_SOURCE = "http://cv.iptc.org/newscodes/digitalsourcetype/"
 SourceType = Literal["trainedAlgorithmicMedia", "compositeWithTrainedAlgorithmicMedia"]
+VerificationStatus = Literal["passed", "blocked", "pending"]
 XMP_KEY = "XML:com.adobe.xmp"
 
 
@@ -29,7 +30,7 @@ class Provenance:
     generator: str
     # SHA-256 of the seller's photo the scene was composed from.
     source_sha256: str
-    verification: Literal["passed", "blocked", "pending"]
+    verification: VerificationStatus
     created_at: datetime
     # A scene drawn entirely by the model, or the real cut-out placed in a generated scene.
     source_type: SourceType = "trainedAlgorithmicMedia"
@@ -114,3 +115,34 @@ def _xmp(source_type: SourceType) -> str:
         f'<dc:description><rdf:Alt><rdf:li xml:lang="es">{AI_LABEL}</rdf:li></rdf:Alt></dc:description>'
         "</rdf:Description></rdf:RDF></x:xmpmeta>"
     )
+
+
+def provenance_of(image: Blob) -> Provenance | None:
+    """The provenance a scene carries, or None for an image without it."""
+    fields = read_provenance(image)
+    source_type = fields.get("digital_source_type", "").removeprefix(IPTC_SOURCE)
+    verification = fields.get("verification", "")
+    if source_type not in get_args(SourceType) or verification not in get_args(VerificationStatus):
+        return None
+    try:
+        return Provenance(
+            generator=fields["generator"],
+            source_sha256=fields["source_photo_sha256"],
+            verification=cast(VerificationStatus, verification),
+            created_at=datetime.fromisoformat(fields["created_at"]),
+            source_type=cast(SourceType, source_type),
+        )
+    except (KeyError, ValueError):
+        return None
+
+
+def publishable(image: Blob, *, label: bool) -> Blob:
+    """What leaves Vitrina (exports, chats): the visible label when the seller keeps it on.
+
+    Drawing the label re-encodes the image, so the provenance it carried is embedded again.
+    """
+    if not label:
+        return image
+    provenance = provenance_of(image)
+    labelled = ai_label(image)
+    return embed_provenance(labelled, provenance) if provenance is not None else labelled

@@ -80,7 +80,10 @@ class CreativeJobStore:
     async def finish(
         self, job_id: UUID, scenes: list[dict[str, Any]], copy: list[dict[str, Any]]
     ) -> None:
-        """Store the results and mark the job ready in one transaction; a retry replaces rows.
+        """Store the results and mark the job ready in one transaction.
+
+        A retry of an unfinished job replaces its rows; once the job succeeded its rows stay,
+        because ads point at them (``ads`` cascades on creatives).
 
         Rows of one transaction share ``now()`` and UUIDv7 ids are random within a millisecond,
         so each row gets its own ``created_at``, a microsecond apart in generation order, and
@@ -88,6 +91,13 @@ class CreativeJobStore:
         """
         finished = datetime.now(UTC)
         async with self.sessions() as session, session.begin():
+            status = await session.scalar(
+                sa.select(creative_jobs.c.status)
+                .where(creative_jobs.c.id == job_id)
+                .with_for_update()
+            )
+            if status == "succeeded":  # a retry after success: ads may reference these rows
+                return
             await session.execute(sa.delete(copy_variants).where(copy_variants.c.job_id == job_id))
             await session.execute(sa.delete(creatives).where(creatives.c.job_id == job_id))
             if scenes:

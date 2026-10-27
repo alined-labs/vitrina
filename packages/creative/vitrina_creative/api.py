@@ -6,6 +6,19 @@ fidelity verifier (T033, also used by the ``fidelity`` eval suite, T072) and pro
 the visible AI label (Art. IV.3).
 """
 
+from vitrina_creative.ads import (
+    CODE_PATTERN,
+    Ad,
+    AdCreate,
+    AdStats,
+    AdStatus,
+    AdStore,
+    ApprovedAsset,
+    export_package,
+    fill_link,
+    get_approved_asset,
+    rank_by_hint,
+)
 from vitrina_creative.assets import (
     Asset,
     AssetRecord,
@@ -57,8 +70,15 @@ from vitrina_creative.verifier import (
 __all__ = [
     "AI_LABEL",
     "BRAND_VOICE_MIN",
+    "CODE_PATTERN",
     "CREATIVE_TASK",
     "FORMAT_SIZES",
+    "Ad",
+    "AdCreate",
+    "AdStats",
+    "AdStatus",
+    "AdStore",
+    "ApprovedAsset",
     "Asset",
     "AssetRecord",
     "AssetStore",
@@ -95,6 +115,9 @@ __all__ = [
     "compose_scenes",
     "creative_view",
     "embed_provenance",
+    "export_package",
+    "fill_link",
+    "get_approved_asset",
     "job_payload",
     "job_view",
     "judge_copy",
@@ -102,6 +125,7 @@ __all__ = [
     "plan_grid",
     "provenance_json",
     "provenance_record",
+    "rank_by_hint",
     "read_provenance",
     "run_pipeline",
     "segment_photo",
