@@ -190,7 +190,10 @@ def memory_pipeline(
     messenger: Messenger,
     pacer: Pacer,
     bookings: BookingStore | None = None,
+    providers: Providers | None = None,
 ) -> PipelineDeps:
+    """With ``providers`` and the Cloud API, voice notes and photos are read as well."""
+
     async def no_ads(_seller_id: UUID, _code: str) -> UUID | None:
         return None
 
@@ -202,6 +205,8 @@ def memory_pipeline(
         messenger=messenger,
         pacer=pacer,
         ad_lookup=no_ads,
+        voice=voice_notes(settings, providers, messenger) if providers else None,
+        photos=photos_for(settings, providers, messenger, catalog) if providers else None,
     )
 
 
