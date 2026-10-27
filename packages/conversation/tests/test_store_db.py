@@ -104,6 +104,31 @@ async def test_db_fr_024_recent_messages_come_oldest_first(ctx: Ctx) -> None:
     assert await ctx.store.recent_messages(uuid4(), conversation.id, limit=5) == []
 
 
+async def test_db_t043_an_ad_image_keeps_the_id_the_tool_gave_and_its_ad(ctx: Ctx) -> None:
+    conversation = await ctx.store.open_conversation(ctx.seller_id, ctx.contact_id)
+    message_id, ad_id = new_id(), uuid4()
+
+    stored = await ctx.store.add_message(
+        ctx.seller_id,
+        conversation.id,
+        direction="outbound",
+        sender="agent",
+        type="image",
+        text="Así se ve la mochila azul",
+        delivery_status="queued",
+        message_id=message_id,
+        media_key=f"ad:{ad_id}",
+    )
+
+    assert stored is not None
+    assert (stored.id, stored.media_key) == (message_id, f"ad:{ad_id}")
+    (recent,) = await ctx.store.recent_messages(ctx.seller_id, conversation.id, limit=5)
+    assert (recent.id, recent.type, recent.media_key) == (message_id, "image", f"ad:{ad_id}")
+    async with ctx.sessions() as session:
+        row = (await session.execute(sa.select(messages).where(messages.c.id == message_id))).one()
+    assert (row.media_key, row.text) == (f"ad:{ad_id}", "Así se ve la mochila azul")
+
+
 async def test_db_fr_028_delivery_status_never_moves_backwards(ctx: Ctx) -> None:
     conversation = await ctx.store.open_conversation(ctx.seller_id, ctx.contact_id)
     out = await ctx.store.add_message(

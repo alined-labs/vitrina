@@ -6,14 +6,16 @@ tool error instead of failing the turn. Read-only tools answer from the catalog.
 the tools with side effects answer ``skipped_dry_run`` (R9). Decisions (handoff, objection,
 consent, opt-out) are kept in ``TurnActions`` either way, for the pipeline to apply;
 ``reserve_item`` reserves at once outside a dry run, because its code goes to the customer.
+``send_ad_asset`` queues the approved ad's image for the pipeline to send after the reply
+(T043); a caption is customer text too, so it keeps only the product's own amounts (R2).
 """
 
 import json
 import time
-from collections.abc import Awaitable, Callable, Sequence
+from collections.abc import Awaitable, Callable, Mapping, Sequence
 from dataclasses import dataclass, field
 from datetime import datetime
-from typing import Annotated, Any, Literal
+from typing import Annotated, Any, Literal, Protocol
 from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
@@ -26,13 +28,29 @@ from vitrina_catalog.api import (
 )
 from vitrina_compliance.api import is_affirmative
 from vitrina_conversation.contract import HandoffReason, ObjectionTag
+from vitrina_conversation.validation import check_prices
 from vitrina_core.ids import new_id
-from vitrina_core.providers import ToolCall
+from vitrina_core.providers import Blob, ToolCall
+from vitrina_creative.api import ApprovedAsset
 
 ToolStatus = Literal["ok", "error", "skipped_dry_run"]
 Urgency = Literal["low", "normal", "high"]
 ApprovedAds = Callable[[UUID, UUID], Awaitable[Sequence[UUID]]]
 """``(seller_id, product_id) -> approved ad ids``, from creative.api (I-10)."""
+
+
+class AdAssets(Protocol):
+    """``creative.api.get_approved_asset`` bound to its stores (I-10): the ad to send, or None."""
+
+    async def __call__(
+        self,
+        seller_id: UUID,
+        product_id: UUID,
+        *,
+        ad_id: UUID | None = None,
+        variant_hint: Mapping[str, str] | None = None,
+    ) -> ApprovedAsset | None: ...
+
 
 SKIPPED: dict[str, Any] = {"status": "skipped_dry_run"}
 
@@ -163,6 +181,17 @@ class ReservedItem:
     quantity: int
 
 
+@dataclass(frozen=True)
+class QueuedAsset:
+    """An approved ad's image for the customer; ``message_id`` is the outbound message's id."""
+
+    message_id: UUID
+    ad_id: UUID
+    product_id: UUID
+    image: Blob
+    caption: str | None = None
+
+
 @dataclass
 class TurnActions:
     handoff: HandoffAction | None = None
@@ -170,6 +199,7 @@ class TurnActions:
     consent: ConsentAction | None = None
     opt_out: OptOutAction | None = None
     reservations: list[ReservedItem] = field(default_factory=list)
+    ad_assets: list[QueuedAsset] = field(default_factory=list)
 
 
 @dataclass(frozen=True)
@@ -198,6 +228,7 @@ class ToolBox:
         message: str,
         pending_consent_prompt: str | None = None,
         approved_ads: ApprovedAds | None = None,
+        ad_assets: AdAssets | None = None,
     ) -> None:
         self.catalog = catalog
         self.seller_id = seller.seller_id
@@ -206,6 +237,7 @@ class ToolBox:
         self.message = message
         self.pending_consent_prompt = pending_consent_prompt
         self.approved_ads = approved_ads
+        self.ad_assets = ad_assets
         self.actions = TurnActions()
         self.records: list[ToolCallRecord] = []
 
@@ -313,11 +345,48 @@ class ToolBox:
                 return "ok", {
                     "status": "erasure_scheduled" if args.also_erase_data else "opted_out"
                 }
-            case BookSlotArgs() | SendAdAssetArgs():
+            case SendAdAssetArgs():
+                if self.dry_run:
+                    return "skipped_dry_run", SKIPPED
+                return "ok", await self._send_ad_asset(args)
+            case BookSlotArgs():
                 if self.dry_run:
                     return "skipped_dry_run", SKIPPED
                 raise ToolError(f"{name} is not available yet; offer to pass the chat to the owner")
         raise ToolError(f"there is no tool named {name}")
+
+    async def _send_ad_asset(self, args: SendAdAssetArgs) -> dict[str, Any]:
+        await self._product(self.catalog.get_product, args.product_id)
+        asset = (
+            await self.ad_assets(
+                self.seller_id,
+                args.product_id,
+                ad_id=args.ad_id,
+                variant_hint=args.variant_hint,
+            )
+            if self.ad_assets is not None
+            else None
+        )
+        if asset is None:
+            return {"status": "no_approved_ad", "ad_id": None, "message_id": None}
+        queued = next((item for item in self.actions.ad_assets if item.ad_id == asset.ad_id), None)
+        if queued is None:  # the same image twice in one turn is noise
+            queued = QueuedAsset(
+                new_id(),
+                asset.ad_id,
+                args.product_id,
+                asset.image,
+                await self._caption(args.caption, args.product_id),
+            )
+            self.actions.ad_assets.append(queued)
+        return {"status": "queued", "ad_id": str(asset.ad_id), "message_id": str(queued.message_id)}
+
+    async def _caption(self, caption: str | None, product_id: UUID) -> str | None:
+        """R2 for the caption: an amount the product's own facts do not carry drops it."""
+        if not caption or not caption.strip():
+            return None
+        citations = await self.catalog.citations(self.seller_id, [product_id])
+        return caption if check_prices(caption, citations).passed else None
 
     def _consent(self, args: RecordConsentArgs) -> tuple[ToolStatus, dict[str, Any]]:
         """R8: a pending prompt and an affirmative customer reply, checked here, not trusted."""

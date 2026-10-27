@@ -124,6 +124,8 @@ class ConversationStore(Protocol):
         delivery_status: DeliveryStatus | None = None,
         is_replay: bool = False,
         raw_payload_id: UUID | None = None,
+        message_id: UUID | None = None,
+        media_key: str | None = None,
     ) -> StoredMessage | None: ...
 
     async def recent_messages(
@@ -268,13 +270,15 @@ class InMemoryConversationStore:
         delivery_status: DeliveryStatus | None = None,
         is_replay: bool = False,
         raw_payload_id: UUID | None = None,
+        message_id: UUID | None = None,
+        media_key: str | None = None,
     ) -> StoredMessage | None:
         if wa_message_id is not None and any(
             row.stored.wa_message_id == wa_message_id for row in self.messages
         ):
             return None
         stored = StoredMessage(
-            id=new_id(),
+            id=message_id or new_id(),
             conversation_id=self._owned(seller_id, conversation_id).id,
             direction=direction,
             sender=sender,
@@ -285,6 +289,7 @@ class InMemoryConversationStore:
             agent_output=dict(agent_output) if agent_output is not None else None,
             created_at=self.clock(),
             normalized=dict(normalized) if normalized is not None else None,
+            media_key=media_key,
             is_replay=is_replay,
         )
         self.messages.append(
@@ -714,8 +719,10 @@ class PostgresConversationStore(_PostgresReads):
         delivery_status: DeliveryStatus | None = None,
         is_replay: bool = False,
         raw_payload_id: UUID | None = None,
+        message_id: UUID | None = None,
+        media_key: str | None = None,
     ) -> StoredMessage | None:
-        message_id = new_id()
+        message_id = message_id or new_id()
         output = dict(agent_output) if agent_output is not None else None
         copied = dict(normalized) if normalized is not None else None
         values = {
@@ -731,6 +738,7 @@ class PostgresConversationStore(_PostgresReads):
             "agent_output": output,
             "validation": dict(validation) if validation is not None else None,
             "delivery_status": delivery_status,
+            "media_key": media_key,
             "is_replay": is_replay,
             "raw_payload_id": raw_payload_id,
         }
@@ -755,6 +763,7 @@ class PostgresConversationStore(_PostgresReads):
             output,
             created,
             normalized=copied,
+            media_key=media_key,
             is_replay=is_replay,
         )
 
