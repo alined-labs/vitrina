@@ -2,6 +2,7 @@ import asyncio
 from dataclasses import dataclass, field
 from datetime import UTC, datetime, timedelta
 from importlib.metadata import EntryPoint
+from pathlib import Path
 from typing import Any
 from uuid import UUID
 
@@ -17,7 +18,10 @@ from vitrina_core.jobs import (
     backoff,
     load_tasks,
 )
+from vitrina_core.ledger import InMemoryLedger
 from vitrina_core.providers import ProviderError
+from vitrina_core.providers.compose import Providers, compose
+from vitrina_core.settings import Settings
 
 JOB = UUID("00000000-0000-7000-8000-000000000001")
 SELLER = UUID("00000000-0000-7000-8000-00000000000a")
@@ -199,3 +203,18 @@ def test_fr_083_job_view_has_the_contract_shape() -> None:
         "started_at": "2026-10-27T15:00:00Z",
         "finished_at": None,
     }
+
+
+async def test_a_handler_reaches_the_workers_providers(tmp_path: Path) -> None:
+    providers = compose(Settings(_env_file=None, cassette_dir=tmp_path), InMemoryLedger())  # type: ignore[call-arg]
+    registry = TaskRegistry()
+    seen: list[Providers | None] = []
+
+    @registry.task("catalog.import_products")
+    async def import_products(ctx: JobContext) -> None:
+        seen.append(ctx.providers)
+
+    queue = FakeQueue([claimed()])
+    await Worker(queue, registry, providers=providers).run_once()
+
+    assert seen == [providers]

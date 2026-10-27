@@ -4,6 +4,7 @@ version = "0.1.0"
 description = "Meta Model API adapter (OpenAI-compatible): chat, embeddings, image, segmentation, transcription."
 requires-python = ">=3.12,<3.13"
 dependencies = [
+    "openai>=3.39",
     "vitrina-core",
 ]
 

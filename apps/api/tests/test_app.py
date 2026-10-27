@@ -2,10 +2,12 @@ from pathlib import Path
 from uuid import UUID
 
 import jwt
+import pytest
 from fastapi import Request
 from fastapi.testclient import TestClient
 
 from vitrina_api.main import create_app
+from vitrina_core.providers.compose import ProviderMode
 from vitrina_core.settings import Settings
 
 
@@ -50,3 +52,14 @@ async def test_create_app_resolves_supabase_tokens_to_their_seller() -> None:
     request = Request({"type": "http", "headers": [(b"authorization", f"Bearer {token}".encode())]})
 
     assert await app.state.auth.idempotency_scope(request) == seller_id
+
+
+def test_as_7_3_the_app_starts_in_replay_mode_without_any_key() -> None:
+    app = create_app(Settings(_env_file=None))  # type: ignore[call-arg]
+
+    assert app.state.providers.mode is ProviderMode.replay
+
+
+def test_live_mode_refuses_to_start_without_the_meta_api_key() -> None:
+    with pytest.raises(LookupError, match="META_API_KEY"):
+        create_app(Settings(_env_file=None, replay=False))  # type: ignore[call-arg]

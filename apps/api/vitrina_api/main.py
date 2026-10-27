@@ -45,8 +45,10 @@ from vitrina_core.http import (
 )
 from vitrina_core.jobs import PostgresJobQueue
 from vitrina_core.ledger import InMemoryLedger, PostgresLedger, SpendWatch
+from vitrina_core.providers.compose import compose
 from vitrina_core.settings import Settings, get_settings
 from vitrina_local_mock import MockOutbox, create_phone_router
+from vitrina_meta_model_api import live_providers
 
 API_PREFIX = "/v1"
 
@@ -98,13 +100,21 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.state.settings = settings
     app.state.sessions = create_session_factory(engine) if engine is not None else None
     app.state.jobs = PostgresJobQueue(app.state.sessions) if app.state.sessions else None
-    # No database: the in-memory catalog keeps every route usable on a laptop (replay, demos).
-    app.state.catalog = (
-        PostgresCatalog(app.state.sessions) if app.state.sessions else InMemoryCatalog()
-    )
     watch = SpendWatch(settings.spend_limit_usd)
     app.state.ledger = (
         PostgresLedger(app.state.sessions, watch) if app.state.sessions else InMemoryLedger(watch)
+    )
+    # Replay, the default, answers from cassettes and needs no key (AS-7.3, ADR-0010).
+    app.state.providers = compose(settings, app.state.ledger, lambda: live_providers(settings))
+    # No database: the in-memory catalog keeps every route usable on a laptop (replay, demos).
+    app.state.catalog = (
+        PostgresCatalog(
+            app.state.sessions,
+            embedder=app.state.providers.embedder,
+            embed_model=settings.model_embed,
+        )
+        if app.state.sessions
+        else InMemoryCatalog()
     )
     install_problem_handlers(app)
     for module in ROUTERS:

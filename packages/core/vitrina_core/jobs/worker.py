@@ -29,6 +29,7 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 from vitrina_core.http.context import seller_id_var
 from vitrina_core.jobs.queue import ClaimedJob, JobQueue
 from vitrina_core.providers import ProviderError
+from vitrina_core.providers.compose import Providers
 
 logger = logging.getLogger("vitrina.jobs")
 
@@ -49,6 +50,7 @@ class JobContext:
     job: ClaimedJob
     queue: JobQueue
     sessions: async_sessionmaker[AsyncSession] | None = None
+    providers: Providers | None = None
 
     @property
     def job_id(self) -> UUID:
@@ -116,6 +118,7 @@ class Worker:
         registry: TaskRegistry,
         *,
         sessions: async_sessionmaker[AsyncSession] | None = None,
+        providers: Providers | None = None,
         worker_id: str | None = None,
         poll_interval_s: float = 0.5,
         heartbeat_s: float = 15.0,
@@ -125,6 +128,7 @@ class Worker:
         self.queue = queue
         self.registry = registry
         self.sessions = sessions
+        self.providers = providers
         self.worker_id = worker_id or f"{socket.gethostname()}:{os.getpid()}"
         self.poll_interval_s = poll_interval_s
         self.heartbeat_s = heartbeat_s
@@ -171,7 +175,8 @@ class Worker:
         seller_token = seller_id_var.set(job.owner_seller_id)
         try:
             result = await asyncio.wait_for(
-                task.handler(JobContext(job, self.queue, self.sessions)), task.timeout_s
+                task.handler(JobContext(job, self.queue, self.sessions, self.providers)),
+                task.timeout_s,
             )
         except JobFailedError as error:
             await self.queue.fail(
