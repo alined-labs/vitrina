@@ -5,16 +5,23 @@ description = "Evaluation suites, fixtures, replay and metrics."
 requires-python = ">=3.12,<3.13"
 dependencies = [
     "vitrina-core",
+    "vitrina-catalog",
     "vitrina-conversation",
     "vitrina-creative",
     "vitrina-compliance",
+    "vitrina-meta-model-api",
 ]
+
+[project.entry-points."vitrina.tasks"]
+evals = "vitrina_evals.tasks:register"
 
 [tool.uv.sources]
 vitrina-core = { workspace = true }
+vitrina-catalog = { workspace = true }
 vitrina-conversation = { workspace = true }
 vitrina-creative = { workspace = true }
 vitrina-compliance = { workspace = true }
+vitrina-meta-model-api = { workspace = true }
 
 [build-system]
 requires = ["hatchling"]

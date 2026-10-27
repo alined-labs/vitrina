@@ -48,6 +48,7 @@ from vitrina_core.ledger import InMemoryLedger, PostgresLedger, SpendWatch
 from vitrina_core.providers.compose import compose
 from vitrina_core.settings import Settings, get_settings
 from vitrina_core.storage import LocalBlobStore, blob_store, create_blob_router
+from vitrina_evals.api import InMemoryEvalRuns, PostgresEvalRuns
 from vitrina_local_mock import MockOutbox, create_phone_router
 from vitrina_meta_model_api import live_providers
 
@@ -104,6 +105,9 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.state.sessions = create_session_factory(engine) if engine is not None else None
     app.state.jobs = PostgresJobQueue(app.state.sessions) if app.state.sessions else None
     app.state.storage = storage
+    app.state.eval_runs = (
+        PostgresEvalRuns(app.state.sessions) if app.state.sessions else InMemoryEvalRuns()
+    )
     watch = SpendWatch(settings.spend_limit_usd)
     app.state.ledger = (
         PostgresLedger(app.state.sessions, watch) if app.state.sessions else InMemoryLedger(watch)

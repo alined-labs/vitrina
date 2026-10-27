@@ -1,0 +1,41 @@
+{
+  "key": "sazon_de_la_abuela",
+  "seller": {
+    "business_name": "Sazón de la Abuela",
+    "owner_name": "Jorge",
+    "whatsapp_number": "+573000000102",
+    "city": "Medellín",
+    "category": "products"
+  },
+  "products": [
+    {
+      "key": "bandeja-paisa",
+      "name": "Bandeja paisa",
+      "description": "Frijoles, arroz, carne molida, chicharrón, huevo, maduro, arepa y aguacate.",
+      "price_cop": 25000,
+      "stock": null,
+      "attributes": {}
+    },
+    {
+      "key": "ajiaco",
+      "name": "Ajiaco santafereño",
+      "description": "Con pollo, mazorca, alcaparras y crema de leche.",
+      "price_cop": 22000,
+      "stock": null,
+      "attributes": {}
+    },
+    {
+      "key": "limonada-coco",
+      "name": "Limonada de coco",
+      "description": "Vaso de 16 onzas.",
+      "price_cop": 9000,
+      "stock": null,
+      "attributes": {}
+    }
+  ],
+  "facts": [
+    {"key": "domicilio-laureles", "kind": "shipping", "text": "Domicilio a Laureles, Estadio y Belén: $5.000, entre 30 y 45 minutos."},
+    {"key": "horario-almuerzo", "kind": "hours", "text": "Almuerzos de lunes a viernes de 11:30 a. m. a 3:00 p. m."},
+    {"key": "pagos-restaurante", "kind": "payment", "text": "Pagos en efectivo, Nequi o datáfono al recibir el domicilio."}
+  ]
+}
