@@ -1,0 +1,32 @@
+#!/bin/sh
+# commit-msg: enforces the commit rules of AGENTS.md on every machine.
+# Enable once per clone:  git config core.hooksPath .githooks
+#
+#   subject  Conventional Commits, `type(scope): summary`, at most 72 characters
+#   body     one "- " bullet per change, then `Tasks: T### · Scenarios: AS-x.y` (— when none)
+#   never    AI attribution: Co-Authored-By trailers, "Generated with" lines, tool links
+#
+# GitHub squash merges do not run hooks; MX1 merges with the commit's own message.
+
+msg=$(grep -v '^#' "$1")
+subject=$(printf '%s\n' "$msg" | sed -n '1p')
+
+case $subject in
+  'Merge '* | 'Revert "'* | 'fixup! '* | 'squash! '* | 'amend! '*) exit 0 ;;
+esac
+
+fail() {
+  printf 'commit-msg: %s\n  rules: AGENTS.md, section Workflow\n' "$1" >&2
+  exit 1
+}
+
+printf '%s' "$subject" | grep -Eq '^(feat|fix|chore|docs|test|refactor|ci|perf|build|style|revert)(\([a-z0-9][a-z0-9._/-]*\))?!?: [^ ]' ||
+  fail "subject must be 'type(scope): summary' with type feat|fix|chore|docs|test|refactor|ci|perf|build|style|revert"
+[ "$(printf '%s' "$subject" | wc -c)" -le 72 ] || fail "subject is longer than 72 characters"
+printf '%s\n' "$msg" | sed -n '2p' | grep -q '^$' || fail "leave a blank line after the subject"
+printf '%s\n' "$msg" | sed '1,2d' | grep -q '^- ' || fail "the body must list the changes as '- ' bullets"
+printf '%s\n' "$msg" | grep -Eq '^Tasks: ' || fail "end the body with 'Tasks: T### · Scenarios: AS-x.y' (use — when there are none)"
+if printf '%s\n' "$msg" | grep -Eiq '^[[:space:]]*co-authored-by:|generated (with|by) \[?(claude|chatgpt|copilot|codex|cursor|gemini|aider)|claude\.(com|ai)|noreply@anthropic\.com|🤖'; then
+  fail "AI attribution is not allowed in this repository: no Co-Authored-By trailers, no 'Generated with' lines"
+fi
+exit 0

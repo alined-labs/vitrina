@@ -24,6 +24,7 @@ A module talks to another only through its public interface (`packages/<name>/ap
 - **Branch per task** from `main`: `mx0/t002-scaffold`, `mx2/t012-whatsapp-provider`, `mx1/t013-ts-client`. Rebase on `main` before opening the PR.
 - **Spec → tests → code.** Write the failing tests first, named after the scenarios: `test_as_3_4_price_validator_rejects_uncited_amount`. A task is done when its scenarios pass, `make check` passes, and the PR cites the task and scenario IDs.
 - **`make check` before every commit**: ruff, mypy (strict on `core`), `pytest -n 2` (never `-n auto`), contract drift check. `pytest -m "not live"` must pass with no credentials (replay mode, NFR-07).
+- **One-time per clone:** `git config core.hooksPath .githooks`. The versioned `commit-msg` hook rejects any message that breaks the next two rules.
 - **Commits: Conventional Commits with a bullet-point body.** Subject `type(scope): summary`, at most 72 characters; types `feat fix chore docs test refactor ci perf`; scope is the package or app (`core`, `catalog`, `conversation`, `creative`, `compliance`, `learning`, `evals`, `api`, `worker`, `dashboard`, `providers`, `repo`). Body: one bullet per change, then a last line `Tasks: T025 · Scenarios: AS-3.3, AS-3.4`.
 - **No AI attribution of any kind.** No `Co-Authored-By` trailers, no "Generated with …" lines, no tool names, in commit messages or pull request descriptions. Commits are authored by the repository account only.
 - **`main` is protected**: no direct pushes, linear history, squash merges with the PR title as subject and the PR body as the bullets. **Only MX1 merges.** Open the PR with the template, then start the next task from `main`; do not wait for the merge.
@@ -46,6 +47,7 @@ cd ../vitrina-brain && export BRAIN_MACHINE=<MX> && scripts/brain sync
 cat STATUS.md machines/<MX>/STATUS.md coordination/integration-points.md coordination/blockers.md
 scripts/brain log <MX>        # today's journal; write as you go
 cd ../vitrina && git fetch origin && git checkout main && git pull --ff-only
+git config core.hooksPath .githooks   # once per clone: commit-msg rules
 ```
 
 After every task (and before the session ends):
