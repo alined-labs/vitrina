@@ -6,6 +6,7 @@ through the same pacer (R12) and messenger, and, without a database, the same in
 
 from typing import Any
 
+from vitrina_conversation.booking import BookingStore, InMemoryBookings, PostgresBookings
 from vitrina_conversation.pacing import Pacer
 from vitrina_conversation.store import (
     ConversationStore,
@@ -26,6 +27,15 @@ def conversation_store(state: Any) -> ConversationStore:
         )
         state.conversations = store
     return store
+
+
+def bookings(state: Any) -> BookingStore:
+    found: BookingStore | None = getattr(state, "bookings", None)
+    if found is None:
+        found = state.bookings = (
+            PostgresBookings(state.sessions) if state.sessions is not None else InMemoryBookings()
+        )
+    return found
 
 
 def messenger(state: Any) -> Messenger:

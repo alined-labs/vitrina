@@ -17,6 +17,7 @@ from vitrina_conversation.api import (
     InvalidSignatureError,
     PayloadTooLargeError,
     PostgresInboundQueue,
+    bookings,
     conversation_store,
     memory_pipeline,
     messenger,
@@ -110,6 +111,7 @@ def _ingest(state: State, background: BackgroundTasks) -> Ingest:
                 catalog=state.catalog,
                 messenger=messenger(state),
                 pacer=pacer(state),
+                bookings=bookings(state),
             ),
         )
         directory = state.sellers
