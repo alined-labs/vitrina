@@ -1,0 +1,32 @@
+# Secrets: only .env.example (names + placeholders) is committed
+.env
+.env.*
+!.env.example
+
+# Python (uv)
+.venv/
+__pycache__/
+*.pyc
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.hypothesis/
+dist/
+build/
+*.egg-info/
+
+# Node (pnpm)
+node_modules/
+.next/
+.turbo/
+pnpm-debug.log*
+
+# Scratch, logs, OS, editors
+tmp/
+*.log
+.cache/
+.DS_Store
+Thumbs.db
+*.swp
+.idea/
+.vscode/

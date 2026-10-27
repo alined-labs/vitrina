@@ -1,0 +1,2251 @@
+openapi: 3.1.0
+info:
+  title: Vitrina API
+  version: 0.1.0
+  summary: Closed-loop AI storefront for WhatsApp sellers in Colombia.
+  description: |
+    Backend contract for Vitrina. Consumed by the seller dashboard (Next.js), the WhatsApp
+    Cloud API webhook, background workers and the public "Foto → Vitrina" tool.
+
+    Conventions
+    - Base path `/v1`. JSON everywhere except uploads (multipart) and exports (zip).
+    - Errors are RFC 9457 `application/problem+json` with a stable `code` (see `Problem`).
+    - Lists use cursor pagination: `limit` (≤ 100) and `cursor`; responses carry `next_cursor`.
+    - Mutating `POST`s accept `Idempotency-Key`.
+    - Long operations return `202` with a `Job`; poll `GET /jobs/{job_id}`.
+    - Timestamps are ISO-8601 UTC. Money is integer COP unless suffixed `_usd`.
+    - Every response carries `X-Request-Id`.
+  contact:
+    name: Vitrina
+  license:
+    name: MIT
+servers:
+  - url: https://api.vitrina.example/v1
+    description: Production (replace at deploy)
+  - url: http://localhost:8000/v1
+    description: Local development
+tags:
+  - name: Sellers
+  - name: Catalog
+  - name: Assets
+  - name: Creative
+  - name: Ads
+  - name: Webhooks
+  - name: Conversations
+  - name: Agent
+  - name: Contacts & Consent
+  - name: Analytics
+  - name: Briefs
+  - name: Reactivation
+  - name: Evals & Metrics
+  - name: Replay
+  - name: Public
+  - name: Jobs
+  - name: Health
+
+security:
+  - sellerAuth: []
+
+paths:
+  # ─────────────────────────────── Sellers ───────────────────────────────
+  /sellers:
+    post:
+      tags: [Sellers]
+      operationId: createSeller
+      summary: Create a seller account
+      security: []
+      parameters: [{ $ref: '#/components/parameters/IdempotencyKey' }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/SellerCreate' }
+      responses:
+        '201':
+          description: Seller created
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Seller' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '409': { $ref: '#/components/responses/Conflict' }
+
+  /sellers/me:
+    get:
+      tags: [Sellers]
+      operationId: getCurrentSeller
+      summary: Get the authenticated seller
+      responses:
+        '200':
+          description: Seller
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Seller' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+    patch:
+      tags: [Sellers]
+      operationId: updateCurrentSeller
+      summary: Update seller settings (hours, thresholds, voice, AI label)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/SellerUpdate' }
+      responses:
+        '200':
+          description: Updated seller
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Seller' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+
+  /sellers/me/voice-samples:
+    post:
+      tags: [Sellers]
+      operationId: importVoiceSamples
+      summary: Import an exported WhatsApp chat to learn the seller's voice
+      description: Only the seller's own lines are kept; customer lines are discarded and PII is redacted before storage (FR-004).
+      parameters: [{ $ref: '#/components/parameters/IdempotencyKey' }]
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              required: [file, seller_display_name]
+              properties:
+                file: { type: string, format: binary, description: 'WhatsApp export .txt (≤ 5 MB)' }
+                seller_display_name: { type: string, description: 'Name as it appears in the export, used to keep only seller lines' }
+      responses:
+        '202': { $ref: '#/components/responses/Accepted' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+
+  # ─────────────────────────────── Catalog ───────────────────────────────
+  /products:
+    get:
+      tags: [Catalog]
+      operationId: listProducts
+      summary: List products
+      parameters:
+        - { $ref: '#/components/parameters/Limit' }
+        - { $ref: '#/components/parameters/Cursor' }
+        - name: status
+          in: query
+          schema: { $ref: '#/components/schemas/ProductStatus' }
+        - name: q
+          in: query
+          description: Semantic + keyword search
+          schema: { type: string, maxLength: 200 }
+      responses:
+        '200':
+          description: Page of products
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/Page'
+                  - type: object
+                    properties:
+                      items:
+                        type: array
+                        items: { $ref: '#/components/schemas/Product' }
+    post:
+      tags: [Catalog]
+      operationId: createProduct
+      summary: Create a product
+      parameters: [{ $ref: '#/components/parameters/IdempotencyKey' }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/ProductCreate' }
+      responses:
+        '201':
+          description: Product created and embedded
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Product' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+
+  /products/import:
+    post:
+      tags: [Catalog]
+      operationId: importProductsFromImage
+      summary: Extract draft products from a photo of a menu or price list
+      description: Returns a Job whose result is a list of `draft` products that must be approved (AS-1.3).
+      parameters: [{ $ref: '#/components/parameters/IdempotencyKey' }]
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              required: [image]
+              properties:
+                image: { type: string, format: binary }
+                hint: { type: string, maxLength: 300, description: 'Optional context, e.g. "menú de almuerzos"' }
+      responses:
+        '202': { $ref: '#/components/responses/Accepted' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+
+  /products/{product_id}:
+    parameters: [{ $ref: '#/components/parameters/ProductId' }]
+    get:
+      tags: [Catalog]
+      operationId: getProduct
+      summary: Get a product
+      responses:
+        '200':
+          description: Product
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Product' }
+        '404': { $ref: '#/components/responses/NotFound' }
+    patch:
+      tags: [Catalog]
+      operationId: updateProduct
+      summary: Update a product (approve a draft by setting status=active)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/ProductUpdate' }
+      responses:
+        '200':
+          description: Updated product
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Product' }
+        '404': { $ref: '#/components/responses/NotFound' }
+    delete:
+      tags: [Catalog]
+      operationId: archiveProduct
+      summary: Archive a product
+      responses:
+        '204': { description: Archived }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  /facts:
+    get:
+      tags: [Catalog]
+      operationId: listFacts
+      summary: List facts (FAQ, shipping, payment, policies)
+      parameters:
+        - { $ref: '#/components/parameters/Limit' }
+        - { $ref: '#/components/parameters/Cursor' }
+        - name: kind
+          in: query
+          schema: { $ref: '#/components/schemas/FactKind' }
+      responses:
+        '200':
+          description: Page of facts
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/Page'
+                  - type: object
+                    properties:
+                      items:
+                        type: array
+                        items: { $ref: '#/components/schemas/Fact' }
+    post:
+      tags: [Catalog]
+      operationId: createFact
+      summary: Create a fact
+      parameters: [{ $ref: '#/components/parameters/IdempotencyKey' }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/FactCreate' }
+      responses:
+        '201':
+          description: Fact created and embedded
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Fact' }
+
+  /facts/{fact_id}:
+    parameters:
+      - name: fact_id
+        in: path
+        required: true
+        schema: { type: string, format: uuid }
+    patch:
+      tags: [Catalog]
+      operationId: updateFact
+      summary: Update or approve a fact
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/FactUpdate' }
+      responses:
+        '200':
+          description: Updated fact
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Fact' }
+    delete:
+      tags: [Catalog]
+      operationId: deleteFact
+      summary: Delete a fact
+      responses:
+        '204': { description: Deleted }
+
+  # ─────────────────────────────── Assets ───────────────────────────────
+  /assets:
+    post:
+      tags: [Assets]
+      operationId: uploadAsset
+      summary: Upload a product photo or short video
+      parameters: [{ $ref: '#/components/parameters/IdempotencyKey' }]
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              required: [file, product_id]
+              properties:
+                file: { type: string, format: binary, description: 'JPEG/PNG/WebP ≤ 10 MB or MP4 ≤ 60 MB, ≤ 15 s' }
+                product_id: { type: string, format: uuid }
+      responses:
+        '201':
+          description: Asset stored
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Asset' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '413': { $ref: '#/components/responses/PayloadTooLarge' }
+
+  /assets/{asset_id}:
+    parameters:
+      - name: asset_id
+        in: path
+        required: true
+        schema: { type: string, format: uuid }
+    get:
+      tags: [Assets]
+      operationId: getAsset
+      summary: Get asset metadata and signed URL
+      responses:
+        '200':
+          description: Asset
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Asset' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  # ─────────────────────────────── Creative ───────────────────────────────
+  /creative/jobs:
+    post:
+      tags: [Creative]
+      operationId: createCreativeJob
+      summary: Run the creative pipeline for a product (segment → compose → verify → copy)
+      parameters: [{ $ref: '#/components/parameters/IdempotencyKey' }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/CreativeJobCreate' }
+      responses:
+        '202':
+          description: Job accepted
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/CreativeJob' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '404': { $ref: '#/components/responses/NotFound' }
+    get:
+      tags: [Creative]
+      operationId: listCreativeJobs
+      summary: List creative jobs
+      parameters:
+        - { $ref: '#/components/parameters/Limit' }
+        - { $ref: '#/components/parameters/Cursor' }
+        - name: product_id
+          in: query
+          schema: { type: string, format: uuid }
+      responses:
+        '200':
+          description: Page of jobs
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/Page'
+                  - type: object
+                    properties:
+                      items:
+                        type: array
+                        items: { $ref: '#/components/schemas/CreativeJob' }
+
+  /creative/jobs/{job_id}:
+    parameters: [{ $ref: '#/components/parameters/JobId' }]
+    get:
+      tags: [Creative]
+      operationId: getCreativeJob
+      summary: Get a creative job with its creatives and copy variants
+      responses:
+        '200':
+          description: Job
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/CreativeJob' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  /creative/reels:
+    post:
+      tags: [Creative]
+      operationId: createReelJob
+      summary: Turn a short product video into a Reel with SAM 3.1 tracking (P2)
+      parameters: [{ $ref: '#/components/parameters/IdempotencyKey' }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [asset_id]
+              properties:
+                asset_id: { type: string, format: uuid, description: 'Video asset' }
+                copy_variant_id: { type: string, format: uuid, description: 'Approved copy to overlay' }
+                highlight_style: { type: string, enum: [mask_glow, blur_background, outline], default: mask_glow }
+      responses:
+        '202': { $ref: '#/components/responses/Accepted' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  /creatives/{creative_id}:
+    parameters:
+      - name: creative_id
+        in: path
+        required: true
+        schema: { type: string, format: uuid }
+    get:
+      tags: [Creative]
+      operationId: getCreative
+      summary: Get a creative with its verification report
+      responses:
+        '200':
+          description: Creative
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Creative' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  # ─────────────────────────────── Ads ───────────────────────────────
+  /ads:
+    get:
+      tags: [Ads]
+      operationId: listAds
+      summary: List ads (blocked creatives never appear)
+      parameters:
+        - { $ref: '#/components/parameters/Limit' }
+        - { $ref: '#/components/parameters/Cursor' }
+        - name: status
+          in: query
+          schema: { $ref: '#/components/schemas/AdStatus' }
+        - name: product_id
+          in: query
+          schema: { type: string, format: uuid }
+      responses:
+        '200':
+          description: Page of ads
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/Page'
+                  - type: object
+                    properties:
+                      items:
+                        type: array
+                        items: { $ref: '#/components/schemas/Ad' }
+    post:
+      tags: [Ads]
+      operationId: createAd
+      summary: Create a draft ad from a passed creative and a copy variant
+      parameters: [{ $ref: '#/components/parameters/IdempotencyKey' }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/AdCreate' }
+      responses:
+        '201':
+          description: Draft ad
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Ad' }
+        '409':
+          description: Creative is blocked by the fidelity verifier (`CREATIVE_BLOCKED`)
+          content:
+            application/problem+json:
+              schema: { $ref: '#/components/schemas/Problem' }
+
+  /ads/{ad_id}:
+    parameters: [{ $ref: '#/components/parameters/AdId' }]
+    get:
+      tags: [Ads]
+      operationId: getAd
+      summary: Get an ad
+      responses:
+        '200':
+          description: Ad
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Ad' }
+        '404': { $ref: '#/components/responses/NotFound' }
+    delete:
+      tags: [Ads]
+      operationId: archiveAd
+      summary: Archive an ad (its code stays reserved for attribution)
+      responses:
+        '204': { description: Archived }
+
+  /ads/{ad_id}/approve:
+    post:
+      tags: [Ads]
+      operationId: approveAd
+      summary: Approve an ad; assigns the short code and wa.me link
+      parameters:
+        - { $ref: '#/components/parameters/AdId' }
+        - { $ref: '#/components/parameters/IdempotencyKey' }
+      responses:
+        '200':
+          description: Approved ad with `code` and `wa_link`
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Ad' }
+        '409': { $ref: '#/components/responses/Conflict' }
+
+  /ads/{ad_id}/export:
+    get:
+      tags: [Ads]
+      operationId: exportAd
+      summary: Download the ad package (images per format, copy, provenance.json)
+      parameters: [{ $ref: '#/components/parameters/AdId' }]
+      responses:
+        '200':
+          description: Zip archive
+          content:
+            application/zip:
+              schema: { type: string, format: binary }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  /ads/by-code/{code}:
+    get:
+      tags: [Ads]
+      operationId: getAdByCode
+      summary: Resolve a short code like `A7`
+      parameters:
+        - name: code
+          in: path
+          required: true
+          schema: { type: string, pattern: '^A[0-9A-Z]{1,3}$' }
+      responses:
+        '200':
+          description: Ad
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Ad' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  # ─────────────────────────────── Webhooks ───────────────────────────────
+  /webhooks/whatsapp:
+    get:
+      tags: [Webhooks]
+      operationId: verifyWhatsappWebhook
+      summary: Meta verification handshake
+      security: []
+      parameters:
+        - { name: hub.mode, in: query, required: true, schema: { type: string, enum: [subscribe] } }
+        - { name: hub.verify_token, in: query, required: true, schema: { type: string } }
+        - { name: hub.challenge, in: query, required: true, schema: { type: string } }
+      responses:
+        '200':
+          description: Echoes `hub.challenge`
+          content:
+            text/plain:
+              schema: { type: string }
+        '403': { $ref: '#/components/responses/Forbidden' }
+    post:
+      tags: [Webhooks]
+      operationId: receiveWhatsappWebhook
+      summary: Inbound messages and status callbacks from WhatsApp Cloud API
+      description: |
+        Validates `X-Hub-Signature-256` (HMAC-SHA256 of the raw body with the app secret),
+        persists the raw payload, deduplicates by `message_id`, enqueues `process_inbound`,
+        and acknowledges within 2 s (FR-021). Opt-out keywords are handled before anything else (FR-063).
+      security: [{ whatsappSignature: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              description: Raw WhatsApp Cloud API webhook payload (passed through; see Meta docs)
+              additionalProperties: true
+      responses:
+        '200': { description: Acknowledged }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+
+  # ─────────────────────────────── Conversations ───────────────────────────────
+  /conversations:
+    get:
+      tags: [Conversations]
+      operationId: listConversations
+      summary: List conversations
+      parameters:
+        - { $ref: '#/components/parameters/Limit' }
+        - { $ref: '#/components/parameters/Cursor' }
+        - name: mode
+          in: query
+          schema: { $ref: '#/components/schemas/ConversationMode' }
+        - name: attributed_ad_id
+          in: query
+          schema: { type: string, format: uuid }
+        - name: needs_attention
+          in: query
+          description: Only conversations in `human` mode with no seller reply yet
+          schema: { type: boolean }
+      responses:
+        '200':
+          description: Page of conversations
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/Page'
+                  - type: object
+                    properties:
+                      items:
+                        type: array
+                        items: { $ref: '#/components/schemas/Conversation' }
+
+  /conversations/{conversation_id}:
+    parameters: [{ $ref: '#/components/parameters/ConversationId' }]
+    get:
+      tags: [Conversations]
+      operationId: getConversation
+      summary: Get a conversation with attribution and handoff state
+      responses:
+        '200':
+          description: Conversation
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Conversation' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  /conversations/{conversation_id}/messages:
+    parameters: [{ $ref: '#/components/parameters/ConversationId' }]
+    get:
+      tags: [Conversations]
+      operationId: listMessages
+      summary: List messages (oldest first)
+      parameters:
+        - { $ref: '#/components/parameters/Limit' }
+        - { $ref: '#/components/parameters/Cursor' }
+      responses:
+        '200':
+          description: Page of messages
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/Page'
+                  - type: object
+                    properties:
+                      items:
+                        type: array
+                        items: { $ref: '#/components/schemas/Message' }
+    post:
+      tags: [Conversations]
+      operationId: sendHumanMessage
+      summary: Seller sends a message from the dashboard (conversation must be in `human` mode)
+      parameters: [{ $ref: '#/components/parameters/IdempotencyKey' }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [text]
+              properties:
+                text: { type: string, maxLength: 4096 }
+      responses:
+        '201':
+          description: Outbound message queued
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Message' }
+        '409':
+          description: Conversation is in `agent` mode (`CONVERSATION_NOT_HUMAN`)
+          content:
+            application/problem+json:
+              schema: { $ref: '#/components/schemas/Problem' }
+
+  /conversations/{conversation_id}/takeover:
+    post:
+      tags: [Conversations]
+      operationId: takeoverConversation
+      summary: Seller takes over; agent stops replying
+      parameters: [{ $ref: '#/components/parameters/ConversationId' }]
+      responses:
+        '200':
+          description: Conversation in `human` mode
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Conversation' }
+
+  /conversations/{conversation_id}/release:
+    post:
+      tags: [Conversations]
+      operationId: releaseConversation
+      summary: Return the conversation to the agent
+      parameters: [{ $ref: '#/components/parameters/ConversationId' }]
+      responses:
+        '200':
+          description: Conversation in `agent` mode
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Conversation' }
+
+  # ─────────────────────────────── Agent ───────────────────────────────
+  /agent/turns:
+    post:
+      tags: [Agent]
+      operationId: runAgentTurn
+      summary: Run one agent turn without WhatsApp (tests, evals, dashboard "try it")
+      description: Returns the structured output, tool calls and validator results (FR-030). With `dry_run=true` no tool has side effects.
+      parameters: [{ $ref: '#/components/parameters/IdempotencyKey' }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/AgentTurnRequest' }
+      responses:
+        '200':
+          description: Agent turn result
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/AgentTurnResult' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '503': { $ref: '#/components/responses/ProviderUnavailable' }
+
+  # ─────────────────────────────── Contacts & Consent ───────────────────────────────
+  /contacts:
+    get:
+      tags: [Contacts & Consent]
+      operationId: listContacts
+      summary: List contacts with consent status
+      parameters:
+        - { $ref: '#/components/parameters/Limit' }
+        - { $ref: '#/components/parameters/Cursor' }
+        - name: marketing_consent
+          in: query
+          schema: { type: string, enum: [granted, revoked, none] }
+      responses:
+        '200':
+          description: Page of contacts
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/Page'
+                  - type: object
+                    properties:
+                      items:
+                        type: array
+                        items: { $ref: '#/components/schemas/Contact' }
+
+  /contacts/{contact_id}:
+    parameters: [{ $ref: '#/components/parameters/ContactId' }]
+    get:
+      tags: [Contacts & Consent]
+      operationId: getContact
+      summary: Get a contact
+      responses:
+        '200':
+          description: Contact
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Contact' }
+        '404': { $ref: '#/components/responses/NotFound' }
+    delete:
+      tags: [Contacts & Consent]
+      operationId: eraseContact
+      summary: Erase a contact's personal data (Habeas Data request)
+      description: Schedules erasure within 24 h and keeps a non-reversible erasure receipt (FR-065).
+      responses:
+        '202': { $ref: '#/components/responses/Accepted' }
+
+  /contacts/{contact_id}/consents:
+    parameters: [{ $ref: '#/components/parameters/ContactId' }]
+    get:
+      tags: [Contacts & Consent]
+      operationId: listConsents
+      summary: Consent ledger for a contact (append-only)
+      responses:
+        '200':
+          description: Ledger entries, newest first
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: '#/components/schemas/ConsentRecord' }
+    post:
+      tags: [Contacts & Consent]
+      operationId: recordConsent
+      summary: Record consent or revocation manually (e.g. from a paper form)
+      parameters: [{ $ref: '#/components/parameters/IdempotencyKey' }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/ConsentRecordCreate' }
+      responses:
+        '201':
+          description: Ledger entry appended
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ConsentRecord' }
+
+  /contacts/{contact_id}/opt-out:
+    post:
+      tags: [Contacts & Consent]
+      operationId: optOutContact
+      summary: Opt a contact out of marketing immediately
+      parameters: [{ $ref: '#/components/parameters/ContactId' }]
+      responses:
+        '200':
+          description: Contact opted out
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Contact' }
+
+  # ─────────────────────────────── Analytics ───────────────────────────────
+  /analytics/attribution:
+    get:
+      tags: [Analytics]
+      operationId: getAttribution
+      summary: Ad → chat → outcome funnel per ad and per angle
+      parameters:
+        - { $ref: '#/components/parameters/From' }
+        - { $ref: '#/components/parameters/To' }
+      responses:
+        '200':
+          description: Attribution report
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/AttributionReport' }
+
+  /analytics/objections:
+    get:
+      tags: [Analytics]
+      operationId: getObjections
+      summary: Objection tags per ad and period
+      parameters:
+        - { $ref: '#/components/parameters/From' }
+        - { $ref: '#/components/parameters/To' }
+      responses:
+        '200':
+          description: Objection report
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ObjectionReport' }
+
+  # ─────────────────────────────── Briefs ───────────────────────────────
+  /briefs:
+    get:
+      tags: [Briefs]
+      operationId: listBriefs
+      summary: List weekly briefs
+      parameters:
+        - { $ref: '#/components/parameters/Limit' }
+        - { $ref: '#/components/parameters/Cursor' }
+      responses:
+        '200':
+          description: Page of briefs
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/Page'
+                  - type: object
+                    properties:
+                      items:
+                        type: array
+                        items: { $ref: '#/components/schemas/Brief' }
+
+  /briefs/generate:
+    post:
+      tags: [Briefs]
+      operationId: generateBrief
+      summary: Ask Muse Wonder for the next creative brief from objections and attribution
+      parameters: [{ $ref: '#/components/parameters/IdempotencyKey' }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [period_from, period_to]
+              properties:
+                period_from: { type: string, format: date }
+                period_to: { type: string, format: date }
+                min_conversations: { type: integer, default: 10, minimum: 1 }
+      responses:
+        '202': { $ref: '#/components/responses/Accepted' }
+        '422':
+          description: Not enough data (`INSUFFICIENT_DATA`)
+          content:
+            application/problem+json:
+              schema: { $ref: '#/components/schemas/Problem' }
+
+  /briefs/{brief_id}:
+    parameters:
+      - name: brief_id
+        in: path
+        required: true
+        schema: { type: string, format: uuid }
+    get:
+      tags: [Briefs]
+      operationId: getBrief
+      summary: Get a brief
+      responses:
+        '200':
+          description: Brief
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Brief' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  /briefs/{brief_id}/apply:
+    post:
+      tags: [Briefs]
+      operationId: applyBrief
+      summary: Create creative jobs and a reactivation campaign preview from the brief
+      parameters:
+        - name: brief_id
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+        - { $ref: '#/components/parameters/IdempotencyKey' }
+      responses:
+        '202':
+          description: Created jobs and campaign preview
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  creative_job_ids:
+                    type: array
+                    items: { type: string, format: uuid }
+                  reactivation_campaign_id:
+                    type: [string, 'null']
+                    format: uuid
+
+  # ─────────────────────────────── Reactivation ───────────────────────────────
+  /reactivation/campaigns:
+    post:
+      tags: [Reactivation]
+      operationId: createReactivationCampaign
+      summary: Build a campaign preview with per-contact eligibility decisions (nothing is sent)
+      parameters: [{ $ref: '#/components/parameters/IdempotencyKey' }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/ReactivationCampaignCreate' }
+      responses:
+        '201':
+          description: Campaign preview
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ReactivationCampaign' }
+    get:
+      tags: [Reactivation]
+      operationId: listReactivationCampaigns
+      summary: List campaigns
+      parameters:
+        - { $ref: '#/components/parameters/Limit' }
+        - { $ref: '#/components/parameters/Cursor' }
+      responses:
+        '200':
+          description: Page of campaigns
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/Page'
+                  - type: object
+                    properties:
+                      items:
+                        type: array
+                        items: { $ref: '#/components/schemas/ReactivationCampaign' }
+
+  /reactivation/campaigns/{campaign_id}:
+    parameters: [{ $ref: '#/components/parameters/CampaignId' }]
+    get:
+      tags: [Reactivation]
+      operationId: getReactivationCampaign
+      summary: Get a campaign with its send decisions
+      responses:
+        '200':
+          description: Campaign
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ReactivationCampaign' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  /reactivation/campaigns/{campaign_id}/send:
+    post:
+      tags: [Reactivation]
+      operationId: sendReactivationCampaign
+      summary: Send to `allowed` contacts only, via approved template, inside legal hours
+      description: Re-evaluates eligibility at send time; `deferred` contacts are scheduled for `next_allowed_at`.
+      parameters:
+        - { $ref: '#/components/parameters/CampaignId' }
+        - { $ref: '#/components/parameters/IdempotencyKey' }
+      responses:
+        '202':
+          description: Sending scheduled
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ReactivationCampaign' }
+        '409':
+          description: Template not approved or campaign already sent (`TEMPLATE_NOT_APPROVED`, `CAMPAIGN_ALREADY_SENT`)
+          content:
+            application/problem+json:
+              schema: { $ref: '#/components/schemas/Problem' }
+
+  /reactivation/eligibility:
+    post:
+      tags: [Reactivation]
+      operationId: checkEligibility
+      summary: Evaluate one contact's eligibility now (debug / demo)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [contact_id]
+              properties:
+                contact_id: { type: string, format: uuid }
+                at: { type: string, format: date-time, description: 'Evaluate as if sent at this time (defaults to now)' }
+      responses:
+        '200':
+          description: Decision
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/SendDecision' }
+
+  # ─────────────────────────────── Evals & Metrics ───────────────────────────────
+  /evals/runs:
+    post:
+      tags: [Evals & Metrics]
+      operationId: createEvalRun
+      summary: Run an evaluation suite
+      security: [{ serviceAuth: [] }, { sellerAuth: [] }]
+      parameters: [{ $ref: '#/components/parameters/IdempotencyKey' }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [suite]
+              properties:
+                suite: { $ref: '#/components/schemas/EvalSuite' }
+                replay: { type: boolean, default: true, description: 'Use recorded model outputs; no credentials needed' }
+                sample: { type: integer, minimum: 1, description: 'Run a subset' }
+      responses:
+        '202':
+          description: Run started
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/EvalRun' }
+    get:
+      tags: [Evals & Metrics]
+      operationId: listEvalRuns
+      summary: List eval runs
+      parameters:
+        - { $ref: '#/components/parameters/Limit' }
+        - { $ref: '#/components/parameters/Cursor' }
+        - name: suite
+          in: query
+          schema: { $ref: '#/components/schemas/EvalSuite' }
+      responses:
+        '200':
+          description: Page of runs
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/Page'
+                  - type: object
+                    properties:
+                      items:
+                        type: array
+                        items: { $ref: '#/components/schemas/EvalRun' }
+
+  /evals/runs/{run_id}:
+    parameters:
+      - name: run_id
+        in: path
+        required: true
+        schema: { type: string, format: uuid }
+    get:
+      tags: [Evals & Metrics]
+      operationId: getEvalRun
+      summary: Get an eval run with metrics and per-case results
+      responses:
+        '200':
+          description: Run
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/EvalRun' }
+
+  /metrics/summary:
+    get:
+      tags: [Evals & Metrics]
+      operationId: getMetricsSummary
+      summary: Latest eval metrics plus live counters for the dashboard metrics page
+      responses:
+        '200':
+          description: Summary
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/MetricsSummary' }
+
+  /metrics/costs:
+    get:
+      tags: [Evals & Metrics]
+      operationId: getCosts
+      summary: Model and messaging cost ledger aggregated by provider/model
+      parameters:
+        - { $ref: '#/components/parameters/From' }
+        - { $ref: '#/components/parameters/To' }
+      responses:
+        '200':
+          description: Cost report
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/CostReport' }
+
+  # ─────────────────────────────── Replay ───────────────────────────────
+  /replay/fixtures:
+    get:
+      tags: [Replay]
+      operationId: listReplayFixtures
+      summary: Recorded webhook fixtures available for replay
+      responses:
+        '200':
+          description: Fixtures
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  type: object
+                  required: [fixture_id, name, message_count]
+                  properties:
+                    fixture_id: { type: string }
+                    name: { type: string }
+                    description: { type: string }
+                    message_count: { type: integer }
+
+  /replay/sessions:
+    post:
+      tags: [Replay]
+      operationId: startReplaySession
+      summary: Inject a recorded conversation through the live pipeline (no real sends)
+      parameters: [{ $ref: '#/components/parameters/IdempotencyKey' }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [fixture_id]
+              properties:
+                fixture_id: { type: string }
+                speed: { type: number, minimum: 0.1, maximum: 10, default: 1, description: 'Playback speed multiplier' }
+                use_recorded_model_outputs: { type: boolean, default: false, description: 'true = fully offline demo' }
+      responses:
+        '202':
+          description: Session started
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [session_id, conversation_id, job_id]
+                properties:
+                  session_id: { type: string, format: uuid }
+                  conversation_id: { type: string, format: uuid }
+                  job_id: { type: string, format: uuid }
+
+  # ─────────────────────────────── Public ───────────────────────────────
+  /public/showcases:
+    post:
+      tags: [Public]
+      operationId: createPublicShowcase
+      summary: 'Viral tool "Foto → Vitrina": one photo in, 3 watermarked scenes + 10 copies out (P2)'
+      security: []
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              required: [image, product_name]
+              properties:
+                image: { type: string, format: binary }
+                product_name: { type: string, maxLength: 80 }
+                price_cop: { type: integer, minimum: 0 }
+                city: { type: string, maxLength: 60 }
+      responses:
+        '202':
+          description: Job plus the slug the page will live at
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [job_id, slug, page_url]
+                properties:
+                  job_id: { type: string, format: uuid }
+                  slug: { type: string }
+                  page_url: { type: string, format: uri }
+        '429': { $ref: '#/components/responses/TooManyRequests' }
+
+  /public/showcases/{slug}:
+    get:
+      tags: [Public]
+      operationId: getPublicShowcase
+      summary: Public showcase page data
+      security: []
+      parameters:
+        - name: slug
+          in: path
+          required: true
+          schema: { type: string, pattern: '^[a-z0-9-]{6,40}$' }
+      responses:
+        '200':
+          description: Showcase
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/PublicShowcase' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  # ─────────────────────────────── Jobs & Health ───────────────────────────────
+  /jobs/{job_id}:
+    parameters: [{ $ref: '#/components/parameters/JobId' }]
+    get:
+      tags: [Jobs]
+      operationId: getJob
+      summary: Poll any asynchronous job
+      responses:
+        '200':
+          description: Job
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Job' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  /health:
+    get:
+      tags: [Health]
+      operationId: getHealth
+      summary: Liveness
+      security: []
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [status, version]
+                properties:
+                  status: { type: string, enum: [ok] }
+                  version: { type: string }
+
+  /health/providers:
+    get:
+      tags: [Health]
+      operationId: getProviderHealth
+      summary: Reachability and latency of Meta Model API, WhatsApp Cloud API, Modal, DB and queue
+      responses:
+        '200':
+          description: Provider status
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties:
+                  type: object
+                  required: [status]
+                  properties:
+                    status: { type: string, enum: [ok, degraded, down, mocked] }
+                    latency_ms: { type: integer }
+                    checked_at: { type: string, format: date-time }
+                    detail: { type: string }
+
+# ═══════════════════════════════════ Components ═══════════════════════════════════
+components:
+  securitySchemes:
+    sellerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+      description: Supabase JWT; `seller_id` claim scopes every query.
+    serviceAuth:
+      type: apiKey
+      in: header
+      name: X-Service-Token
+      description: Internal workers.
+    whatsappSignature:
+      type: apiKey
+      in: header
+      name: X-Hub-Signature-256
+      description: '`sha256=<hex HMAC of raw body with app secret>`'
+
+  parameters:
+    IdempotencyKey:
+      name: Idempotency-Key
+      in: header
+      required: false
+      schema: { type: string, minLength: 8, maxLength: 128 }
+      description: Same key + same body → same response. Same key + different body → `409 IDEMPOTENCY_CONFLICT`.
+    Limit:
+      name: limit
+      in: query
+      schema: { type: integer, minimum: 1, maximum: 100, default: 25 }
+    Cursor:
+      name: cursor
+      in: query
+      schema: { type: string }
+    From:
+      name: from
+      in: query
+      required: true
+      schema: { type: string, format: date }
+    To:
+      name: to
+      in: query
+      required: true
+      schema: { type: string, format: date }
+    ProductId:
+      name: product_id
+      in: path
+      required: true
+      schema: { type: string, format: uuid }
+    JobId:
+      name: job_id
+      in: path
+      required: true
+      schema: { type: string, format: uuid }
+    AdId:
+      name: ad_id
+      in: path
+      required: true
+      schema: { type: string, format: uuid }
+    ConversationId:
+      name: conversation_id
+      in: path
+      required: true
+      schema: { type: string, format: uuid }
+    ContactId:
+      name: contact_id
+      in: path
+      required: true
+      schema: { type: string, format: uuid }
+    CampaignId:
+      name: campaign_id
+      in: path
+      required: true
+      schema: { type: string, format: uuid }
+
+  responses:
+    Accepted:
+      description: Accepted; poll the job
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Job' }
+    BadRequest:
+      description: Validation error (`VALIDATION_ERROR`)
+      content:
+        application/problem+json:
+          schema: { $ref: '#/components/schemas/Problem' }
+    Unauthorized:
+      description: Missing or invalid credentials (`UNAUTHORIZED`, `INVALID_SIGNATURE`)
+      content:
+        application/problem+json:
+          schema: { $ref: '#/components/schemas/Problem' }
+    Forbidden:
+      description: Forbidden (`FORBIDDEN`)
+      content:
+        application/problem+json:
+          schema: { $ref: '#/components/schemas/Problem' }
+    NotFound:
+      description: Not found in this seller's scope (`NOT_FOUND`)
+      content:
+        application/problem+json:
+          schema: { $ref: '#/components/schemas/Problem' }
+    Conflict:
+      description: State conflict (`CONFLICT`, `IDEMPOTENCY_CONFLICT`)
+      content:
+        application/problem+json:
+          schema: { $ref: '#/components/schemas/Problem' }
+    PayloadTooLarge:
+      description: File too large (`PAYLOAD_TOO_LARGE`)
+      content:
+        application/problem+json:
+          schema: { $ref: '#/components/schemas/Problem' }
+    TooManyRequests:
+      description: Rate limited (`RATE_LIMITED`); see `Retry-After`
+      headers:
+        Retry-After: { schema: { type: integer } }
+      content:
+        application/problem+json:
+          schema: { $ref: '#/components/schemas/Problem' }
+    ProviderUnavailable:
+      description: Upstream model/messaging provider unavailable (`PROVIDER_UNAVAILABLE`)
+      content:
+        application/problem+json:
+          schema: { $ref: '#/components/schemas/Problem' }
+
+  schemas:
+    # ── Cross-cutting ──
+    Problem:
+      type: object
+      description: RFC 9457 problem details with a stable machine-readable `code`.
+      required: [type, title, status, code]
+      properties:
+        type: { type: string, format: uri, default: 'about:blank' }
+        title: { type: string }
+        status: { type: integer }
+        detail: { type: string }
+        instance: { type: string }
+        code:
+          type: string
+          description: Stable error code
+          enum:
+            - VALIDATION_ERROR
+            - UNAUTHORIZED
+            - INVALID_SIGNATURE
+            - FORBIDDEN
+            - NOT_FOUND
+            - CONFLICT
+            - IDEMPOTENCY_CONFLICT
+            - PAYLOAD_TOO_LARGE
+            - RATE_LIMITED
+            - PROVIDER_UNAVAILABLE
+            - CREATIVE_BLOCKED
+            - CONVERSATION_NOT_HUMAN
+            - TEMPLATE_NOT_APPROVED
+            - CAMPAIGN_ALREADY_SENT
+            - INSUFFICIENT_DATA
+            - BRIEF_SCHEMA_INVALID
+            - PRICE_UNVERIFIED
+            - DRAFT_NOT_CITABLE
+        errors:
+          type: array
+          description: Field-level details for `VALIDATION_ERROR`
+          items:
+            type: object
+            required: [field, message]
+            properties:
+              field: { type: string }
+              message: { type: string }
+        request_id: { type: string }
+
+    Page:
+      type: object
+      required: [items, next_cursor]
+      properties:
+        items: { type: array, items: {} }
+        next_cursor: { type: [string, 'null'] }
+
+    Job:
+      type: object
+      required: [id, kind, status, created_at]
+      properties:
+        id: { type: string, format: uuid }
+        kind:
+          type: string
+          enum: [voice_import, product_import, creative, reel, brief, erasure, eval_run, replay, campaign_send, public_showcase]
+        status: { type: string, enum: [queued, running, succeeded, failed, cancelled] }
+        stage: { type: string, description: 'Pipeline-specific stage name' }
+        progress: { type: number, minimum: 0, maximum: 1 }
+        result_ref:
+          type: [string, 'null']
+          description: 'Relative URL of the produced resource, e.g. /v1/creative/jobs/{id}'
+        error: { $ref: '#/components/schemas/JobError' }
+        created_at: { type: string, format: date-time }
+        started_at: { type: [string, 'null'], format: date-time }
+        finished_at: { type: [string, 'null'], format: date-time }
+    JobError:
+      type: [object, 'null']
+      properties:
+        code: { type: string }
+        message: { type: string }
+        retryable: { type: boolean }
+
+    ModelCallMeta:
+      type: object
+      description: Recorded for every model call (FR-084)
+      properties:
+        provider: { type: string, enum: [meta_model_api, modal, baseten, fireworks, local_mock] }
+        model: { type: string }
+        tokens_in: { type: integer }
+        tokens_out: { type: integer }
+        latency_ms: { type: integer }
+        cost_usd: { type: number }
+        replayed: { type: boolean }
+
+    # ── Sellers ──
+    BusinessHours:
+      type: object
+      description: 'Weekday → list of [open, close] in HH:MM local time. Missing weekday = closed.'
+      additionalProperties:
+        type: array
+        items:
+          type: array
+          items: { type: string, pattern: '^\d{2}:\d{2}$' }
+          minItems: 2
+          maxItems: 2
+      example:
+        mon: [['09:00', '18:00']]
+        sat: [['09:00', '13:00']]
+    BrandVoiceProfile:
+      type: object
+      properties:
+        formality: { type: number, minimum: 1, maximum: 5 }
+        warmth: { type: number, minimum: 1, maximum: 5 }
+        emoji_rate: { type: number, minimum: 0, maximum: 1 }
+        regionalisms: { type: array, items: { type: string }, example: ['veci', 'parce', 'a la orden'] }
+        greeting_style: { type: string }
+        sample_count: { type: integer }
+        updated_at: { type: string, format: date-time }
+    SellerCreate:
+      type: object
+      required: [business_name, owner_name, whatsapp_number, city]
+      properties:
+        business_name: { type: string, maxLength: 120 }
+        owner_name: { type: string, maxLength: 120 }
+        whatsapp_number: { type: string, pattern: '^\+[1-9]\d{7,14}$', description: E.164 }
+        city: { type: string, maxLength: 80 }
+        timezone: { type: string, default: America/Bogota }
+        category: { type: string, enum: [products, services], default: products }
+    SellerUpdate:
+      type: object
+      properties:
+        business_name: { type: string, maxLength: 120 }
+        owner_name: { type: string, maxLength: 120 }
+        city: { type: string, maxLength: 80 }
+        business_hours: { $ref: '#/components/schemas/BusinessHours' }
+        handoff_amount_threshold_cop: { type: integer, minimum: 0 }
+        brand_voice_min: { type: number, minimum: 1, maximum: 5 }
+        ai_label_enabled: { type: boolean }
+        handoff_summary_enabled: { type: boolean }
+        consent_prompt_text: { type: string, maxLength: 300 }
+    Seller:
+      type: object
+      required: [id, business_name, owner_name, whatsapp_number, city, timezone, created_at]
+      properties:
+        id: { type: string, format: uuid }
+        business_name: { type: string }
+        owner_name: { type: string }
+        whatsapp_number: { type: string }
+        city: { type: string }
+        timezone: { type: string }
+        category: { type: string, enum: [products, services] }
+        business_hours: { $ref: '#/components/schemas/BusinessHours' }
+        handoff_amount_threshold_cop: { type: integer, default: 300000 }
+        brand_voice_min: { type: number, default: 3.5 }
+        brand_voice_profile: { $ref: '#/components/schemas/BrandVoiceProfile' }
+        ai_label_enabled: { type: boolean, default: true }
+        handoff_summary_enabled: { type: boolean, default: true }
+        consent_prompt_text: { type: string, default: '¿Te aviso cuando llegue tu talla o haya promo? Responde SÍ' }
+        marketing_template_status: { type: string, enum: [none, pending, approved, rejected] }
+        created_at: { type: string, format: date-time }
+
+    # ── Catalog ──
+    ProductStatus: { type: string, enum: [draft, active, archived] }
+    ProductCreate:
+      type: object
+      required: [name, price_cop]
+      properties:
+        name: { type: string, maxLength: 120 }
+        description: { type: string, maxLength: 2000 }
+        price_cop: { type: integer, minimum: 0 }
+        stock: { type: [integer, 'null'], minimum: 0, description: 'null = not tracked' }
+        attributes:
+          type: object
+          additionalProperties: { type: string }
+          example: { color: rojo, talla: M, material: cuero }
+        status: { $ref: '#/components/schemas/ProductStatus' }
+    ProductUpdate:
+      type: object
+      properties:
+        name: { type: string, maxLength: 120 }
+        description: { type: string, maxLength: 2000 }
+        price_cop: { type: integer, minimum: 0 }
+        stock: { type: [integer, 'null'], minimum: 0 }
+        attributes: { type: object, additionalProperties: { type: string } }
+        status: { $ref: '#/components/schemas/ProductStatus' }
+    Product:
+      type: object
+      required: [id, seller_id, name, price_cop, status, created_at]
+      properties:
+        id: { type: string, format: uuid }
+        seller_id: { type: string, format: uuid }
+        name: { type: string }
+        description: { type: string }
+        price_cop: { type: integer }
+        stock: { type: [integer, 'null'] }
+        reserved: { type: integer, description: 'Units held by active reservations' }
+        attributes: { type: object, additionalProperties: { type: string } }
+        status: { $ref: '#/components/schemas/ProductStatus' }
+        asset_ids: { type: array, items: { type: string, format: uuid } }
+        source: { type: string, enum: [manual, image_import], default: manual }
+        created_at: { type: string, format: date-time }
+        updated_at: { type: string, format: date-time }
+
+    FactKind: { type: string, enum: [faq, shipping, payment, policy, hours, other] }
+    FactCreate:
+      type: object
+      required: [kind, text]
+      properties:
+        kind: { $ref: '#/components/schemas/FactKind' }
+        text: { type: string, maxLength: 1000 }
+        source: { type: string, maxLength: 120 }
+    FactUpdate:
+      type: object
+      properties:
+        kind: { $ref: '#/components/schemas/FactKind' }
+        text: { type: string, maxLength: 1000 }
+        status: { type: string, enum: [draft, active] }
+    Fact:
+      type: object
+      required: [id, seller_id, kind, text, status, created_at]
+      properties:
+        id: { type: string, format: uuid }
+        seller_id: { type: string, format: uuid }
+        kind: { $ref: '#/components/schemas/FactKind' }
+        text: { type: string }
+        source: { type: string }
+        status: { type: string, enum: [draft, active] }
+        amounts_cop:
+          type: array
+          items: { type: integer }
+          description: 'Monetary amounts extracted at write time; used by the price validator'
+        created_at: { type: string, format: date-time }
+
+    # ── Assets & creative ──
+    Asset:
+      type: object
+      required: [id, seller_id, product_id, kind, url, sha256, created_at]
+      properties:
+        id: { type: string, format: uuid }
+        seller_id: { type: string, format: uuid }
+        product_id: { type: string, format: uuid }
+        kind: { type: string, enum: [image, video] }
+        url: { type: string, format: uri, description: 'Signed, short-lived' }
+        width: { type: integer }
+        height: { type: integer }
+        duration_s: { type: [number, 'null'] }
+        sha256: { type: string }
+        created_at: { type: string, format: date-time }
+
+    CreativeFormat: { type: string, enum: [story_9x16, catalog_1x1, feed_4x5] }
+    CopyAngle: { type: string, enum: [price, quality, handmade, urgency, gift, local_pride] }
+    CopyHook: { type: string, enum: [question, bold_claim, story, social_proof_free, scarcity, benefit] }
+    CreativeJobCreate:
+      type: object
+      required: [product_id]
+      properties:
+        product_id: { type: string, format: uuid }
+        asset_ids: { type: array, items: { type: string, format: uuid }, description: 'Defaults to all product images' }
+        formats:
+          type: array
+          items: { $ref: '#/components/schemas/CreativeFormat' }
+          default: [story_9x16, catalog_1x1]
+        scenes_per_format: { type: integer, minimum: 1, maximum: 5, default: 3 }
+        copy_variants: { type: integer, minimum: 1, maximum: 20, default: 10 }
+        angles: { type: array, items: { $ref: '#/components/schemas/CopyAngle' } }
+        scene_brief: { type: string, maxLength: 500, description: 'Optional style direction, e.g. from a Wonder brief' }
+        overlay_text: { type: boolean, default: false }
+        brief_id: { type: [string, 'null'], format: uuid }
+    CreativeJobStage:
+      type: string
+      enum: [queued, segmenting, composing, verifying, copywriting, scoring, ready, failed]
+    CreativeJob:
+      type: object
+      required: [id, seller_id, product_id, status, stage, created_at]
+      properties:
+        id: { type: string, format: uuid }
+        seller_id: { type: string, format: uuid }
+        product_id: { type: string, format: uuid }
+        params: { $ref: '#/components/schemas/CreativeJobCreate' }
+        status: { type: string, enum: [queued, running, succeeded, failed] }
+        stage: { $ref: '#/components/schemas/CreativeJobStage' }
+        progress: { type: number, minimum: 0, maximum: 1 }
+        creatives: { type: array, items: { $ref: '#/components/schemas/Creative' } }
+        copy_variants: { type: array, items: { $ref: '#/components/schemas/CopyVariant' } }
+        model_calls: { type: array, items: { $ref: '#/components/schemas/ModelCallMeta' } }
+        error: { $ref: '#/components/schemas/JobError' }
+        created_at: { type: string, format: date-time }
+        finished_at: { type: [string, 'null'], format: date-time }
+    Verification:
+      type: object
+      description: Fidelity verifier report (FR-012). A creative is blocked if any check fails.
+      required: [status, mask_iou, color_delta, visual_review, thresholds, checked_at]
+      properties:
+        status: { type: string, enum: [passed, blocked, pending] }
+        mask_iou: { type: number, minimum: 0, maximum: 1 }
+        color_delta: { type: number, minimum: 0 }
+        visual_review:
+          type: object
+          required: [altered]
+          properties:
+            altered: { type: boolean }
+            reason: { type: string, description: Spanish, shown to the seller }
+        thresholds:
+          type: object
+          properties:
+            mask_iou_min: { type: number, default: 0.85 }
+            color_delta_max: { type: number, default: 0.25 }
+        reason: { type: string, description: 'Spanish summary, e.g. "color del bolso alterado — bloqueado"' }
+        checked_at: { type: string, format: date-time }
+    Creative:
+      type: object
+      required: [id, job_id, product_id, format, image_url, verification, created_at]
+      properties:
+        id: { type: string, format: uuid }
+        job_id: { type: string, format: uuid }
+        product_id: { type: string, format: uuid }
+        format: { $ref: '#/components/schemas/CreativeFormat' }
+        image_url: { type: string, format: uri }
+        mask_url: { type: string, format: uri }
+        source_asset_id: { type: string, format: uuid }
+        scene_prompt: { type: string }
+        verification: { $ref: '#/components/schemas/Verification' }
+        provenance:
+          type: object
+          properties:
+            generator: { type: string, example: muse-image }
+            segmenter: { type: string, example: sam-3.1 }
+            ai_generated: { type: boolean, default: true }
+            label_applied: { type: boolean }
+        created_at: { type: string, format: date-time }
+    CopyVariant:
+      type: object
+      required: [id, job_id, hook, angle, text, status]
+      properties:
+        id: { type: string, format: uuid }
+        job_id: { type: string, format: uuid }
+        hook: { $ref: '#/components/schemas/CopyHook' }
+        angle: { $ref: '#/components/schemas/CopyAngle' }
+        text: { type: string, maxLength: 300 }
+        brand_voice_score: { type: [number, 'null'], minimum: 1, maximum: 5 }
+        brand_voice_judge: { type: string, enum: [glimmer, spark_rubric, none] }
+        status: { type: string, enum: [candidate, approved, rejected, dropped_low_voice] }
+
+    # ── Ads ──
+    AdStatus: { type: string, enum: [draft, approved, archived] }
+    AdCreate:
+      type: object
+      required: [creative_id, copy_variant_id]
+      properties:
+        creative_id: { type: string, format: uuid }
+        copy_variant_id: { type: string, format: uuid }
+    Ad:
+      type: object
+      required: [id, seller_id, product_id, creative_id, copy_variant_id, status, created_at]
+      properties:
+        id: { type: string, format: uuid }
+        seller_id: { type: string, format: uuid }
+        product_id: { type: string, format: uuid }
+        creative_id: { type: string, format: uuid }
+        copy_variant_id: { type: string, format: uuid }
+        brief_id: { type: [string, 'null'], format: uuid }
+        code: { type: [string, 'null'], pattern: '^A[0-9A-Z]{1,3}$', description: 'Assigned on approval, e.g. A7' }
+        wa_link: { type: [string, 'null'], format: uri, example: 'https://wa.me/573001234567?text=Hola%2C%20vi%20el%20anuncio%20%23A7' }
+        angle: { $ref: '#/components/schemas/CopyAngle' }
+        status: { $ref: '#/components/schemas/AdStatus' }
+        stats:
+          type: object
+          properties:
+            chats: { type: integer }
+            reservations: { type: integer }
+            bookings: { type: integer }
+        created_at: { type: string, format: date-time }
+        approved_at: { type: [string, 'null'], format: date-time }
+
+    # ── Conversations ──
+    ConversationMode: { type: string, enum: [agent, human, closed] }
+    AttributionStatus: { type: string, enum: [attributed, unknown_code, none] }
+    Conversation:
+      type: object
+      required: [id, seller_id, contact_id, mode, attribution_status, created_at]
+      properties:
+        id: { type: string, format: uuid }
+        seller_id: { type: string, format: uuid }
+        contact_id: { type: string, format: uuid }
+        attributed_ad_id: { type: [string, 'null'], format: uuid }
+        attributed_ad_code: { type: [string, 'null'] }
+        attribution_status: { $ref: '#/components/schemas/AttributionStatus' }
+        mode: { $ref: '#/components/schemas/ConversationMode' }
+        handoff: { $ref: '#/components/schemas/Handoff' }
+        last_message_at: { type: string, format: date-time }
+        summary: { type: string, description: 'Rolling redacted summary' }
+        objection_tags: { type: array, items: { $ref: '#/components/schemas/ObjectionTag' } }
+        reservation_ids: { type: array, items: { type: string, format: uuid } }
+        is_replay: { type: boolean, default: false }
+        created_at: { type: string, format: date-time }
+    Handoff:
+      type: [object, 'null']
+      properties:
+        id: { type: string, format: uuid }
+        reason: { $ref: '#/components/schemas/HandoffReason' }
+        summary: { type: string, maxLength: 500 }
+        opened_at: { type: string, format: date-time }
+        released_at: { type: [string, 'null'], format: date-time }
+        seller_notified: { type: boolean }
+    HandoffReason:
+      type: string
+      enum: [customer_request, complaint_refund, payment_issue, medical_topic, low_confidence_twice, negative_sentiment, amount_over_threshold, price_unverified, policy_exception, other]
+    ObjectionTag:
+      type: string
+      enum: [price, shipping, size, availability, trust, timing, payment, off_topic, other]
+    MessageType: { type: string, enum: [text, image, audio, video, document, interactive, template, unsupported] }
+    Message:
+      type: object
+      required: [id, conversation_id, direction, type, created_at]
+      properties:
+        id: { type: string, format: uuid }
+        conversation_id: { type: string, format: uuid }
+        direction: { type: string, enum: [inbound, outbound] }
+        sender: { type: string, enum: [customer, agent, seller, system] }
+        wa_message_id: { type: [string, 'null'] }
+        type: { $ref: '#/components/schemas/MessageType' }
+        text: { type: [string, 'null'] }
+        transcript: { type: [string, 'null'], description: 'For audio' }
+        media_ref: { type: [string, 'null'] }
+        normalized: { $ref: '#/components/schemas/NormalizedMessage' }
+        agent_output: { $ref: '#/components/schemas/AgentTurnOutput' }
+        delivery_status: { type: string, enum: [queued, sent, delivered, read, failed, mocked] }
+        is_replay: { type: boolean, default: false }
+        created_at: { type: string, format: date-time }
+    NormalizedMessage:
+      type: [object, 'null']
+      description: Canonical form the agent consumes (FR-022)
+      properties:
+        kind: { type: string, enum: [text, image, audio, interactive, unsupported] }
+        text: { type: string, description: 'Text, transcript, or image description' }
+        language: { type: string, example: es }
+        image:
+          type: object
+          properties:
+            crop_url: { type: string, format: uri }
+            description: { type: string }
+            matched_product_ids: { type: array, items: { type: string, format: uuid } }
+        ad_code: { type: [string, 'null'], description: 'Parsed #A.. code if present' }
+        opt_out_detected: { type: boolean }
+        erasure_requested: { type: boolean }
+        consent_affirmative: { type: boolean, description: 'Reply to a pending consent prompt' }
+
+    # ── Agent ──
+    AgentTurnRequest:
+      type: object
+      required: [message]
+      properties:
+        conversation_id: { type: [string, 'null'], format: uuid, description: 'Continue an existing conversation; null starts a scratch one' }
+        message:
+          type: object
+          required: [kind]
+          properties:
+            kind: { type: string, enum: [text, image, audio] }
+            text: { type: string }
+            media_url: { type: string, format: uri }
+        dry_run: { type: boolean, default: true, description: 'No tool side effects, no WhatsApp send' }
+        replay_model_outputs: { type: boolean, default: false }
+    AgentTurnOutput:
+      type: [object, 'null']
+      description: Structured output every agent turn must satisfy (FR-025). Mirrors `contracts/agent-tools.json#/definitions/AgentTurnOutput`.
+      required: [reply, cited_fact_ids, confidence]
+      properties:
+        reply: { type: string, maxLength: 1200 }
+        cited_fact_ids:
+          type: array
+          items: { type: string, format: uuid }
+          description: 'Fact or product IDs supporting every factual claim; empty only for greetings/handoffs'
+        confidence: { type: number, minimum: 0, maximum: 1 }
+        handoff_reason:
+          oneOf:
+            - $ref: '#/components/schemas/HandoffReason'
+            - type: 'null'
+        objection_tag:
+          oneOf:
+            - $ref: '#/components/schemas/ObjectionTag'
+            - type: 'null'
+        proposed_consent_prompt: { type: boolean, default: false }
+    ToolCallRecord:
+      type: object
+      required: [name, arguments, status]
+      properties:
+        name: { type: string }
+        arguments: { type: object, additionalProperties: true }
+        result: { type: object, additionalProperties: true }
+        status: { type: string, enum: [ok, error, skipped_dry_run] }
+        latency_ms: { type: integer }
+    ValidationResult:
+      type: object
+      required: [price_validator, groundedness, scope]
+      properties:
+        price_validator:
+          type: object
+          required: [passed]
+          properties:
+            passed: { type: boolean }
+            amounts_in_reply: { type: array, items: { type: integer } }
+            amounts_in_citations: { type: array, items: { type: integer } }
+            violations: { type: array, items: { type: integer } }
+            retried: { type: boolean }
+        groundedness:
+          type: object
+          required: [passed]
+          properties:
+            passed: { type: boolean }
+            uncited_claims: { type: array, items: { type: string } }
+        scope:
+          type: object
+          required: [passed]
+          properties:
+            passed: { type: boolean }
+            reason: { type: string }
+    AgentTurnResult:
+      type: object
+      required: [conversation_id, output, tool_calls, validation, final_reply, model_calls]
+      properties:
+        conversation_id: { type: string, format: uuid }
+        output: { $ref: '#/components/schemas/AgentTurnOutput' }
+        tool_calls: { type: array, items: { $ref: '#/components/schemas/ToolCallRecord' } }
+        validation: { $ref: '#/components/schemas/ValidationResult' }
+        final_reply: { type: string, description: 'What would be sent after validation and fallbacks' }
+        retrieved:
+          type: array
+          items:
+            type: object
+            properties:
+              id: { type: string, format: uuid }
+              kind: { type: string, enum: [fact, product] }
+              score: { type: number }
+        model_calls: { type: array, items: { $ref: '#/components/schemas/ModelCallMeta' } }
+
+    # ── Contacts & consent ──
+    Contact:
+      type: object
+      required: [id, seller_id, created_at, marketing_consent]
+      properties:
+        id: { type: string, format: uuid }
+        seller_id: { type: string, format: uuid }
+        display_name: { type: [string, 'null'] }
+        phone_masked: { type: string, example: '+57 *** *** 4567' }
+        marketing_consent: { type: string, enum: [granted, revoked, none] }
+        opted_out_at: { type: [string, 'null'], format: date-time }
+        erased_at: { type: [string, 'null'], format: date-time }
+        last_objection_tag:
+          oneOf:
+            - $ref: '#/components/schemas/ObjectionTag'
+            - type: 'null'
+        last_marketing_sent_at: { type: [string, 'null'], format: date-time }
+        conversation_count: { type: integer }
+        created_at: { type: string, format: date-time }
+    ConsentRecordCreate:
+      type: object
+      required: [purpose, status, text_shown, response_text, channel]
+      properties:
+        purpose: { type: string, enum: [marketing, data_processing] }
+        status: { type: string, enum: [granted, revoked] }
+        text_shown: { type: string, maxLength: 500 }
+        response_text: { type: string, maxLength: 200 }
+        channel: { type: string, enum: [whatsapp, in_person, web, other] }
+        evidence_message_id: { type: [string, 'null'], format: uuid }
+    ConsentRecord:
+      allOf:
+        - $ref: '#/components/schemas/ConsentRecordCreate'
+        - type: object
+          required: [id, contact_id, recorded_at]
+          properties:
+            id: { type: string, format: uuid }
+            contact_id: { type: string, format: uuid }
+            recorded_at: { type: string, format: date-time }
+            recorded_by: { type: string, enum: [agent, seller, system] }
+
+    # ── Analytics ──
+    AttributionReport:
+      type: object
+      required: [period_from, period_to, ads, by_angle]
+      properties:
+        period_from: { type: string, format: date }
+        period_to: { type: string, format: date }
+        ads:
+          type: array
+          items:
+            type: object
+            required: [ad_id, code, chats, reservations, bookings, handoffs, conversion_rate]
+            properties:
+              ad_id: { type: string, format: uuid }
+              code: { type: string }
+              angle: { $ref: '#/components/schemas/CopyAngle' }
+              chats: { type: integer }
+              reservations: { type: integer }
+              bookings: { type: integer }
+              handoffs: { type: integer }
+              conversion_rate: { type: number, description: '(reservations + bookings) / chats' }
+              objections_by_tag:
+                type: object
+                additionalProperties: { type: integer }
+        by_angle:
+          type: object
+          additionalProperties:
+            type: object
+            properties:
+              chats: { type: integer }
+              conversion_rate: { type: number }
+        unattributed_chats: { type: integer }
+    ObjectionReport:
+      type: object
+      required: [period_from, period_to, totals, by_ad]
+      properties:
+        period_from: { type: string, format: date }
+        period_to: { type: string, format: date }
+        totals: { type: object, additionalProperties: { type: integer } }
+        by_ad:
+          type: array
+          items:
+            type: object
+            properties:
+              ad_id: { type: string, format: uuid }
+              code: { type: string }
+              tags: { type: object, additionalProperties: { type: integer } }
+              sample_quotes_redacted: { type: array, items: { type: string }, maxItems: 3 }
+
+    # ── Briefs ──
+    Brief:
+      type: object
+      description: Muse Wonder output, validated against BriefSchema (FR-050)
+      required: [id, seller_id, period_from, period_to, status, insights, recommended_angles, creative_directives, reactivation_segments, created_at]
+      properties:
+        id: { type: string, format: uuid }
+        seller_id: { type: string, format: uuid }
+        period_from: { type: string, format: date }
+        period_to: { type: string, format: date }
+        status: { type: string, enum: [ready, applied, failed] }
+        headline: { type: string, maxLength: 300, example: "El ángulo 'hecho a mano' generó 3× más chats, pero el 40 % se frenó por el envío: el próximo lote abre con envío gratis en Bogotá." }
+        insights:
+          type: array
+          items:
+            type: object
+            required: [text, evidence]
+            properties:
+              text: { type: string }
+              evidence: { type: object, additionalProperties: true, description: 'Numbers the insight is based on' }
+        recommended_angles:
+          type: array
+          items:
+            type: object
+            required: [angle, rationale]
+            properties:
+              angle: { $ref: '#/components/schemas/CopyAngle' }
+              rationale: { type: string }
+        creative_directives:
+          type: array
+          items:
+            type: object
+            required: [product_id, angle, scene_brief]
+            properties:
+              product_id: { type: string, format: uuid }
+              angle: { $ref: '#/components/schemas/CopyAngle' }
+              hook: { $ref: '#/components/schemas/CopyHook' }
+              scene_brief: { type: string, maxLength: 500 }
+              offer: { type: string, maxLength: 200, description: 'Must be approved by the seller; never auto-published' }
+        reactivation_segments:
+          type: array
+          items:
+            type: object
+            required: [objection_tag, message_angle]
+            properties:
+              objection_tag: { $ref: '#/components/schemas/ObjectionTag' }
+              message_angle: { type: string }
+              suggested_ad_id: { type: [string, 'null'], format: uuid }
+        model_calls: { type: array, items: { $ref: '#/components/schemas/ModelCallMeta' } }
+        created_at: { type: string, format: date-time }
+
+    # ── Reactivation ──
+    ReactivationCampaignCreate:
+      type: object
+      required: [template_name]
+      properties:
+        brief_id: { type: [string, 'null'], format: uuid }
+        template_name: { type: string, description: 'Approved WhatsApp marketing template' }
+        template_language: { type: string, default: es }
+        segment:
+          type: object
+          description: Filters; all optional
+          properties:
+            objection_tags: { type: array, items: { $ref: '#/components/schemas/ObjectionTag' } }
+            no_purchase_since_days: { type: integer, minimum: 1, default: 3 }
+            max_contacts: { type: integer, minimum: 1, maximum: 500, default: 100 }
+        ad_id: { type: [string, 'null'], format: uuid, description: 'Creative to attach' }
+        scheduled_for: { type: [string, 'null'], format: date-time, description: 'Defaults to next legal window' }
+    SendDecision:
+      type: object
+      required: [contact_id, decision, reason, evaluated_at]
+      properties:
+        id: { type: string, format: uuid }
+        campaign_id: { type: string, format: uuid }
+        contact_id: { type: string, format: uuid }
+        decision: { type: string, enum: [allowed, blocked, deferred, sent, failed] }
+        reason:
+          type: string
+          description: 'Reason code, evaluated in this order (FR-061)'
+          enum: [OK, OPTED_OUT, NO_CONSENT_LEY_1581, FREQUENCY_CAP, OUTSIDE_HOURS_LEY_2300, NO_MATCHING_AD, TEMPLATE_NOT_APPROVED, SEND_FAILED]
+        reason_text_es: { type: string, example: 'Sin autorización — Ley 1581' }
+        next_allowed_at: { type: [string, 'null'], format: date-time }
+        message_id: { type: [string, 'null'], format: uuid }
+        evaluated_at: { type: string, format: date-time }
+    ReactivationCampaign:
+      type: object
+      required: [id, seller_id, template_name, status, decisions, counts, created_at]
+      properties:
+        id: { type: string, format: uuid }
+        seller_id: { type: string, format: uuid }
+        brief_id: { type: [string, 'null'], format: uuid }
+        ad_id: { type: [string, 'null'], format: uuid }
+        template_name: { type: string }
+        status: { type: string, enum: [preview, scheduled, sending, sent, cancelled] }
+        scheduled_for: { type: [string, 'null'], format: date-time }
+        decisions: { type: array, items: { $ref: '#/components/schemas/SendDecision' } }
+        counts:
+          type: object
+          required: [allowed, blocked, deferred, sent, failed]
+          properties:
+            allowed: { type: integer }
+            blocked: { type: integer }
+            deferred: { type: integer }
+            sent: { type: integer }
+            failed: { type: integer }
+        created_at: { type: string, format: date-time }
+
+    # ── Evals & metrics ──
+    EvalSuite: { type: string, enum: [conversations_es, fidelity, consent_scheduler, price_validator] }
+    EvalMetrics:
+      type: object
+      properties:
+        groundedness_rate: { type: number }
+        invented_price_rate: { type: number, description: 'Must be 0.0 to pass' }
+        handoff_precision: { type: number }
+        handoff_recall: { type: number }
+        brand_voice_mean: { type: number }
+        verifier_pass_rate: { type: number }
+        verifier_block_rate_on_altered: { type: number }
+        off_topic_refusal_rate: { type: number }
+        consent_scheduler_accuracy: { type: number }
+        latency_p50_ms: { type: integer }
+        latency_p95_ms: { type: integer }
+        cost_usd_total: { type: number }
+    EvalRun:
+      type: object
+      required: [id, suite, replay, status, started_at]
+      properties:
+        id: { type: string, format: uuid }
+        suite: { $ref: '#/components/schemas/EvalSuite' }
+        replay: { type: boolean }
+        status: { type: string, enum: [queued, running, passed, failed, error] }
+        case_count: { type: integer }
+        metrics: { $ref: '#/components/schemas/EvalMetrics' }
+        cases:
+          type: array
+          items:
+            type: object
+            properties:
+              case_id: { type: string }
+              passed: { type: boolean }
+              expected: { type: object, additionalProperties: true }
+              actual: { type: object, additionalProperties: true }
+              notes: { type: string }
+        git_sha: { type: string }
+        started_at: { type: string, format: date-time }
+        finished_at: { type: [string, 'null'], format: date-time }
+    MetricsSummary:
+      type: object
+      required: [latest_eval, live]
+      properties:
+        latest_eval:
+          type: object
+          properties:
+            run_id: { type: string, format: uuid }
+            finished_at: { type: string, format: date-time }
+            metrics: { $ref: '#/components/schemas/EvalMetrics' }
+        live:
+          type: object
+          properties:
+            conversations_today: { type: integer }
+            attributed_rate: { type: number }
+            handoffs_open: { type: integer }
+            blocked_sends_today: { type: integer }
+            creatives_blocked_total: { type: integer }
+            estimated_cost_per_business_usd: { type: number }
+    CostReport:
+      type: object
+      required: [period_from, period_to, total_usd, by_provider_model]
+      properties:
+        period_from: { type: string, format: date }
+        period_to: { type: string, format: date }
+        total_usd: { type: number }
+        by_provider_model:
+          type: array
+          items:
+            type: object
+            properties:
+              provider: { type: string }
+              model: { type: string }
+              calls: { type: integer }
+              tokens_in: { type: integer }
+              tokens_out: { type: integer }
+              cost_usd: { type: number }
+        whatsapp_messages:
+          type: object
+          properties:
+            service: { type: integer }
+            marketing: { type: integer }
+            cost_usd: { type: number }
+
+    # ── Public ──
+    PublicShowcase:
+      type: object
+      required: [slug, product_name, status, scenes, copies, ai_label]
+      properties:
+        slug: { type: string }
+        product_name: { type: string }
+        status: { type: string, enum: [processing, ready, failed] }
+        scenes:
+          type: array
+          items:
+            type: object
+            properties:
+              format: { $ref: '#/components/schemas/CreativeFormat' }
+              image_url: { type: string, format: uri, description: Watermarked }
+              verification_status: { type: string, enum: [passed, blocked] }
+        copies: { type: array, items: { type: string } }
+        ai_label: { type: string, default: 'Imagen generada con IA' }
+        cta_url: { type: string, format: uri }
+        created_at: { type: string, format: date-time }

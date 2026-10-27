@@ -1,0 +1,356 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://vitrina.example/contracts/agent-tools.json",
+  "title": "Vitrina sales agent — tool-calling and structured-output contract",
+  "description": "Frozen contract between the conversation engine (owner: M1) and the catalog/consent modules. Tools are exposed to Muse Spark in OpenAI-compatible `tools` format; the `definitions.tools[*].parameters` objects are passed verbatim. Every tool is scoped to the current seller_id and conversation_id server-side; the model never supplies them. Changes require a spec amendment (constitution Art. VI).",
+  "version": "0.1.0",
+  "definitions": {
+    "AgentTurnOutput": {
+      "type": "object",
+      "description": "The only shape the agent may return as its final answer (spec FR-025). Produced via response_format=json_schema when the provider supports it; otherwise prompt-constrained JSON with a repair pass.",
+      "additionalProperties": false,
+      "required": ["reply", "cited_fact_ids", "confidence", "handoff_reason", "objection_tag", "proposed_consent_prompt"],
+      "properties": {
+        "reply": {
+          "type": "string",
+          "maxLength": 1200,
+          "description": "Customer-facing text in Spanish (es-CO), in the seller's voice. No markdown. May contain at most one price per cited fact."
+        },
+        "cited_fact_ids": {
+          "type": "array",
+          "items": { "type": "string", "format": "uuid" },
+          "description": "IDs of facts or products from the retrieved context that support every factual claim in `reply`. Empty only for greetings, clarifying questions or handoffs."
+        },
+        "confidence": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1,
+          "description": "Self-assessed confidence that `reply` is fully supported by `cited_fact_ids`. Below seller.low_confidence_threshold (default 0.6) the engine substitutes the fallback and counts a low-confidence turn."
+        },
+        "handoff_reason": {
+          "type": ["string", "null"],
+          "enum": ["customer_request", "complaint_refund", "payment_issue", "medical_topic", "low_confidence_twice", "negative_sentiment", "amount_over_threshold", "price_unverified", "policy_exception", "other", null],
+          "description": "Non-null means the engine MUST call handoff_to_human after sending `reply` (if the model did not already call it)."
+        },
+        "objection_tag": {
+          "type": ["string", "null"],
+          "enum": ["price", "shipping", "size", "availability", "trust", "timing", "payment", "off_topic", "other", null],
+          "description": "Objection detected in the customer's last message, if any. The engine records it via record_objection when non-null."
+        },
+        "proposed_consent_prompt": {
+          "type": "boolean",
+          "description": "True when `reply` ends with the seller's consent prompt (e.g. '¿Te aviso cuando llegue tu talla o haya promo? Responde SÍ'). The engine then marks the conversation as awaiting consent so the next affirmative reply is recorded via record_consent."
+        }
+      }
+    },
+
+    "tools": [
+      {
+        "type": "function",
+        "function": {
+          "name": "search_catalog",
+          "description": "Buscar productos y datos del negocio relevantes para la pregunta del cliente. Úsalo antes de afirmar cualquier precio, disponibilidad, envío o política. Devuelve fragmentos con fact_id que debes citar.",
+          "parameters": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["query"],
+            "properties": {
+              "query": { "type": "string", "maxLength": 300, "description": "Consulta en lenguaje natural" },
+              "kinds": {
+                "type": "array",
+                "items": { "type": "string", "enum": ["product", "faq", "shipping", "payment", "policy", "hours", "other"] },
+                "description": "Limitar a tipos de dato"
+              },
+              "image_ref": { "type": ["string", "null"], "description": "Referencia a la imagen normalizada del cliente para búsqueda visual" },
+              "top_k": { "type": "integer", "minimum": 1, "maximum": 10, "default": 5 }
+            }
+          },
+          "returns": {
+            "type": "object",
+            "required": ["results"],
+            "properties": {
+              "results": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "required": ["id", "kind", "text", "score"],
+                  "properties": {
+                    "id": { "type": "string", "format": "uuid", "description": "fact_id or product_id to cite" },
+                    "kind": { "type": "string" },
+                    "text": { "type": "string" },
+                    "price_cop": { "type": ["integer", "null"] },
+                    "stock": { "type": ["integer", "null"] },
+                    "score": { "type": "number" }
+                  }
+                }
+              }
+            }
+          },
+          "side_effects": "none"
+        }
+      },
+      {
+        "type": "function",
+        "function": {
+          "name": "get_product",
+          "description": "Obtener el detalle completo de un producto (precio, stock, atributos, anuncios aprobados).",
+          "parameters": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["product_id"],
+            "properties": {
+              "product_id": { "type": "string", "format": "uuid" }
+            }
+          },
+          "returns": { "$ref": "#/definitions/ProductView" },
+          "side_effects": "none"
+        }
+      },
+      {
+        "type": "function",
+        "function": {
+          "name": "check_stock",
+          "description": "Verificar unidades disponibles (stock menos reservas activas) de un producto, opcionalmente por variante.",
+          "parameters": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["product_id"],
+            "properties": {
+              "product_id": { "type": "string", "format": "uuid" },
+              "variant": { "type": "object", "additionalProperties": { "type": "string" }, "description": "p. ej. {\"color\":\"rojo\",\"talla\":\"M\"}" }
+            }
+          },
+          "returns": {
+            "type": "object",
+            "required": ["product_id", "available", "tracked"],
+            "properties": {
+              "product_id": { "type": "string" },
+              "available": { "type": ["integer", "null"] },
+              "tracked": { "type": "boolean", "description": "false = el vendedor no lleva inventario; no prometas disponibilidad" }
+            }
+          },
+          "side_effects": "none"
+        }
+      },
+      {
+        "type": "function",
+        "function": {
+          "name": "reserve_item",
+          "description": "Reservar unidades de un producto para este cliente por 24 horas. Solo cuando el cliente lo pide explícitamente y check_stock confirmó disponibilidad.",
+          "parameters": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["product_id", "quantity"],
+            "properties": {
+              "product_id": { "type": "string", "format": "uuid" },
+              "quantity": { "type": "integer", "minimum": 1, "maximum": 20 },
+              "variant": { "type": "object", "additionalProperties": { "type": "string" } },
+              "note": { "type": "string", "maxLength": 200 }
+            }
+          },
+          "returns": {
+            "type": "object",
+            "required": ["reservation_id", "code", "expires_at", "status"],
+            "properties": {
+              "reservation_id": { "type": "string", "format": "uuid" },
+              "code": { "type": "string", "description": "Código corto para el cliente, p. ej. R-4F2K" },
+              "expires_at": { "type": "string", "format": "date-time" },
+              "status": { "type": "string", "enum": ["reserved", "insufficient_stock", "not_tracked"] }
+            }
+          },
+          "side_effects": "decrements available stock atomically; emits ad.reservation attribution event; blocked in dry_run"
+        }
+      },
+      {
+        "type": "function",
+        "function": {
+          "name": "book_slot",
+          "description": "Agendar una cita (modo servicios: barbería, gimnasio, taller). Solo dentro del horario del negocio.",
+          "parameters": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["service", "starts_at"],
+            "properties": {
+              "service": { "type": "string", "maxLength": 120 },
+              "starts_at": { "type": "string", "format": "date-time", "description": "Hora local del negocio en ISO-8601 con offset" },
+              "duration_min": { "type": "integer", "minimum": 15, "maximum": 240, "default": 30 },
+              "customer_name": { "type": "string", "maxLength": 80 }
+            }
+          },
+          "returns": {
+            "type": "object",
+            "required": ["status"],
+            "properties": {
+              "booking_id": { "type": "string", "format": "uuid" },
+              "status": { "type": "string", "enum": ["booked", "outside_hours", "slot_taken"] },
+              "alternatives": { "type": "array", "items": { "type": "string", "format": "date-time" }, "maxItems": 3 }
+            }
+          },
+          "side_effects": "creates booking; emits ad.booking attribution event; blocked in dry_run"
+        }
+      },
+      {
+        "type": "function",
+        "function": {
+          "name": "send_ad_asset",
+          "description": "Enviar al cliente la imagen de un anuncio aprobado del producto (por ejemplo, la variante en el color que pidió).",
+          "parameters": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["product_id"],
+            "properties": {
+              "product_id": { "type": "string", "format": "uuid" },
+              "ad_id": { "type": ["string", "null"], "format": "uuid", "description": "Anuncio específico; si es null, el motor elige el aprobado más reciente que coincida con la variante" },
+              "variant_hint": { "type": "object", "additionalProperties": { "type": "string" } },
+              "caption": { "type": "string", "maxLength": 200 }
+            }
+          },
+          "returns": {
+            "type": "object",
+            "required": ["status"],
+            "properties": {
+              "status": { "type": "string", "enum": ["queued", "no_approved_ad"] },
+              "ad_id": { "type": ["string", "null"] },
+              "message_id": { "type": ["string", "null"] }
+            }
+          },
+          "side_effects": "queues an outbound image message (respects 6 s spacing); only approved, verifier-passed creatives can be sent"
+        }
+      },
+      {
+        "type": "function",
+        "function": {
+          "name": "handoff_to_human",
+          "description": "Pasar la conversación al dueño del negocio. Úsalo cuando el cliente lo pide, hay queja, reembolso, problema de pago, tema médico, pedido grande, descuento fuera de política o no tienes el dato. Después de llamarlo, despídete brevemente y no respondas más.",
+          "parameters": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["reason", "summary"],
+            "properties": {
+              "reason": {
+                "type": "string",
+                "enum": ["customer_request", "complaint_refund", "payment_issue", "medical_topic", "low_confidence_twice", "negative_sentiment", "amount_over_threshold", "price_unverified", "policy_exception", "other"]
+              },
+              "summary": { "type": "string", "maxLength": 500, "description": "Resumen en español para el dueño: quién, qué quiere, qué falta. Sin datos personales más allá del nombre." },
+              "urgency": { "type": "string", "enum": ["low", "normal", "high"], "default": "normal" }
+            }
+          },
+          "returns": {
+            "type": "object",
+            "required": ["handoff_id", "seller_notified"],
+            "properties": {
+              "handoff_id": { "type": "string", "format": "uuid" },
+              "seller_notified": { "type": "boolean" }
+            }
+          },
+          "side_effects": "sets conversation.mode = human; notifies seller via WhatsApp; emits ad.handoff; agent stops replying until release"
+        }
+      },
+      {
+        "type": "function",
+        "function": {
+          "name": "record_objection",
+          "description": "Registrar la objeción que frena al cliente (precio, envío, talla, disponibilidad, confianza, tiempo, pago). Alimenta los próximos anuncios.",
+          "parameters": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["tag", "quote"],
+            "properties": {
+              "tag": { "type": "string", "enum": ["price", "shipping", "size", "availability", "trust", "timing", "payment", "off_topic", "other"] },
+              "quote": { "type": "string", "maxLength": 200, "description": "Cita corta del cliente; el motor la redacta antes de guardarla" },
+              "product_id": { "type": ["string", "null"], "format": "uuid" }
+            }
+          },
+          "returns": {
+            "type": "object",
+            "required": ["objection_id"],
+            "properties": { "objection_id": { "type": "string", "format": "uuid" } }
+          },
+          "side_effects": "appends objection; emits ad.objection attribution event"
+        }
+      },
+      {
+        "type": "function",
+        "function": {
+          "name": "record_consent",
+          "description": "Guardar la autorización del cliente para recibir avisos y promociones, SOLO después de que respondió afirmativamente a la pregunta de consentimiento. Nunca lo llames por silencio ni por una respuesta ambigua.",
+          "parameters": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["purpose", "response_text"],
+            "properties": {
+              "purpose": { "type": "string", "enum": ["marketing", "data_processing"] },
+              "response_text": { "type": "string", "maxLength": 200, "description": "Texto literal con el que el cliente aceptó" }
+            }
+          },
+          "returns": {
+            "type": "object",
+            "required": ["consent_id", "status"],
+            "properties": {
+              "consent_id": { "type": ["string", "null"], "format": "uuid" },
+              "status": { "type": "string", "enum": ["granted", "rejected_not_affirmative", "rejected_no_prompt_shown"] }
+            }
+          },
+          "side_effects": "appends to consent ledger with text_shown (from the pending prompt), response_text, channel=whatsapp, evidence_message_id; the engine independently verifies the response is affirmative and that a prompt was shown"
+        }
+      },
+      {
+        "type": "function",
+        "function": {
+          "name": "opt_out",
+          "description": "Dar de baja al cliente de cualquier mensaje promocional de inmediato. Úsalo si el cliente escribe BAJA, 'no más mensajes', 'stop' o pide no ser contactado.",
+          "parameters": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [],
+            "properties": {
+              "also_erase_data": { "type": "boolean", "default": false, "description": "true si el cliente pide BORRAR MIS DATOS" }
+            }
+          },
+          "returns": {
+            "type": "object",
+            "required": ["status"],
+            "properties": {
+              "status": { "type": "string", "enum": ["opted_out", "erasure_scheduled"] }
+            }
+          },
+          "side_effects": "sets contact.opted_out_at; cancels pending sends; optionally schedules erasure within 24 h. Note: the engine also detects opt-out keywords before the model runs (FR-063); this tool covers paraphrased requests."
+        }
+      }
+    ],
+
+    "ProductView": {
+      "type": "object",
+      "required": ["id", "name", "price_cop", "status"],
+      "properties": {
+        "id": { "type": "string", "format": "uuid" },
+        "name": { "type": "string" },
+        "description": { "type": "string" },
+        "price_cop": { "type": "integer" },
+        "stock": { "type": ["integer", "null"] },
+        "available": { "type": ["integer", "null"] },
+        "attributes": { "type": "object", "additionalProperties": { "type": "string" } },
+        "status": { "type": "string", "enum": ["active"] },
+        "approved_ad_ids": { "type": "array", "items": { "type": "string", "format": "uuid" } }
+      }
+    },
+
+    "EngineRules": {
+      "description": "Deterministic rules the conversation engine enforces around the model, regardless of what the model returns.",
+      "rules": [
+        "R1 Scope: only `active` facts and products are retrievable; `draft` items are never passed to the model (FR-003).",
+        "R2 Price validator: every monetary expression in `reply` must match an amount in `cited_fact_ids`. Violation → one guided retry → fallback reply + handoff(price_unverified) (FR-026).",
+        "R3 Groundedness: a reply with factual claims and empty `cited_fact_ids` is treated as confidence 0.",
+        "R4 Low confidence: confidence < 0.6 → fallback reply 'No tengo ese dato, te comunico con {owner_name}'; two consecutive → handoff(low_confidence_twice).",
+        "R5 Handoff consistency: if `handoff_reason` is non-null and the model did not call handoff_to_human, the engine calls it with that reason.",
+        "R6 Human mode: when conversation.mode == human, the model is not invoked at all.",
+        "R7 Opt-out first: keyword opt-out/erasure is applied before retrieval or model calls.",
+        "R8 Consent gating: record_consent succeeds only if the previous outbound message had proposed_consent_prompt == true and the inbound text is affirmative per the affirmative-lexicon (sí, si, claro, dale, listo, ok, de una, por favor avísame).",
+        "R9 Side effects in dry_run: reserve_item, book_slot, send_ad_asset, handoff_to_human, record_consent and opt_out return simulated results with status 'skipped_dry_run'.",
+        "R10 Off-topic: scope classifier runs on every inbound; off-topic → canned polite decline, objection_tag=off_topic, no retrieval.",
+        "R11 Medical/legal/financial advice requests → handoff(medical_topic or other) without answering.",
+        "R12 Outbound pacing: ≥ 6 s between messages to one recipient; 429/5xx → exponential backoff, max 3 attempts."
+      ]
+    }
+  }
+}
