@@ -1128,6 +1128,7 @@ dependencies = [
     { name = "vitrina-catalog" },
     { name = "vitrina-compliance" },
     { name = "vitrina-core" },
+    { name = "vitrina-whatsapp" },
 ]
 
 [package.metadata]
@@ -1135,6 +1136,7 @@ requires-dist = [
     { name = "vitrina-catalog", editable = "packages/catalog" },
     { name = "vitrina-compliance", editable = "packages/compliance" },
     { name = "vitrina-core", editable = "packages/core" },
+    { name = "vitrina-whatsapp", editable = "providers/whatsapp" },
 ]
 
 [[package]]
