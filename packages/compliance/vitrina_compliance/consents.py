@@ -303,7 +303,9 @@ class InMemoryCompliance:
         return record
 
     async def consents(self, seller_id: UUID, contact_id: UUID) -> list[ConsentRecord]:
-        self._row(seller_id, contact_id)
+        # Another seller's or an unknown contact has no entries here, as on Postgres.
+        if self.rows.get(contact_id) is None or self.rows[contact_id].seller_id != seller_id:
+            return []
         return [record for c, record in reversed(self.records) if c == contact_id]
 
     async def mark_opted_out(self, seller_id: UUID, contact_id: UUID) -> Contact:

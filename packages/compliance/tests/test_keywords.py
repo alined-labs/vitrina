@@ -35,8 +35,8 @@ def test_mentioning_data_is_not_an_erasure_request() -> None:
 
 @pytest.mark.parametrize(
     "text",
-    ["Sí", "si", "SI!", "Sí, por favor", "claro", "Claro que sí", "dale 👍", "Listo", "ok",
-     "de una", "Por favor avísame", "sí quiero"],
+    ["Sí", "si", "SI!", "Sí, por favor", "claro", "sí claro", "dale 👍", "dale de una", "Listo",
+     "ok", "de una", "Por favor avísame", "sí pues", "Sí, por favor avísame"],
 )  # fmt: skip
 def test_as_6_1_affirmative_replies_follow_the_r8_lexicon(text: str) -> None:
     assert is_affirmative(text)
@@ -45,7 +45,11 @@ def test_as_6_1_affirmative_replies_follow_the_r8_lexicon(text: str) -> None:
 @pytest.mark.parametrize(
     "text",
     ["no", "No gracias", "si no es molestia", "claro que no", "mmm", "", "¿cuánto vale?",
-     "tal vez", "ok no"],
+     "tal vez", "ok no",
+     # C10 (MX1): a lexicon word at the start is not enough; the whole reply must be consent.
+     "si me mandas fotos del bolso", "si quieres", "si, pero solo los martes",
+     "listo, cuánto vale?", "ok gracias", "Claro que sí", "sí quiero"],
 )  # fmt: skip
 def test_anything_else_is_not_consent(text: str) -> None:
+    # ADR-0009: ambiguous replies are rejected by design; the agent asks again.
     assert not is_affirmative(text)

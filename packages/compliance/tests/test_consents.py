@@ -93,12 +93,12 @@ async def test_as_6_1_an_affirmative_reply_to_the_prompt_is_recorded_verbatim(
         SELLER,
         contact.id,
         prompt_text=PROMPT,
-        response_text="Sí, porfa",
+        response_text="Sí, por favor",
         evidence_message_id=evidence,
     )
 
     assert (record.purpose, record.status, record.channel) == ("marketing", "granted", "whatsapp")
-    assert (record.text_shown, record.response_text) == (PROMPT, "Sí, porfa")
+    assert (record.text_shown, record.response_text) == (PROMPT, "Sí, por favor")
     assert (record.recorded_by, record.evidence_message_id, record.recorded_at) == (
         "agent",
         evidence,
