@@ -732,11 +732,15 @@ name = "vitrina-catalog"
 version = "0.1.0"
 source = { editable = "packages/catalog" }
 dependencies = [
+    { name = "pydantic" },
     { name = "vitrina-core" },
 ]
 
 [package.metadata]
-requires-dist = [{ name = "vitrina-core", editable = "packages/core" }]
+requires-dist = [
+    { name = "pydantic", specifier = ">=2.14" },
+    { name = "vitrina-core", editable = "packages/core" },
+]
 
 [[package]]
 name = "vitrina-compliance"
