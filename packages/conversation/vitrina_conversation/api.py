@@ -1,8 +1,9 @@
 """Public interface of the conversation module (constitution Art. VI.3).
 
 ``run_turn`` runs one agent turn (T024): retrieval, the Muse Spark tool loop and the checks
-outside the model (R2–R5). ``process_inbound`` takes one customer message from WhatsApp to the
-paced reply (T027), on a ``ConversationStore`` (in memory or Postgres).
+outside the model (R2–R5); ``agent_turn_result`` maps a turn to the ``POST /agent/turns``
+response (FR-030). ``process_inbound`` takes one customer message from WhatsApp to the paced
+reply (T027), on a ``ConversationStore`` (in memory or Postgres).
 """
 
 from vitrina_conversation.attribution import AdLookup, Attribution
@@ -25,6 +26,7 @@ from vitrina_conversation.ingest import (
 )
 from vitrina_conversation.pacing import Pacer
 from vitrina_conversation.pipeline import Inbound, InboundOutcome, PipelineDeps, process_inbound
+from vitrina_conversation.schemas import AgentTurnRequest, AgentTurnResult, agent_turn_result
 from vitrina_conversation.store import (
     ConversationState,
     ConversationStore,
@@ -61,6 +63,8 @@ __all__ = [
     "AdLookup",
     "AgentDeps",
     "AgentTurnOutput",
+    "AgentTurnRequest",
+    "AgentTurnResult",
     "ApprovedAds",
     "Attribution",
     "BackgroundInboundQueue",
@@ -93,6 +97,7 @@ __all__ = [
     "TurnActions",
     "TurnRequest",
     "TurnResult",
+    "agent_turn_result",
     "memory_pipeline",
     "messenger_for",
     "parse_output",
