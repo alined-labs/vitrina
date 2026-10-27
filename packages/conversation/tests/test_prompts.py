@@ -80,3 +80,9 @@ def test_as_3_10_off_topic_declines_end_with_a_question_back_to_the_shop(shop: S
     prompt = render_system_prompt(shop.seller, [], NOW)
 
     assert '"¿Te ayudo con algo de Mochilas Ana?"' in prompt
+
+
+def test_as_3_8_the_order_threshold_is_in_the_context(shop: Shop) -> None:
+    prompt = render_system_prompt(shop.seller, [], NOW)
+
+    assert "Monto que el negocio definió para pasar un pedido a Ana: más de $300.000" in prompt
