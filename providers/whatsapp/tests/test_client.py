@@ -415,3 +415,71 @@ async def test_fr_028_send_failures_are_core_provider_errors(clock: Clock) -> No
     assert throttled.value.provider == "whatsapp"
     assert is_retryable(throttled.value)
     assert not is_retryable(window_closed.value)
+
+
+# ── Inbound media (T050, T051): the URL from the media id, then the bytes with the token ──
+
+MEDIA_INFO_URL = f"https://graph.facebook.com/v26.0/{MEDIA_ID}"
+DOWNLOAD_URL = "https://lookaside.fbsbx.example/whatsapp_business/attachments/?mid=fixture"
+
+
+def media_info(url: str = DOWNLOAD_URL, mime_type: str = "audio/ogg") -> httpx2.Response:
+    return httpx2.Response(
+        200,
+        json={
+            "messaging_product": "whatsapp",
+            "url": url,
+            "mime_type": mime_type,
+            "sha256": "fixture-sha256",
+            "file_size": 11,
+            "id": MEDIA_ID,
+        },
+    )
+
+
+async def test_t051_inbound_media_is_fetched_by_url_then_downloaded_with_the_token(
+    clock: Clock,
+) -> None:
+    graph = ScriptedGraph(media_info(), httpx2.Response(200, content=b"OggS-opus-1"))
+
+    async with client_for(graph, clock) as client:
+        blob = await client.download_media(MEDIA_ID)
+
+    assert (blob.data, blob.mime_type) == (b"OggS-opus-1", "audio/ogg")
+    info, download = graph.requests
+    assert (info.method, str(info.url)) == ("GET", MEDIA_INFO_URL)
+    assert (download.method, str(download.url)) == ("GET", DOWNLOAD_URL)
+    assert download.headers["Authorization"] == f"Bearer {ACCESS_TOKEN}"
+
+
+async def test_t051_an_expired_media_url_is_fetched_again_once(clock: Clock) -> None:
+    graph = ScriptedGraph(
+        media_info(),
+        httpx2.Response(404),
+        media_info(),
+        httpx2.Response(200, content=b"\x89PNG-fixture"),
+    )
+
+    async with client_for(graph, clock) as client:
+        blob = await client.download_media(MEDIA_ID)
+
+    assert blob.data == b"\x89PNG-fixture"
+    assert len(graph.requests) == 4
+
+
+async def test_t051_media_larger_than_whatsapp_allows_is_refused(clock: Clock) -> None:
+    graph = ScriptedGraph(media_info(), httpx2.Response(200, content=b"x" * (16 * 1024 * 1024 + 1)))
+
+    async with client_for(graph, clock) as client:
+        with pytest.raises(WhatsAppSendError, match="larger"):
+            await client.download_media(MEDIA_ID)
+
+
+async def test_t051_a_media_id_meta_does_not_know_is_a_provider_error(clock: Clock) -> None:
+    graph = ScriptedGraph(graph_error(400, 100, "Unsupported get request."))
+
+    async with client_for(graph, clock) as client:
+        with pytest.raises(ProviderError) as caught:
+            await client.download_media(MEDIA_ID)
+
+    assert not is_retryable(caught.value)
