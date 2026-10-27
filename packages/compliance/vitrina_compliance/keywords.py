@@ -18,6 +18,7 @@ COURTESY = frozenset({"por", "favor", "porfa", "gracias", "ya", "please", "pls"}
 AFFIRMATIVE = (("si",), ("claro",), ("dale",), ("listo",), ("ok",), ("de", "una"),
                ("por", "favor", "avisame"))  # fmt: skip
 CONSENT_FILLERS = (("pues",), ("por", "favor"))
+MAX_CONSENT_WORDS = 12  # a plain yes is short; anything longer is not consent (only tightens)
 
 
 def words(text: str) -> list[str]:
@@ -40,15 +41,22 @@ def is_erasure_request(text: str) -> bool:
 
 def is_affirmative(text: str) -> bool:
     """The reply is nothing but lexicon phrases (at least one) and the two fillers."""
-    return _covered(tuple(words(text)), said_yes=False)
-
-
-def _covered(tokens: tuple[str, ...], *, said_yes: bool) -> bool:
-    if not tokens:
-        return said_yes
-    for phrase in (*AFFIRMATIVE, *CONSENT_FILLERS):
-        if tokens[: len(phrase)] == phrase and _covered(
-            tokens[len(phrase) :], said_yes=said_yes or phrase in AFFIRMATIVE
-        ):
-            return True
+    tokens = tuple(words(text))
+    if not tokens or len(tokens) > MAX_CONSENT_WORDS:
+        return False
+    # Walk the reply phrase by phrase, without recursion: (position, a yes seen so far).
+    frontier, seen = [(0, False)], {(0, False)}
+    while frontier:
+        position, said_yes = frontier.pop()
+        if position == len(tokens):
+            if said_yes:
+                return True
+            continue
+        for phrase in (*AFFIRMATIVE, *CONSENT_FILLERS):
+            end = position + len(phrase)
+            if tokens[position:end] == phrase:
+                state = (end, said_yes or phrase in AFFIRMATIVE)
+                if state not in seen:
+                    seen.add(state)
+                    frontier.append(state)
     return False

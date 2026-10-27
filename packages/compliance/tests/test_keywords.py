@@ -53,3 +53,9 @@ def test_as_6_1_affirmative_replies_follow_the_r8_lexicon(text: str) -> None:
 def test_anything_else_is_not_consent(text: str) -> None:
     # ADR-0009: ambiguous replies are rejected by design; the agent asks again.
     assert not is_affirmative(text)
+
+
+def test_a_reply_of_a_thousand_words_is_not_consent_and_does_not_crash() -> None:
+    # MX1: a customer can send "si si si …" × 1000 inside one WhatsApp message (4,096 chars).
+    assert not is_affirmative(" ".join(["si"] * 1000))
+    assert not is_affirmative("sí " * 2000)
