@@ -5,15 +5,18 @@ before any retrieval (R10, R11).
 """
 
 import asyncio
+from datetime import UTC, datetime, timedelta
 from typing import Any
 from uuid import uuid4
 
 import pytest
 
-from vitrina_conversation.api import AgentDeps, Exchange, TurnRequest, run_turn
+from vitrina_conversation.api import AgentDeps, Exchange, InMemoryBookings, TurnRequest, run_turn
 from vitrina_conversation.contract import output_schema, tool_specs
+from vitrina_conversation.engine import booking_confirmation
 from vitrina_conversation.scope import decline_reply, sensitive_reply
 from vitrina_conversation.testing import ScriptedChat, Shop, final_answer, scope_answer, tool_call
+from vitrina_conversation.tools import BookedSlot
 from vitrina_core.providers import ChatRequest, ChatResponse, ProviderUnavailableError
 
 FALLBACK = "No tengo ese dato, te comunico con Ana"
@@ -346,3 +349,79 @@ async def test_r3_a_bare_yes_to_the_customers_question_never_reaches_them(shop: 
     result = await run_turn(request(shop, "¿Tienen la mochila en verde?"), deps(chat, shop))
 
     assert result.final_reply == FALLBACK
+
+
+TUESDAY_8AM = datetime(2026, 10, 27, 13, 0, tzinfo=UTC)
+BOOK_SATURDAY = tool_call("book_slot", service="Arreglo", starts_at="2026-10-31T10:00:00-05:00")
+
+
+async def test_t052_a_booking_the_review_rejects_is_confirmed_from_the_tool(shop: Shop) -> None:
+    chat = ScriptedChat(
+        [BOOK_SATURDAY, final_answer("Listo, te esperamos el sábado a las 10:00.", confidence=0.95)]
+    )
+    turn_deps = deps(chat, shop, bookings=InMemoryBookings(), clock=lambda: TUESDAY_8AM)
+
+    result = await run_turn(
+        request(shop, "¿Me agendas el sábado a las 10?", dry_run=False), turn_deps
+    )
+
+    assert result.final_reply == (
+        "Listo, quedó tu cita de Arreglo para el sábado 31 de octubre de 2026, 10:00. "
+        "¿Te ayudo con algo más?"
+    )
+    assert (result.handoff, result.low_confidence_streak) == (None, 1)
+
+
+async def test_t052_a_booking_with_a_handoff_keeps_the_fallback(shop: Shop) -> None:
+    invented = final_answer("Listo, son $50.000 por el arreglo.", confidence=0.95)
+    chat = ScriptedChat([BOOK_SATURDAY, invented, invented])
+    turn_deps = deps(chat, shop, bookings=InMemoryBookings(), clock=lambda: TUESDAY_8AM)
+
+    result = await run_turn(request(shop, "Agéndame el sábado a las 10", dry_run=False), turn_deps)
+
+    assert result.final_reply == FALLBACK
+    assert result.handoff is not None
+    assert result.handoff.reason == "price_unverified"
+
+
+async def test_t052_a_reply_that_passes_after_a_booking_is_kept(shop: Shop) -> None:
+    reply = "¡Con gusto, veci! ¿Te ayudo con algo más?"
+    chat = ScriptedChat([BOOK_SATURDAY, final_answer(reply, confidence=0.95)])
+    turn_deps = deps(chat, shop, bookings=InMemoryBookings(), clock=lambda: TUESDAY_8AM)
+
+    result = await run_turn(
+        request(shop, "¿Me agendas el sábado a las 10?", dry_run=False), turn_deps
+    )
+
+    assert result.final_reply == reply
+
+
+def test_t052_two_bookings_are_confirmed_together(shop: Shop) -> None:
+    saturday = datetime(2026, 10, 31, 10, 0, tzinfo=UTC) - timedelta(hours=-5)
+    booked = [
+        BookedSlot(uuid4(), "Corte", saturday),
+        BookedSlot(uuid4(), "Barba", saturday + timedelta(minutes=30)),
+    ]
+
+    assert booking_confirmation(shop.seller, booked) == (
+        "Listo, quedaron tus citas de Corte para el sábado 31 de octubre de 2026, 10:00 y "
+        "Barba para el sábado 31 de octubre de 2026, 10:30. ¿Te ayudo con algo más?"
+    )
+
+
+async def test_t052_the_turns_clock_decides_what_has_passed(shop: Shop) -> None:
+    saturday_8am = datetime(2026, 10, 24, 13, 0, tzinfo=UTC)
+    bookings = InMemoryBookings()
+    chat = ScriptedChat(
+        [
+            tool_call("book_slot", service="Arreglo", starts_at="2026-10-24T10:00:00-05:00"),
+            final_answer("¡Con gusto, veci! ¿Te ayudo con algo más?", confidence=0.95),
+        ]
+    )
+
+    await run_turn(
+        request(shop, "¿Me agendas hoy a las 10?", dry_run=False),
+        deps(chat, shop, bookings=bookings, clock=lambda: saturday_8am),
+    )
+
+    assert len(bookings.bookings) == 1

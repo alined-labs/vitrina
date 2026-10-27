@@ -1,5 +1,7 @@
 """Tables the conversation module owns, mirroring migration 0001 (data-model.md §1).
 
+``bookings`` hang off conversations, so ``book_slot`` keeps them here (T052).
+
 ``attribution_events`` is filled by analytics from the ``ad.*`` events this module emits
 (plan.md §3), so it is not declared here.
 """
@@ -110,5 +112,19 @@ objections = sa.Table(
     sa.Column("tag", sa.Text, nullable=False),
     sa.Column("quote_redacted", sa.Text),
     _moment("occurred_at", nullable=False, now=True),
+    _moment("created_at", nullable=False, now=True),
+)
+
+bookings = sa.Table(
+    "bookings",
+    metadata,
+    sa.Column("id", sa.Uuid, primary_key=True),
+    _seller(),
+    sa.Column("conversation_id", sa.Uuid, sa.ForeignKey("conversations.id", ondelete="SET NULL")),
+    sa.Column("service", sa.Text, nullable=False),
+    _moment("starts_at", nullable=False),
+    sa.Column("duration_min", sa.Integer, nullable=False, server_default="30"),
+    sa.Column("customer_name", sa.Text),
+    sa.Column("status", sa.Text, nullable=False, server_default="booked"),
     _moment("created_at", nullable=False, now=True),
 )

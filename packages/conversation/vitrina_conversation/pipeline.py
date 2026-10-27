@@ -5,7 +5,7 @@ its transcript kept on the message (T051, AS-3.6) → opt-out and erasure keywor
 anything else, spoken ones too (R7, FR-063) → normalize (FR-022) → attribution (FR-023,
 AS-3.2) → in human mode the message is only stored (R6) → a yes to a pending consent
 question is recorded (R8) → the agent turn (T024) → its decisions applied: handoff,
-objections, consent, opt-out, reservations with their ``ad.*`` events → the reply sent with
+objections, consent, opt-out, reservations and bookings with their ``ad.*`` events → the reply sent with
 pacing (R12, AS-3.11) and its delivery status kept (FR-028) → the approved ad images the
 agent chose (``send_ad_asset``, T043), each in its own paced slot, only after an accepted
 reply that hands nothing off. Media the agent cannot read yet gets a short note (FR-022;
@@ -285,6 +285,21 @@ class _Inbound:
                 )
             await deps.store.add_objection(
                 self.seller_id, conversation.id, objection, ad_id=ad_id, events=events
+            )
+        if ad_id is not None and actions.bookings:
+            await deps.store.emit(
+                self.seller_id,
+                [
+                    (
+                        "ad.booking",
+                        {
+                            "ad_id": str(ad_id),
+                            "conversation_id": str(conversation.id),
+                            "booking_id": str(booking.booking_id),
+                        },
+                    )
+                    for booking in actions.bookings
+                ],
             )
         if ad_id is not None and actions.reservations:
             await deps.store.emit(

@@ -8,13 +8,14 @@ consent, opt-out) are kept in ``TurnActions`` either way, for the pipeline to ap
 ``reserve_item`` reserves at once outside a dry run, because its code goes to the customer.
 ``send_ad_asset`` queues the approved ad's image for the pipeline to send after the reply
 (T043); a caption is customer text too, so it keeps only the product's own amounts (R2).
+``book_slot`` books at once outside a dry run, inside the seller's hours (T052).
 """
 
 import json
 import time
 from collections.abc import Awaitable, Callable, Mapping, Sequence
 from dataclasses import dataclass, field
-from datetime import datetime
+from datetime import UTC, datetime
 from typing import Annotated, Any, Literal, Protocol
 from uuid import UUID
 
@@ -27,6 +28,7 @@ from vitrina_catalog.api import (
     SellerSettings,
 )
 from vitrina_compliance.api import is_affirmative
+from vitrina_conversation.booking import BookingResult, BookingStore, SlotRequest, book_slot
 from vitrina_conversation.contract import HandoffReason, ObjectionTag
 from vitrina_conversation.validation import check_prices
 from vitrina_core.ids import new_id
@@ -182,6 +184,16 @@ class ReservedItem:
 
 
 @dataclass(frozen=True)
+class BookedSlot:
+    """A booking the tool made, with what ``ad.booking`` reports (data-model.md §4)."""
+
+    booking_id: UUID
+    service: str
+    starts_at: datetime
+    """In the seller's local time."""
+
+
+@dataclass(frozen=True)
 class QueuedAsset:
     """An approved ad's image for the customer; ``message_id`` is the outbound message's id."""
 
@@ -200,6 +212,7 @@ class TurnActions:
     opt_out: OptOutAction | None = None
     reservations: list[ReservedItem] = field(default_factory=list)
     ad_assets: list[QueuedAsset] = field(default_factory=list)
+    bookings: list[BookedSlot] = field(default_factory=list)
 
 
 @dataclass(frozen=True)
@@ -229,8 +242,11 @@ class ToolBox:
         pending_consent_prompt: str | None = None,
         approved_ads: ApprovedAds | None = None,
         ad_assets: AdAssets | None = None,
+        bookings: BookingStore | None = None,
+        clock: Callable[[], datetime] = lambda: datetime.now(UTC),
     ) -> None:
         self.catalog = catalog
+        self.seller = seller
         self.seller_id = seller.seller_id
         self.conversation_id = conversation_id
         self.dry_run = dry_run
@@ -238,6 +254,8 @@ class ToolBox:
         self.pending_consent_prompt = pending_consent_prompt
         self.approved_ads = approved_ads
         self.ad_assets = ad_assets
+        self.bookings = bookings
+        self.clock = clock
         self.actions = TurnActions()
         self.records: list[ToolCallRecord] = []
 
@@ -352,8 +370,24 @@ class ToolBox:
             case BookSlotArgs():
                 if self.dry_run:
                     return "skipped_dry_run", SKIPPED
-                raise ToolError(f"{name} is not available yet; offer to pass the chat to the owner")
+                if self.bookings is None:
+                    raise ToolError(
+                        f"{name} is not available here; offer to pass the chat to the owner"
+                    )
+                return "ok", await self._book(args)
         raise ToolError(f"there is no tool named {name}")
+
+    async def _book(self, args: BookSlotArgs) -> dict[str, Any]:
+        assert self.bookings is not None
+        slot = SlotRequest(args.service, args.starts_at, args.duration_min, args.customer_name)
+        result = await book_slot(
+            self.bookings, self.seller, self.conversation_id, slot, now=self.clock()
+        )
+        if result.booking_id is not None and result.starts_at is not None:
+            self.actions.bookings.append(
+                BookedSlot(result.booking_id, args.service, result.starts_at)
+            )
+        return _booking_json(result)
 
     async def _send_ad_asset(self, args: SendAdAssetArgs) -> dict[str, Any]:
         await self._product(self.catalog.get_product, args.product_id)
@@ -406,6 +440,13 @@ class ToolBox:
             return await call(self.seller_id, product_id)
         except ProductNotFoundError as error:
             raise ToolError("there is no active product with that id in this shop") from error
+
+
+def _booking_json(result: BookingResult) -> dict[str, Any]:
+    """The contract's ``book_slot`` result; alternatives in the seller's local time."""
+    if result.booking_id is not None:
+        return {"status": result.status, "booking_id": str(result.booking_id)}
+    return {"status": result.status, "alternatives": [t.isoformat() for t in result.alternatives]}
 
 
 def _describe(error: ValidationError) -> str:

@@ -6,14 +6,16 @@ objection, consent, opt-out) are recorded either way for the pipeline to apply.
 """
 
 import json
+from datetime import UTC, datetime
 from typing import Any
 from uuid import uuid4
 
 import pytest
 
+from vitrina_conversation.booking import InMemoryBookings
 from vitrina_conversation.contract import tool_specs
 from vitrina_conversation.testing import AdGallery, Shop
-from vitrina_conversation.tools import ARGUMENTS, ToolBox
+from vitrina_conversation.tools import ARGUMENTS, BookedSlot, ToolBox
 from vitrina_core.providers import ToolCall
 
 CONVERSATION = uuid4()
@@ -203,12 +205,79 @@ async def test_as_6_5_opt_out_records_the_request(shop: Shop, erase: bool, statu
     assert box.actions.opt_out.erase is erase
 
 
-async def test_book_slot_without_a_backend_yet_answers_with_an_error(shop: Shop) -> None:
+NOW = datetime(2026, 10, 27, 13, 0, tzinfo=UTC)  # Tuesday 08:00 in Bogotá
+
+
+def booking_box(shop: Shop, bookings: InMemoryBookings, **options: Any) -> ToolBox:
+    options.setdefault("dry_run", False)
+    return toolbox(shop, bookings=bookings, clock=lambda: NOW, **options)
+
+
+async def test_book_slot_without_a_backend_answers_with_an_error(shop: Shop) -> None:
     record = await toolbox(shop, dry_run=False).run(
-        call("book_slot", service="Corte", starts_at="2026-10-28T10:00:00-05:00")
+        call("book_slot", service="Corte", starts_at="2026-10-31T10:00:00-05:00")
     )
 
     assert record.status == "error"
+
+
+async def test_as_3_7_book_slot_books_inside_the_hours(shop: Shop) -> None:
+    bookings = InMemoryBookings()
+    box = booking_box(shop, bookings)
+
+    record = await box.run(
+        call(
+            "book_slot",
+            service="Corte",
+            starts_at="2026-10-31T10:00:00-05:00",
+            customer_name="Laura",
+        )
+    )
+
+    assert record.status == "ok"
+    assert record.result["status"] == "booked"
+    (booking,) = bookings.bookings
+    assert record.result == {"status": "booked", "booking_id": str(booking.id)}
+    assert (booking.conversation_id, booking.duration_min, booking.customer_name) == (
+        CONVERSATION,
+        30,
+        "Laura",
+    )
+    (booked,) = box.actions.bookings
+    assert booked == BookedSlot(booking.id, "Corte", booking.starts_at)
+
+
+async def test_t052_a_taken_slot_offers_local_times(shop: Shop) -> None:
+    bookings = InMemoryBookings()
+    await booking_box(shop, bookings).run(
+        call("book_slot", service="Corte", starts_at="2026-10-31T10:00:00-05:00")
+    )
+    box = booking_box(shop, bookings)
+
+    record = await box.run(
+        call("book_slot", service="Barba", starts_at="2026-10-31T10:15:00-05:00")
+    )
+
+    assert record.result == {
+        "status": "slot_taken",
+        "alternatives": [
+            "2026-10-31T10:30:00-05:00",
+            "2026-10-31T11:00:00-05:00",
+            "2026-10-31T11:30:00-05:00",
+        ],
+    }
+    assert box.actions.bookings == []
+
+
+async def test_r9_a_dry_run_books_nothing(shop: Shop) -> None:
+    bookings = InMemoryBookings()
+    box = booking_box(shop, bookings, dry_run=True)
+
+    record = await box.run(
+        call("book_slot", service="Corte", starts_at="2026-10-31T10:00:00-05:00")
+    )
+
+    assert (record.status, bookings.bookings, box.actions.bookings) == ("skipped_dry_run", [], [])
 
 
 async def test_t043_send_ad_asset_queues_the_approved_image(shop: Shop) -> None:

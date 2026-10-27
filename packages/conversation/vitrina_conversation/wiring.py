@@ -25,6 +25,7 @@ from vitrina_catalog.postgres import PostgresCatalog
 from vitrina_catalog.sellers import InMemorySellerStore, PostgresSellerStore
 from vitrina_compliance.api import ComplianceStore, ContactIdentity, PostgresCompliance
 from vitrina_compliance.erasure import request_erasure
+from vitrina_conversation.booking import BookingStore, PostgresBookings
 from vitrina_conversation.engine import AgentDeps
 from vitrina_conversation.ingest import SellerResolver
 from vitrina_conversation.pacing import Pacer
@@ -70,6 +71,7 @@ def agent_deps(
     *,
     approved_ads: ApprovedAds | None = None,
     ad_assets: AdAssets | None = None,
+    bookings: BookingStore | None = None,
 ) -> AgentDeps:
     """``LookupError`` while ``MODEL_AGENT`` is unset (spec.md §8: IDs are configuration)."""
     return AgentDeps(
@@ -81,6 +83,7 @@ def agent_deps(
         top_k=settings.retrieval_top_k,
         approved_ads=approved_ads,
         ad_assets=ad_assets,
+        bookings=bookings,
     )
 
 
@@ -145,7 +148,12 @@ def postgres_pipeline(
         compliance=PostgresCompliance(sessions, identity),
         seller_settings=seller_store.settings,
         agent=agent_deps(
-            settings, providers.chat, catalog, approved_ads=approved_ads, ad_assets=ad_assets
+            settings,
+            providers.chat,
+            catalog,
+            approved_ads=approved_ads,
+            ad_assets=ad_assets,
+            bookings=PostgresBookings(sessions),
         ),
         messenger=messenger,
         pacer=pacer,
@@ -165,6 +173,7 @@ def memory_pipeline(
     catalog: Catalog,
     messenger: Messenger,
     pacer: Pacer,
+    bookings: BookingStore | None = None,
 ) -> PipelineDeps:
     async def no_ads(_seller_id: UUID, _code: str) -> UUID | None:
         return None
@@ -173,7 +182,7 @@ def memory_pipeline(
         store=store,
         compliance=compliance,
         seller_settings=seller_settings,
-        agent=agent_deps(settings, chat, catalog),
+        agent=agent_deps(settings, chat, catalog, bookings=bookings),
         messenger=messenger,
         pacer=pacer,
         ad_lookup=no_ads,
