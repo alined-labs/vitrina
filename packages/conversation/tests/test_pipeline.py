@@ -5,6 +5,7 @@ In-memory store and compliance, the scripted Spark, a recording messenger, a fak
 
 import json
 from dataclasses import dataclass, field, replace
+from datetime import UTC, datetime
 from typing import Any
 from uuid import UUID, uuid4
 
@@ -23,6 +24,7 @@ from vitrina_conversation.api import (
     PipelineDeps,
     process_inbound,
 )
+from vitrina_conversation.booking import InMemoryBookings
 from vitrina_conversation.pipeline import (
     ERASURE_REPLY,
     OPT_OUT_REPLY,
@@ -722,3 +724,32 @@ async def test_as_3_10_an_off_topic_question_is_declined_and_counted(world: Worl
     assert reply.validation["scope"] == {"passed": False, "reason": "classifier: deportes"}
     assert reply.stored.agent_output is not None
     assert reply.stored.agent_output["objection_tag"] == "off_topic"
+
+
+async def test_as_3_7_a_booking_on_an_attributed_chat_reports_ad_booking(world: World) -> None:
+    bookings = InMemoryBookings()
+    tuesday_8am = datetime(2026, 10, 27, 13, 0, tzinfo=UTC)
+    world.deps = replace(
+        world.deps, agent=replace(world.deps.agent, bookings=bookings, clock=lambda: tuesday_8am)
+    )
+    world.script(
+        tool_call("book_slot", service="Arreglo", starts_at="2026-10-31T10:00:00-05:00"),
+        final_answer("Listo, te esperamos el sábado a las 10:00.", confidence=0.95),
+    )
+
+    outcome = await world.say("vi el #A7, ¿me agendas el sábado a las 10?")
+
+    assert world.messenger.texts == [
+        "Listo, quedó tu cita de Arreglo para el sábado 31 de octubre de 2026, 10:00. "
+        "¿Te ayudo con algo más?"
+    ]
+    (booking,) = bookings.bookings
+    assert booking.conversation_id == outcome.conversation_id
+    booked = [payload for _, kind, payload in world.store.events if kind == "ad.booking"]
+    assert booked == [
+        {
+            "ad_id": str(AD_A7),
+            "conversation_id": str(outcome.conversation_id),
+            "booking_id": str(booking.id),
+        }
+    ]

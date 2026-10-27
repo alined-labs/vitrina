@@ -25,6 +25,7 @@ from uuid import UUID
 from pydantic import ValidationError
 
 from vitrina_catalog.api import Catalog, Citation, SearchResult, SellerSettings
+from vitrina_conversation.booking import BookingStore
 from vitrina_conversation.contract import (
     AgentTurnOutput,
     HandoffReason,
@@ -32,7 +33,7 @@ from vitrina_conversation.contract import (
     output_schema,
     tool_specs,
 )
-from vitrina_conversation.prompts import REPAIR_INSTRUCTION, render_system_prompt
+from vitrina_conversation.prompts import REPAIR_INSTRUCTION, local_time, render_system_prompt
 from vitrina_conversation.scope import (
     ScopeVerdict,
     classify_scope,
@@ -42,6 +43,7 @@ from vitrina_conversation.scope import (
 from vitrina_conversation.tools import (
     AdAssets,
     ApprovedAds,
+    BookedSlot,
     HandoffAction,
     ObjectionAction,
     ToolBox,
@@ -112,6 +114,7 @@ class AgentDeps:
     strict_schema: bool = True
     approved_ads: ApprovedAds | None = None
     ad_assets: AdAssets | None = None
+    bookings: BookingStore | None = None
     clock: Callable[[], datetime] = _utcnow
     sleep: Callable[[float], Awaitable[None]] = asyncio.sleep
 
@@ -154,6 +157,15 @@ async def run_turn(request: TurnRequest, deps: AgentDeps) -> TurnResult:
         return await _Turn(request, deps).run()
 
 
+def booking_confirmation(seller: SellerSettings, booked: Sequence[BookedSlot]) -> str:
+    """From the bookings the tool made, so it needs no citation."""
+    slots = " y ".join(
+        f"{slot.service} para el {local_time(slot.starts_at, seller.timezone)}" for slot in booked
+    )
+    made = "quedó tu cita" if len(booked) == 1 else "quedaron tus citas"
+    return f"Listo, {made} de {slots}. ¿Te ayudo con algo más?"
+
+
 def parse_output(content: str | None) -> AgentTurnOutput | None:
     """The answer as JSON, or the JSON object inside fences or prose, minus unknown keys."""
     if not content:
@@ -188,6 +200,8 @@ class _Turn:
             pending_consent_prompt=request.pending_consent_prompt,
             approved_ads=deps.approved_ads,
             ad_assets=deps.ad_assets,
+            bookings=deps.bookings,
+            clock=deps.clock,
         )
 
     async def run(self) -> TurnResult:
@@ -245,6 +259,10 @@ class _Turn:
             final = verdict.final_reply or FALLBACK_REPLY.format(owner_name=seller.owner_name)
             handoff_reason = verdict.handoff_reason
         accepted = verdict is not None and verdict.outcome == "accept"
+        booked = self.box.actions.bookings
+        if booked and not accepted and handoff_reason is None:
+            # The tool booked it: the customer hears that, never "no tengo ese dato" (T052).
+            final = booking_confirmation(seller, booked)
 
         actions = self.box.actions
         if handoff_reason is not None and actions.handoff is None:  # R5
