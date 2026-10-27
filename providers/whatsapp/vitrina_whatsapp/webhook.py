@@ -84,6 +84,7 @@ class MetaError:
 class StatusUpdate:
     message_id: str
     phone_number_id: str
+    business_number: str
     recipient_wa_id: str
     status: WebhookStatus
     occurred_at: datetime
@@ -197,6 +198,7 @@ def _status(status: "_Status", metadata: "_Metadata") -> StatusUpdate:
     return StatusUpdate(
         message_id=status.id,
         phone_number_id=metadata.phone_number_id,
+        business_number=metadata.display_phone_number,
         recipient_wa_id=status.recipient_id,
         status=cast(WebhookStatus, status.status),  # the caller keeps documented statuses only
         occurred_at=datetime.fromtimestamp(status.timestamp, tz=UTC),

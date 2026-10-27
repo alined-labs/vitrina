@@ -1128,6 +1128,8 @@ dependencies = [
     { name = "vitrina-catalog" },
     { name = "vitrina-compliance" },
     { name = "vitrina-core" },
+    { name = "vitrina-creative" },
+    { name = "vitrina-local-mock" },
     { name = "vitrina-whatsapp" },
 ]
 
@@ -1136,6 +1138,8 @@ requires-dist = [
     { name = "vitrina-catalog", editable = "packages/catalog" },
     { name = "vitrina-compliance", editable = "packages/compliance" },
     { name = "vitrina-core", editable = "packages/core" },
+    { name = "vitrina-creative", editable = "packages/creative" },
+    { name = "vitrina-local-mock", editable = "providers/local_mock" },
     { name = "vitrina-whatsapp", editable = "providers/whatsapp" },
 ]
 

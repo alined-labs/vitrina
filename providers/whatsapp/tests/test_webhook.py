@@ -136,7 +136,7 @@ def test_fr_028_status_callbacks_are_parsed(
     (update,) = batch.statuses
     assert batch.messages == ()
     assert (update.message_id, update.recipient_wa_id, update.status) == (SENT_REPLY, LAURA, status)
-    assert update.phone_number_id == "100000000000001"
+    assert (update.phone_number_id, update.business_number) == ("100000000000001", "573000000000")
     assert update.occurred_at.tzinfo is UTC
     assert update.errors == ()
 
