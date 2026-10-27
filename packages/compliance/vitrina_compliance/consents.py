@@ -22,7 +22,7 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from vitrina_compliance.contacts import Contact, ContactIdentity, MarketingConsent, mask_phone
 from vitrina_compliance.keywords import is_affirmative
-from vitrina_compliance.tables import consent_records, contacts
+from vitrina_compliance.tables import consent_records, contacts, erasure_receipts
 from vitrina_core.events import EventType, emit
 from vitrina_core.http import decode_cursor, encode_cursor, keyset_page, next_cursor
 from vitrina_core.ids import new_id
@@ -58,6 +58,18 @@ class ConsentRecord(ConsentRecordCreate):
     recorded_by: RecordedBy | MISSING = MISSING
 
 
+@dataclass(frozen=True)
+class ErasureReceipt:
+    """Proof an erasure ran: the number's hash and the times, nothing that identifies anyone."""
+
+    id: UUID
+    seller_id: UUID
+    wa_id_hash: bytes = field(repr=False)
+    requested_at: datetime
+    completed_at: datetime
+    scope: str
+
+
 class ComplianceStore(Protocol):
     async def resolve_contact(
         self, seller_id: UUID, wa_id: str, *, display_name: str | None = None
@@ -91,6 +103,10 @@ class ComplianceStore(Protocol):
     async def mark_opted_out(self, seller_id: UUID, contact_id: UUID) -> Contact: ...
 
     async def is_opted_out(self, seller_id: UUID, contact_id: UUID) -> bool: ...
+
+    async def erase(
+        self, seller_id: UUID, contact_id: UUID, *, requested_at: datetime, scope: tuple[str, ...]
+    ) -> ErasureReceipt: ...
 
 
 async def record_consent(
@@ -186,6 +202,7 @@ class InMemoryCompliance:
     rows: dict[UUID, _ContactRow] = field(default_factory=dict)
     records: list[tuple[UUID, ConsentRecord]] = field(default_factory=list)
     events: list[tuple[EventType, dict[str, str]]] = field(default_factory=list)
+    receipts: dict[UUID, ErasureReceipt] = field(default_factory=dict)
 
     def _row(self, seller_id: UUID, contact_id: UUID) -> _ContactRow:
         row = self.rows.get(contact_id)
@@ -220,6 +237,8 @@ class InMemoryCompliance:
         for row in self.rows.values():
             if row.seller_id == seller_id and row.wa_id_hash == sealed.hash:
                 row.display_name = row.display_name or display_name
+                # Back after an erasure: the number answers this message; the opt-out stays.
+                row.wa_id_enc = row.wa_id_enc or sealed.encrypted
                 return self._view(row)
         row = _ContactRow(
             new_id(), seller_id, sealed.hash, sealed.encrypted, display_name, self.clock()
@@ -295,6 +314,22 @@ class InMemoryCompliance:
     async def is_opted_out(self, seller_id: UUID, contact_id: UUID) -> bool:
         return self._row(seller_id, contact_id).opted_out_at is not None
 
+    async def erase(
+        self, seller_id: UUID, contact_id: UUID, *, requested_at: datetime, scope: tuple[str, ...]
+    ) -> ErasureReceipt:
+        row = self._row(seller_id, contact_id)
+        # Still erased: the first receipt stands. Back since then: erase again.
+        if row.erased_at is not None and row.wa_id_enc is None and contact_id in self.receipts:
+            return self.receipts[contact_id]
+        now = self.clock()
+        row.wa_id_enc, row.display_name, row.erased_at = None, None, now
+        row.opted_out_at = row.opted_out_at or now
+        receipt = ErasureReceipt(
+            new_id(), seller_id, row.wa_id_hash, requested_at, now, ",".join(scope)
+        )
+        self.receipts[contact_id] = receipt
+        return receipt
+
 
 # ── Postgres ──
 
@@ -357,7 +392,9 @@ class PostgresCompliance:
             set_={
                 "display_name": sa.func.coalesce(
                     contacts.c.display_name, insert.excluded.display_name
-                )
+                ),
+                # Back after an erasure: the number answers this message; the opt-out stays.
+                "wa_id_enc": sa.func.coalesce(contacts.c.wa_id_enc, insert.excluded.wa_id_enc),
             },
         ).returning(contacts.c.id)
         async with self.sessions() as session, session.begin():
@@ -484,3 +521,73 @@ class PostgresCompliance:
         if row is None:
             raise LookupError(f"no contact {contact_id} for this seller")
         return row[0] is not None
+
+    async def erase(
+        self, seller_id: UUID, contact_id: UUID, *, requested_at: datetime, scope: tuple[str, ...]
+    ) -> ErasureReceipt:
+        now = self.clock()
+        async with self.sessions() as session, session.begin():
+            row = (
+                await session.execute(
+                    sa.select(contacts.c.wa_id_hash, contacts.c.erased_at, contacts.c.wa_id_enc)
+                    .where(contacts.c.id == contact_id, contacts.c.seller_id == seller_id)
+                    .with_for_update()
+                )
+            ).first()
+            if row is None:
+                raise LookupError(f"no contact {contact_id} for this seller")
+            wa_id_hash = bytes(row[0])
+            # Still erased: the first receipt stands. Back since then: erase again.
+            if row[1] is not None and row[2] is None:
+                earlier = (
+                    (
+                        await session.execute(
+                            sa.select(erasure_receipts)
+                            .where(
+                                erasure_receipts.c.seller_id == seller_id,
+                                erasure_receipts.c.wa_id_hash == wa_id_hash,
+                            )
+                            .order_by(erasure_receipts.c.completed_at.desc())
+                            .limit(1)
+                        )
+                    )
+                    .mappings()
+                    .first()
+                )
+                if earlier is not None:
+                    return _receipt(earlier)
+            await session.execute(
+                sa.update(contacts)
+                .where(contacts.c.id == contact_id)
+                .values(
+                    wa_id_enc=None,
+                    display_name=None,
+                    erased_at=now,
+                    opted_out_at=sa.func.coalesce(contacts.c.opted_out_at, now),
+                )
+            )
+            receipt = ErasureReceipt(
+                new_id(), seller_id, wa_id_hash, requested_at, now, ",".join(scope)
+            )
+            await session.execute(
+                sa.insert(erasure_receipts).values(
+                    id=receipt.id,
+                    seller_id=seller_id,
+                    wa_id_hash=wa_id_hash,
+                    requested_at=requested_at,
+                    completed_at=now,
+                    scope=receipt.scope,
+                )
+            )
+        return receipt
+
+
+def _receipt(row: Any) -> ErasureReceipt:
+    return ErasureReceipt(
+        id=row["id"],
+        seller_id=row["seller_id"],
+        wa_id_hash=bytes(row["wa_id_hash"]),
+        requested_at=row["requested_at"],
+        completed_at=row["completed_at"],
+        scope=row["scope"],
+    )

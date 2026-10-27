@@ -52,3 +52,18 @@ consent_records = sa.Table(
     _moment("recorded_at", nullable=False, now=True),
     _moment("created_at", nullable=False, now=True),
 )
+
+# A record that an erasure happened, with nothing that identifies the person (FR-065).
+erasure_receipts = sa.Table(
+    "erasure_receipts",
+    metadata,
+    sa.Column("id", sa.Uuid, primary_key=True),
+    sa.Column(
+        "seller_id", sa.Uuid, sa.ForeignKey("sellers.id", ondelete="CASCADE"), nullable=False
+    ),
+    sa.Column("wa_id_hash", BYTEA, nullable=False),
+    _moment("requested_at", nullable=False, now=True),
+    _moment("completed_at"),
+    sa.Column("scope", sa.Text, nullable=False),
+    _moment("created_at", nullable=False, now=True),
+)
