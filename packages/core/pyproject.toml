@@ -3,7 +3,7 @@ name = "vitrina-core"
 version = "0.1.0"
 description = "Shared kernel: settings, db, auth, problem+json, pagination, idempotency, jobs, ledger, provider interfaces."
 requires-python = ">=3.12,<3.13"
-dependencies = []
+dependencies = ["pydantic>=2.14"]
 
 [build-system]
 requires = ["hatchling"]

@@ -4,6 +4,7 @@ version = "0.1.0"
 description = "Local mocks: WhatsApp messenger with an HTML phone view for demos and replay."
 requires-python = ">=3.12,<3.13"
 dependencies = [
+    "fastapi>=0.115",
     "vitrina-core",
 ]
 
