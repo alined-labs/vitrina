@@ -330,3 +330,69 @@ def test_r3_one_unknown_id_among_valid_ones_still_counts_as_confidence_zero() ->
 
     assert (result.confidence, result.outcome) == (0.0, "fallback")
     assert len(result.groundedness.uncited_claims) == 1
+
+
+# ── R3 follow-up (MX1 review of #51): claims inside questions, a bare yes, "te saluda" ──
+
+
+@pytest.mark.parametrize(
+    "reply",
+    [
+        "¿Te lo envío gratis mañana?",
+        "¿Sabías que el envío es gratis?",
+        "¿Quieres que te haga un descuento?",
+        "¿Hay en rojo, te la separo?",
+    ],
+)
+def test_r3_a_claim_inside_a_question_is_still_a_claim(reply: str) -> None:
+    result = review(answer(reply, confidence=0.9), [], owner_name=OWNER)
+
+    assert (result.outcome, result.final_reply) == ("fallback", FALLBACK)
+
+
+@pytest.mark.parametrize(
+    ("customer", "reply"),
+    [
+        ("¿me lo dejan en 70 mil?", "¡Claro que sí, veci!"),
+        ("¿Tienen la mochila en verde?", "Dale, listo."),
+        ("¿Hacen envíos a Pasto?", "No, veci."),
+        ("me lo dejan en 70 mil", "¡Claro que sí!"),
+        ("tienen en verde", "Sí, veci."),
+    ],
+)
+def test_r3_a_bare_yes_or_no_to_a_question_is_a_claim(customer: str, reply: str) -> None:
+    result = review(answer(reply, confidence=0.9), [], owner_name=OWNER, customer_message=customer)
+
+    assert (result.outcome, result.final_reply) == ("fallback", FALLBACK)
+
+
+def test_r3_courtesy_words_after_thanks_are_not_an_answer() -> None:
+    result = review(
+        answer("¡Listo, veci! Con gusto.", confidence=0.9),
+        [],
+        owner_name=OWNER,
+        customer_message="Muchas gracias",
+    )
+
+    assert result.outcome == "accept"
+
+
+@pytest.mark.parametrize(
+    "reply",
+    [
+        "Con gusto, Tejidos Vecina te saluda. ¿Qué talla buscas?",
+        "¿En qué te puedo ayudar?",
+        "¿Qué color prefieres?",
+        "¿Para qué ciudad sería el envío?",
+    ],
+)
+def test_r3_greetings_and_neutral_questions_still_pass(reply: str) -> None:
+    result = review(
+        answer(reply, confidence=0.9),
+        [],
+        owner_name=OWNER,
+        business_name="Tejidos Vecina",
+        customer_message="Hola",
+    )
+
+    assert (result.outcome, result.final_reply) == ("accept", reply)

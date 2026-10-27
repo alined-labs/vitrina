@@ -16,7 +16,7 @@ import logging
 import mimetypes
 from collections.abc import Awaitable, Callable, Mapping, Sequence
 from types import TracebackType
-from typing import Any, Self
+from typing import Any, Literal, Self
 
 import httpx2
 from pydantic import BaseModel, Field, ValidationError
@@ -41,6 +41,10 @@ PROVIDER = "whatsapp"
 # 80007), throughput (130429), pair rate limit (131056), unknown or temporary failures (1, 2,
 # 131000, 131016).
 RETRYABLE_ERROR_CODES = frozenset({1, 2, 4, 80007, 130429, 131000, 131016, 131056})
+
+# The largest inbound media WhatsApp delivers that this adapter reads: audio and video up to
+# 16 MB, images up to 5 MB (Cloud API media reference, read 2026-10-27).
+MAX_MEDIA_BYTES = 16 * 1024 * 1024
 
 # Failures that happen before the request leaves this process: retrying cannot duplicate a send.
 _NEVER_SENT = (httpx2.ConnectError, httpx2.ConnectTimeout, httpx2.PoolTimeout)
@@ -94,7 +98,8 @@ class WhatsAppClient(Messenger):
             raise ValueError("WhatsApp sends need an access token and a phone number ID")
         if max_attempts < 1:
             raise ValueError("max_attempts must be at least 1")
-        number_url = f"{base_url.rstrip('/')}/{graph_version}/{phone_number_id}"
+        self.graph_url = f"{base_url.rstrip('/')}/{graph_version}"
+        number_url = f"{self.graph_url}/{phone_number_id}"
         self.messages_url = f"{number_url}/messages"
         self.media_url = f"{number_url}/media"
         self._headers = {"Authorization": f"Bearer {access_token}"}
@@ -178,13 +183,33 @@ class WhatsAppClient(Messenger):
     async def upload_media(self, blob: Blob) -> str:
         """Upload ``blob`` so it can be sent by ID; returns the media ID."""
         extension = mimetypes.guess_extension(blob.mime_type) or ""
-        return await self._post(
+        return await self._request(
+            "POST",
             self.media_url,
             _uploaded,
             repeatable=True,  # a second upload only leaves an unused media object behind
             data={"messaging_product": "whatsapp", "type": blob.mime_type},
             files={"file": (f"upload{extension}", blob.data, blob.mime_type)},
         )
+
+    async def download_media(self, media_id: str) -> Blob:
+        """Inbound media by the id a webhook carries (T050, T051).
+
+        The Graph API gives a URL that lasts 5 minutes; the bytes come from it with the same
+        token. A 404 there means the URL expired, so a fresh one is asked for once.
+        """
+        for attempt in (1, 2):
+            info = await self._request(
+                "GET", f"{self.graph_url}/{media_id}", _media_info, repeatable=True
+            )
+            try:
+                data = await self._request("GET", info.url, _media_bytes, repeatable=True)
+            except WhatsAppSendError as error:
+                if error.status_code == 404 and attempt == 1:
+                    continue
+                raise
+            return Blob(data=data, mime_type=info.mime_type)
+        raise AssertionError("unreachable: the second attempt returns or raises")
 
     async def aclose(self) -> None:
         if self._owns_http:
@@ -213,25 +238,28 @@ class WhatsAppClient(Messenger):
         }
         if reply_to:
             payload["context"] = {"message_id": reply_to}
-        return await self._post(self.messages_url, _accepted, repeatable=False, json=payload)
+        return await self._request(
+            "POST", self.messages_url, _accepted, repeatable=False, json=payload
+        )
 
-    async def _post[T](
+    async def _request[T](
         self,
+        method: Literal["GET", "POST"],
         url: str,
         read: Callable[[httpx2.Response, int], T],
         *,
         repeatable: bool,
         **content: Any,
     ) -> T:
-        """POST with the retry policy; ``read`` turns the successful response into a result.
+        """One request with the retry policy; ``read`` turns a successful response into a result.
 
         ``repeatable`` requests may be resent after any transport failure; the others only when
         the failure happened before the request left (``_NEVER_SENT``).
         """
         for attempt in range(1, self._max_attempts + 1):
             try:
-                response = await self._http.post(
-                    url, headers=self._headers, timeout=self._timeout_s, **content
+                response = await self._http.request(
+                    method, url, headers=self._headers, timeout=self._timeout_s, **content
                 )
             except httpx2.RequestError as exc:
                 if not (repeatable or isinstance(exc, _NEVER_SENT)):
@@ -297,6 +325,29 @@ def _accepted(response: httpx2.Response, attempt: int) -> SendResult:
     return SendResult(message_id=body.messages[0].id, status="sent")
 
 
+def _media_info(response: httpx2.Response, attempt: int) -> "_MediaInfo":
+    try:
+        return _MediaInfo.model_validate_json(response.content)
+    except ValidationError as exc:
+        raise WhatsAppSendError(
+            "Cloud API answered a media lookup without a URL",
+            retryable=False,
+            attempts=attempt,
+            status_code=response.status_code,
+        ) from exc
+
+
+def _media_bytes(response: httpx2.Response, attempt: int) -> bytes:
+    if len(response.content) > MAX_MEDIA_BYTES:
+        raise WhatsAppSendError(
+            f"media of {len(response.content)} bytes is larger than WhatsApp allows",
+            retryable=False,
+            attempts=attempt,
+            status_code=response.status_code,
+        )
+    return response.content
+
+
 def _uploaded(response: httpx2.Response, attempt: int) -> str:
     try:
         return _Uploaded.model_validate_json(response.content).id
@@ -349,6 +400,11 @@ class _Accepted(BaseModel):
 
 class _Uploaded(BaseModel):
     id: str
+
+
+class _MediaInfo(BaseModel):
+    url: str
+    mime_type: str
 
 
 class _ErrorData(BaseModel):
