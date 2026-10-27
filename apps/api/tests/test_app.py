@@ -9,6 +9,7 @@ from fastapi.testclient import TestClient
 from vitrina_api.main import create_app
 from vitrina_core.providers.compose import ProviderMode
 from vitrina_core.settings import Settings
+from vitrina_core.storage import blob_key
 
 
 def test_health_reports_ok_and_version_under_v1() -> None:
@@ -63,3 +64,16 @@ def test_as_7_3_the_app_starts_in_replay_mode_without_any_key() -> None:
 def test_live_mode_refuses_to_start_without_the_meta_api_key() -> None:
     with pytest.raises(LookupError, match="META_API_KEY"):
         create_app(Settings(_env_file=None, replay=False))  # type: ignore[call-arg]
+
+
+async def test_local_blobs_are_served_on_a_route_outside_the_contract(tmp_path: Path) -> None:
+    app = create_app(Settings(_env_file=None, storage_dir=tmp_path))  # type: ignore[call-arg]
+    key = blob_key(UUID("00000000-0000-7000-8000-00000000000a"), "assets", "photo", "jpg")
+    await app.state.storage.put(key, b"jpeg bytes", "image/jpeg")
+    client = TestClient(app)
+
+    response = client.get(await app.state.storage.signed_url(key))
+
+    assert response.status_code == 200
+    assert response.content == b"jpeg bytes"
+    assert not any(path.startswith("/local-blobs") for path in app.openapi()["paths"])

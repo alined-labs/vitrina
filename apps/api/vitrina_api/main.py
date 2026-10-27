@@ -47,6 +47,7 @@ from vitrina_core.jobs import PostgresJobQueue
 from vitrina_core.ledger import InMemoryLedger, PostgresLedger, SpendWatch
 from vitrina_core.providers.compose import compose
 from vitrina_core.settings import Settings, get_settings
+from vitrina_core.storage import LocalBlobStore, blob_store, create_blob_router
 from vitrina_local_mock import MockOutbox, create_phone_router
 from vitrina_meta_model_api import live_providers
 
@@ -89,10 +90,12 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     settings = settings or get_settings()
     # Without DATABASE_URL (replay, CI's check job) the app still starts; DB routes cannot.
     engine = create_engine(settings) if settings.database_url and settings.db_schema else None
+    storage = blob_store(settings)
 
     @asynccontextmanager
     async def lifespan(_app: FastAPI) -> AsyncIterator[None]:
         yield
+        await storage.aclose()
         if engine is not None:
             await engine.dispose()
 
@@ -100,6 +103,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.state.settings = settings
     app.state.sessions = create_session_factory(engine) if engine is not None else None
     app.state.jobs = PostgresJobQueue(app.state.sessions) if app.state.sessions else None
+    app.state.storage = storage
     watch = SpendWatch(settings.spend_limit_usd)
     app.state.ledger = (
         PostgresLedger(app.state.sessions, watch) if app.state.sessions else InMemoryLedger(watch)
@@ -119,6 +123,9 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     install_problem_handlers(app)
     for module in ROUTERS:
         app.include_router(module.router, prefix=API_PREFIX)
+    if isinstance(storage, LocalBlobStore):
+        # Signed links to local files; outside the contract and hidden from OpenAPI (I-15).
+        app.include_router(create_blob_router(storage))
     if settings.whatsapp_mock:
         # Outside the contract and hidden from OpenAPI (plan.md §4.6, ADR-0011).
         app.include_router(create_phone_router(MockOutbox(settings.mock_outbox_path)))
