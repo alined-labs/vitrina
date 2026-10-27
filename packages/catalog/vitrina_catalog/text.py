@@ -4,6 +4,8 @@ import re
 import unicodedata
 from collections.abc import Mapping
 
+from vitrina_core.money import amounts_cop, format_cop
+
 # Function words that would otherwise match every document.
 STOPWORDS = frozenset(
     [
@@ -34,11 +36,6 @@ STOPWORDS = frozenset(
 )
 
 
-def format_cop(amount: int) -> str:
-    """Colombian notation: 85000 -> $85.000."""
-    return "$" + f"{amount:,}".replace(",", ".")
-
-
 def describe_product(
     name: str, description: str | None, price_cop: int, attributes: Mapping[str, str]
 ) -> str:
@@ -57,3 +54,13 @@ def tokens(text: str) -> set[str]:
     folded = unicodedata.normalize("NFKD", text.casefold())
     plain = "".join(char for char in folded if not unicodedata.combining(char))
     return {word for word in re.findall(r"[a-z0-9ñ]+", plain) if word not in STOPWORDS}
+
+
+def product_amounts(
+    price_cop: int, description: str | None, attributes: Mapping[str, str] | None
+) -> tuple[int, ...]:
+    """Every amount the agent may quote for a product: its price plus any in its text (R2)."""
+    found = {price_cop}
+    for text in (description or "", *(attributes or {}).values()):
+        found.update(amounts_cop(text))
+    return tuple(sorted(found))

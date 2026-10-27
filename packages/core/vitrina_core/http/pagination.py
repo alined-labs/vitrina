@@ -76,7 +76,7 @@ def keyset_page(
     return statement.order_by(*order).limit(limit + 1)
 
 
-def next_cursor[R: Mapping[str, Any]](
+def next_cursor[R: Mapping[Any, Any]](
     rows: Sequence[R], *, limit: int
 ) -> tuple[list[R], str | None]:
     """Split the ``limit + 1`` rows of ``keyset_page`` into the page and its ``next_cursor``."""

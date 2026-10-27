@@ -25,17 +25,33 @@ from vitrina_catalog.domain import (
     StockLevel,
 )
 from vitrina_catalog.memory import InMemoryCatalog
+from vitrina_catalog.schemas import (
+    CatalogStore,
+    Fact,
+    FactCreate,
+    FactUpdate,
+    Product,
+    ProductCreate,
+    ProductUpdate,
+)
 
 __all__ = [
     "RESERVATION_TTL",
     "Catalog",
+    "CatalogStore",
     "Citation",
+    "Fact",
+    "FactCreate",
     "FactKind",
     "FactStatus",
+    "FactUpdate",
     "InMemoryCatalog",
+    "Product",
+    "ProductCreate",
     "ProductDetail",
     "ProductNotFoundError",
     "ProductStatus",
+    "ProductUpdate",
     "Reservation",
     "SearchKind",
     "SearchResult",
