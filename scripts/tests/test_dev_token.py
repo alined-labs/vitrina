@@ -49,7 +49,15 @@ async def test_a_local_supabase_url_becomes_the_issuer() -> None:
 
 
 @pytest.mark.parametrize(
-    "url", ["https://abcdefghijklmnop.supabase.co", "https://abcdefghijklmnop.supabase.co/"]
+    "url",
+    [
+        "https://abcdefghijklmnop.supabase.co",
+        "https://abcdefghijklmnop.supabase.co/",
+        "HTTPS://ABCDEFGHIJKLMNOP.SUPABASE.CO:443",
+        # Pasted without a scheme, and as a fully qualified name: the slips MX1 found.
+        "abcdefghijklmnop.supabase.co",
+        "https://abcdefghijklmnop.supabase.co.",
+    ],
 )
 def test_a_hosted_project_is_refused(url: str) -> None:
     with pytest.raises(SystemExit, match="hosted Supabase project"):

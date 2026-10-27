@@ -33,7 +33,9 @@ def mint(
     now: int | None = None,
 ) -> str:
     if settings.supabase_url:
-        host = (urlsplit(settings.supabase_url).hostname or "").lower()
+        url = settings.supabase_url.strip()
+        # A pasted host without a scheme parses as a path; a trailing dot is the same host.
+        host = (urlsplit(url if "://" in url else f"https://{url}").hostname or "").rstrip(".")
         if host.endswith(HOSTED_SUFFIXES):
             raise SystemExit(
                 f"refusing: SUPABASE_URL is a hosted Supabase project ({host}); sign in there"
