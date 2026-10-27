@@ -78,5 +78,5 @@ async def test_db_as_6_6_borrar_mis_datos_runs_through_the_worker_and_leaves_a_r
     async with db_sessions() as session:
         receipts = (await session.execute(sa.select(erasure_receipts))).mappings().all()
     assert [(receipt["scope"], receipt["completed_at"] is not None) for receipt in receipts] == [
-        ("contact", True)
+        ("contact,messages", True)  # the conversation module's part (T062, Daniel's OK)
     ]
