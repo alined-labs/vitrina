@@ -5,7 +5,7 @@ UV ?= uv
 PYTEST_WORKERS ?= 2
 
 .DEFAULT_GOAL := help
-.PHONY: help sync lint fmt types test test-db drift check migrate evals gen-client api worker
+.PHONY: help sync lint fmt types test test-db drift check migrate evals gen-client api worker dev-token
 
 help: ## List the targets
 	@grep -E '^[a-z-]+:.*## ' $(MAKEFILE_LIST) | awk 'BEGIN {FS = ":.*## "} {printf "  %-11s %s\n", $$1, $$2}'
@@ -49,3 +49,6 @@ api: ## Run the API with reload on :8000
 
 worker: ## Run the job worker
 	$(UV) run vitrina-worker
+
+dev-token: ## Local seller token without Supabase (SUB=dev-seller, SELLER=<uuid>)
+	@$(UV) run python scripts/dev-token.py --sub $(or $(SUB),dev-seller) $(if $(SELLER),--seller $(SELLER))
