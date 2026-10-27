@@ -4,7 +4,7 @@ import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useCallback, useEffect, useState } from "react";
 import { api, type components } from "@/lib/api/client";
-import { problemMessage } from "@/lib/format";
+import { jobErrorMessage, problemMessage } from "@/lib/format";
 import { ANGLE, FORMAT, HOOK, STAGE, copyPreview, decimal, percent } from "@/lib/labels";
 
 type Job = components["schemas"]["CreativeJob"];
@@ -145,7 +145,7 @@ function JobDetail({ jobId, productName }: { jobId: string; productName: Record<
         )}
         {job.status === "failed" && (
           <p role="alert" className="rounded-md bg-red-50 px-4 py-3 text-sm text-red-800">
-            {job.error?.message ?? "El trabajo no se pudo completar."}
+            {jobErrorMessage(job.error)}
           </p>
         )}
       </header>

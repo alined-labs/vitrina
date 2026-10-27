@@ -74,3 +74,22 @@ export function problemMessage(error: unknown, fallback = "Algo salió mal. Inte
   const debug = process.env.NODE_ENV !== "production" && problem.detail ? ` (${problem.detail})` : "";
   return text + debug;
 }
+
+// Job errors: the codes whose message is written for sellers keep it (photo not found,
+// product too small, copy failed); provider and internal failures carry developer text.
+const JOB_TEXT: Record<string, string> = {
+  PROVIDER_UNAVAILABLE: "Falta configurar el servicio de imágenes. Avísale a quien administra tu cuenta.",
+  PROVIDER_ERROR: "El servicio de imágenes falló varias veces. Intenta de nuevo en unos minutos.",
+  INTERNAL_ERROR: "Algo falló de nuestro lado. Intenta de nuevo.",
+  VALIDATION_ERROR: "Una de las fotos no pertenece a tu cuenta.",
+};
+
+/** The sentence to show for a failed job, in Spanish. */
+export function jobErrorMessage(error: { code?: string; message?: string } | null | undefined): string {
+  const fallback = "El trabajo no se pudo completar.";
+  if (!error) return fallback;
+  const text = error.code ? JOB_TEXT[error.code] : undefined;
+  if (!text) return error.message ?? fallback;
+  const debug = process.env.NODE_ENV !== "production" && error.message ? ` (${error.message})` : "";
+  return text + debug;
+}
