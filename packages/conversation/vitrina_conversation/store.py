@@ -41,6 +41,10 @@ def redact(quote: str) -> str:
     return _EMAIL.sub("[correo]", _PHONE.sub("[número]", quote))
 
 
+class LiveConversationError(Exception):
+    """A replay cannot start: the fixture's customer has a live conversation with the seller."""
+
+
 @dataclass(frozen=True)
 class ConversationState:
     id: UUID
@@ -107,6 +111,15 @@ class ConversationStore(Protocol):
     async def open_conversation(
         self, seller_id: UUID, contact_id: UUID, *, is_replay: bool = False
     ) -> ConversationState: ...
+
+    async def fresh_replay_conversation(
+        self, seller_id: UUID, contact_id: UUID
+    ) -> ConversationState:
+        """A new replay conversation; the contact's open replays close (T080).
+
+        ``LiveConversationError`` when the contact has an open conversation that is not a replay.
+        """
+        ...
 
     async def add_message(
         self,
@@ -270,6 +283,21 @@ class InMemoryConversationStore:
         self.conversations[conversation.id] = conversation
         self._created[conversation.id] = self.clock()
         return conversation
+
+    async def fresh_replay_conversation(
+        self, seller_id: UUID, contact_id: UUID
+    ) -> ConversationState:
+        open_ones = [
+            conversation
+            for conversation in self.conversations.values()
+            if (conversation.seller_id, conversation.contact_id) == (seller_id, contact_id)
+            and conversation.mode != "closed"
+        ]
+        if any(not conversation.is_replay for conversation in open_ones):
+            raise LiveConversationError("this customer has a live conversation with the seller")
+        for conversation in open_ones:
+            self.conversations[conversation.id] = replace(conversation, mode="closed")
+        return await self.open_conversation(seller_id, contact_id, is_replay=True)
 
     async def add_message(
         self,
@@ -740,6 +768,30 @@ class PostgresConversationStore(_PostgresReads):
                 )
             )
         return ConversationState(conversation_id, seller_id, contact_id, is_replay=is_replay)
+
+    async def fresh_replay_conversation(
+        self, seller_id: UUID, contact_id: UUID
+    ) -> ConversationState:
+        conversations = db.conversations.c
+        ours = (
+            conversations.seller_id == seller_id,
+            conversations.contact_id == contact_id,
+            conversations.mode != "closed",
+        )
+        async with self.sessions() as session, session.begin():
+            live = await session.scalar(
+                sa.select(sa.func.count()).where(*ours, conversations.is_replay.is_(False))
+            )
+            if live:
+                raise LiveConversationError("this customer has a live conversation with the seller")
+            await session.execute(sa.update(db.conversations).where(*ours).values(mode="closed"))
+            conversation_id = new_id()
+            await session.execute(
+                sa.insert(db.conversations).values(
+                    id=conversation_id, seller_id=seller_id, contact_id=contact_id, is_replay=True
+                )
+            )
+        return ConversationState(conversation_id, seller_id, contact_id, is_replay=True)
 
     async def add_message(
         self,

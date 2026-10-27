@@ -1,0 +1,123 @@
+{
+  "name": "Pregunta y reserva",
+  "description": "Un cliente pregunta por la mochila azul, su precio, y pide que se la reserven.",
+  "webhooks": [
+    {
+      "object": "whatsapp_business_account",
+      "entry": [
+        {
+          "id": "100000000000002",
+          "changes": [
+            {
+              "value": {
+                "messaging_product": "whatsapp",
+                "metadata": {
+                  "display_phone_number": "573000000000",
+                  "phone_number_id": "100000000000001"
+                },
+                "contacts": [
+                  {
+                    "profile": {
+                      "name": "Carlos Prueba"
+                    },
+                    "wa_id": "573000000012"
+                  }
+                ],
+                "messages": [
+                  {
+                    "from": "573000000012",
+                    "id": "wamid.VITRINA-REPLAY-02-01",
+                    "timestamp": "1793120400",
+                    "type": "text",
+                    "text": {
+                      "body": "Hola, \u00bftienen la mochila azul?"
+                    }
+                  }
+                ]
+              },
+              "field": "messages"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "object": "whatsapp_business_account",
+      "entry": [
+        {
+          "id": "100000000000002",
+          "changes": [
+            {
+              "value": {
+                "messaging_product": "whatsapp",
+                "metadata": {
+                  "display_phone_number": "573000000000",
+                  "phone_number_id": "100000000000001"
+                },
+                "contacts": [
+                  {
+                    "profile": {
+                      "name": "Carlos Prueba"
+                    },
+                    "wa_id": "573000000012"
+                  }
+                ],
+                "messages": [
+                  {
+                    "from": "573000000012",
+                    "id": "wamid.VITRINA-REPLAY-02-02",
+                    "timestamp": "1793120415",
+                    "type": "text",
+                    "text": {
+                      "body": "\u00bfCu\u00e1nto vale?"
+                    }
+                  }
+                ]
+              },
+              "field": "messages"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "object": "whatsapp_business_account",
+      "entry": [
+        {
+          "id": "100000000000002",
+          "changes": [
+            {
+              "value": {
+                "messaging_product": "whatsapp",
+                "metadata": {
+                  "display_phone_number": "573000000000",
+                  "phone_number_id": "100000000000001"
+                },
+                "contacts": [
+                  {
+                    "profile": {
+                      "name": "Carlos Prueba"
+                    },
+                    "wa_id": "573000000012"
+                  }
+                ],
+                "messages": [
+                  {
+                    "from": "573000000012",
+                    "id": "wamid.VITRINA-REPLAY-02-03",
+                    "timestamp": "1793120430",
+                    "type": "text",
+                    "text": {
+                      "body": "Dale, res\u00e9rvame una"
+                    }
+                  }
+                ]
+              },
+              "field": "messages"
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}
