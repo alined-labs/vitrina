@@ -164,6 +164,12 @@ class ConversationStore(Protocol):
         """A voice note's words, and the message normalized again from them (T051)."""
         ...
 
+    async def set_normalized(
+        self, seller_id: UUID, message_id: UUID, normalized: Mapping[str, Any]
+    ) -> None:
+        """The message normalized again, e.g. with what its photo shows (T050)."""
+        ...
+
     async def apply_status(
         self, seller_id: UUID, wa_message_id: str, status: WebhookStatus
     ) -> bool: ...
@@ -376,6 +382,14 @@ class InMemoryConversationStore:
             if row.seller_id == seller_id and row.stored.id == message_id:
                 row.normalized = dict(normalized)
                 row.stored = replace(row.stored, transcript=transcript, normalized=dict(normalized))
+
+    async def set_normalized(
+        self, seller_id: UUID, message_id: UUID, normalized: Mapping[str, Any]
+    ) -> None:
+        for row in self.messages:
+            if row.seller_id == seller_id and row.stored.id == message_id:
+                row.normalized = dict(normalized)
+                row.stored = replace(row.stored, normalized=dict(normalized))
 
     async def apply_status(
         self, seller_id: UUID, wa_message_id: str, status: WebhookStatus
@@ -874,6 +888,16 @@ class PostgresConversationStore(_PostgresReads):
                 sa.update(db.messages)
                 .where(db.messages.c.id == message_id, db.messages.c.seller_id == seller_id)
                 .values(transcript=transcript, normalized=dict(normalized))
+            )
+
+    async def set_normalized(
+        self, seller_id: UUID, message_id: UUID, normalized: Mapping[str, Any]
+    ) -> None:
+        async with self.sessions() as session, session.begin():
+            await session.execute(
+                sa.update(db.messages)
+                .where(db.messages.c.id == message_id, db.messages.c.seller_id == seller_id)
+                .values(normalized=dict(normalized))
             )
 
     async def apply_status(

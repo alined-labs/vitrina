@@ -9,9 +9,11 @@ from pathlib import Path
 
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
+from vitrina_catalog.api import InMemoryCatalog
+from vitrina_conversation.image import Photos
 from vitrina_conversation.pacing import Pacer
 from vitrina_conversation.voice import VoiceNotes
-from vitrina_conversation.wiring import postgres_pipeline, voice_notes
+from vitrina_conversation.wiring import photos_for, postgres_pipeline, voice_notes
 from vitrina_core.ledger import InMemoryLedger
 from vitrina_core.providers.compose import ProviderMode, Providers, compose
 from vitrina_core.settings import Settings
@@ -67,5 +69,22 @@ async def test_as_3_6_the_worker_pipeline_hears_voice_notes() -> None:
             )
 
             assert isinstance(deps.voice, VoiceNotes)
+            assert isinstance(deps.photos, Photos)
     finally:
         await engine.dispose()
+
+
+async def test_as_3_5_photos_are_read_through_the_cloud_api(tmp_path: Path) -> None:
+    config = settings(model_agent="spark-test")
+    catalog = InMemoryCatalog()
+    async with cloud_api() as client:
+        photos = photos_for(config, providers(config), client, catalog)
+
+        assert isinstance(photos, Photos)
+        assert (photos.model, photos.download, photos.catalog) == (
+            "spark-test",
+            client.download_media,
+            catalog,
+        )
+    mock = LocalMockMessenger(MockOutbox(tmp_path / "mock-whatsapp.jsonl"))
+    assert photos_for(config, providers(config), mock, catalog) is None

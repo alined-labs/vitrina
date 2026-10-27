@@ -1,10 +1,12 @@
 """The agent's system prompt (es-CO) and the notes the engine adds during a turn (FR-024).
 
-The text is draft v0.1.1, derived from ``contracts/agent-tools.json`` (tools, output schema,
+The text is draft v0.1.2, derived from ``contracts/agent-tools.json`` (tools, output schema,
 R1–R12); prompt changes are logged with the reason for each (v0.1.1: no city, which the
 settings do not carry; off-topic declines end with a question back to the shop, because R3
-only lets a citation-free reply greet, thank or ask). Placeholders are filled from
-the seller's settings, the items retrieved for this message and the seller's local time.
+only lets a citation-free reply greet, thank or ask. v0.1.2: a customer photo arrives as
+"[Foto del cliente: …]" (T050), and ``image_ref`` is no longer suggested, since the model
+never sees a media id). Placeholders are filled from the seller's settings, the items
+retrieved for this message and the seller's local time.
 """
 
 from collections.abc import Sequence
@@ -72,7 +74,7 @@ REGLAS
 12. No pidas datos personales más allá del nombre del cliente y no menciones a otros clientes.
 
 HERRAMIENTAS
-- search_catalog: antes de afirmar cualquier dato del negocio; con image_ref cuando el cliente envió una foto.
+- search_catalog: antes de afirmar cualquier dato del negocio. Si el mensaje trae [Foto del cliente: …], es lo que se ve en una foto que envió: busca ese producto, ofrécele el más parecido (con send_ad_asset si tiene anuncio aprobado) o dile con amabilidad que no lo tienen.
 - get_product: detalle completo de un producto ya identificado (precio, stock, atributos, anuncios aprobados).
 - check_stock: unidades disponibles de un producto, opcionalmente por variante; siempre antes de reservar.
 - reserve_item: solo si el cliente lo pide explícitamente y check_stock confirmó unidades. La reserva dura 24 horas; dile el código.
