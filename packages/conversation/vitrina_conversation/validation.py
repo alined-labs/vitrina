@@ -38,12 +38,37 @@ COURTESY = frozenset({
     "bienvenida", "bienvenidas", "bienvenido", "bienvenidos", "buen", "buena", "buenas", "bueno",
     "buenos", "claro", "con", "dale", "de", "del", "dia", "dias", "don", "dona", "e", "el",
     "encantada", "encantado", "estamos", "excelente", "favor", "feliz", "genial", "gracias",
-    "gusto", "hola", "holi", "holis", "la", "las", "le", "listo", "lo", "los", "mi", "mija",
+    "gusto", "habla", "hola", "holi", "holis", "la", "las", "le", "listo", "lo", "los", "mi", "mija",
     "mijo", "mil", "mucho", "muchas", "muchisimas", "noche", "noches", "nos", "ok", "okay",
     "orden", "ordenes", "para", "parce", "parcera", "parcero", "pendiente", "perfecto", "placer",
-    "por", "porfa", "que", "quedo", "querida", "querido", "reina", "saludo", "saludos", "senor",
+    "por", "porfa", "que", "quedo", "querida", "querido", "reina", "saluda", "saludamos", "saludo", "saludos", "senor",
     "senora", "servirle", "servirte", "si", "super", "tal", "tarde", "tardes", "te", "tu", "tus",
     "un", "una", "vale", "veci", "vecina", "vecino", "vecinos", "y",
+})  # fmt: skip
+# Inside a question to the customer only these may appear besides courtesy words and names:
+# question words, the customer's wishes and neutral nouns. "gratis", "hay", "llega" or
+# "descuento" inside a question still claim something (MX1 review of #51).
+QUESTION_WORDS = frozenset({
+    "a", "al", "algo", "alguna", "alguno", "algun", "ayudamos", "ayudar", "ayudo", "busca",
+    "buscabas", "buscan", "buscas", "cantidad", "ciudad", "color", "colores", "como", "con", "cosa",
+    "cual", "cuales", "cuando", "cuanta", "cuantas", "cuanto", "cuantos", "de", "del", "diseno",
+    "donde", "el", "en", "envio", "es", "estilo", "gustaria", "interesa", "interesan", "la", "las",
+    "le", "les", "lo", "los", "mas", "me", "medida", "medidas", "modelo", "modelos", "necesita",
+    "necesitas", "nombre", "o", "ocasion", "otra", "otras", "otro", "otros", "para", "pedido",
+    "podemos", "por", "prefiere", "prefieres", "producto", "productos", "puedo", "que", "quien",
+    "quienes", "quiere", "quieren", "quieres", "referencia", "regalo", "sera", "seria", "sirve",
+    "sirvo", "su", "sus", "talla", "tallas", "tamano", "te", "tu", "tus", "un", "una", "y",
+})  # fmt: skip
+# A reply holding one of these answers the customer's question, so it needs a citation.
+ANSWER_WORDS = frozenset({
+    "claro", "correcto", "dale", "exacto", "listo", "no", "obvio", "ok", "okay", "perfecto",
+    "seguro", "si", "supuesto", "vale",
+})  # fmt: skip
+# How a customer's message reads as a question when it carries no "?".
+ASKING = frozenset({
+    "aceptan", "como", "cual", "cuales", "cuando", "cuanto", "cuanta", "cuantos", "cuantas",
+    "donde", "envian", "hacen", "hay", "manejan", "me", "pueden", "puedo", "que", "quien",
+    "reciben", "sirve", "tiene", "tienen", "venden",
 })  # fmt: skip
 # A question to the customer: "¿…?", or a sentence ending in "?" written without "¿".
 _QUESTION = re.compile(r"¿[^?]*\?|[^.!?¡¿\n]*\?")
@@ -91,6 +116,7 @@ def check_groundedness(
     *,
     names: Iterable[str] = (),
     fallback: str = "",
+    customer_message: str | None = None,
 ) -> GroundednessCheck:
     """R3: citations resolve to active items, and a reply without them claims nothing."""
     known = {citation.id for citation in citations}
@@ -101,24 +127,44 @@ def check_groundedness(
     ]
     if not output.cited_fact_ids and output.handoff_reason is None:
         declined = output.objection_tag == "off_topic" and not _has_number(output.reply)
-        if not declined and makes_claim(output.reply, names=names, fallback=fallback):
+        if not declined and makes_claim(
+            output.reply, names=names, fallback=fallback, customer_message=customer_message
+        ):
             problems.append("states something about the business without citing any fact")
     return GroundednessCheck(not problems, tuple(problems))
 
 
-def makes_claim(reply: str, *, names: Iterable[str] = (), fallback: str = "") -> bool:
+def makes_claim(
+    reply: str,
+    *,
+    names: Iterable[str] = (),
+    fallback: str = "",
+    customer_message: str | None = None,
+) -> bool:
     """Whether ``reply`` states something; greeting, thanking and asking do not (R3).
 
-    A digit or an amount is always a claim. Otherwise the questions to the customer are set
-    aside, and what remains must be courtesy words or the shop's and owner's names. The
-    fallback sentence itself is not a claim.
+    A digit or an amount is always a claim. Outside its questions a reply may hold only
+    courtesy words and the shop's and owner's names; inside them, also question words and
+    neutral nouns. A yes or no to a question the customer asked is a claim too. The fallback
+    sentence itself is not.
     """
     if _has_number(reply):
         return True
     if fallback and _words(reply) == _words(fallback):
         return False
     allowed = COURTESY | {word for name in names for word in _words(name)}
-    return not set(_words(_QUESTION.sub(" ", reply))) <= allowed
+    if not set(_words(_QUESTION.sub(" ", reply))) <= allowed:
+        return True
+    if any(
+        not set(_words(asked)) <= allowed | QUESTION_WORDS for asked in _QUESTION.findall(reply)
+    ):
+        return True
+    return bool(customer_message and _asks(customer_message) and set(_words(reply)) & ANSWER_WORDS)
+
+
+def _asks(message: str) -> bool:
+    words = _words(message)
+    return "?" in message or bool(words and words[0] in ASKING)
 
 
 def _has_number(text: str) -> bool:
@@ -137,6 +183,7 @@ def review(
     *,
     owner_name: str,
     business_name: str = "",
+    customer_message: str | None = None,
     low_confidence_threshold: float = LOW_CONFIDENCE_THRESHOLD,
     low_confidence_streak: int = 0,
     retried: bool = False,
@@ -145,7 +192,11 @@ def review(
     fallback = FALLBACK_REPLY.format(owner_name=owner_name)
     price = check_prices(output.reply, citations)
     groundedness = check_groundedness(
-        output, citations, names=(owner_name, business_name), fallback=fallback
+        output,
+        citations,
+        names=(owner_name, business_name),
+        fallback=fallback,
+        customer_message=customer_message,
     )
     confidence = output.confidence if groundedness.passed else 0.0
 
