@@ -770,6 +770,12 @@ requires-dist = [
 name = "vitrina-core"
 version = "0.1.0"
 source = { editable = "packages/core" }
+dependencies = [
+    { name = "pydantic" },
+]
+
+[package.metadata]
+requires-dist = [{ name = "pydantic", specifier = ">=2.14" }]
 
 [[package]]
 name = "vitrina-creative"
@@ -827,11 +833,15 @@ name = "vitrina-local-mock"
 version = "0.1.0"
 source = { editable = "providers/local_mock" }
 dependencies = [
+    { name = "fastapi" },
     { name = "vitrina-core" },
 ]
 
 [package.metadata]
-requires-dist = [{ name = "vitrina-core", editable = "packages/core" }]
+requires-dist = [
+    { name = "fastapi", specifier = ">=0.115" },
+    { name = "vitrina-core", editable = "packages/core" },
+]
 
 [[package]]
 name = "vitrina-meta-model-api"
