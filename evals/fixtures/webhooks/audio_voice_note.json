@@ -1,0 +1,42 @@
+{
+  "object": "whatsapp_business_account",
+  "entry": [
+    {
+      "id": "100000000000002",
+      "changes": [
+        {
+          "value": {
+            "messaging_product": "whatsapp",
+            "metadata": {
+              "display_phone_number": "573000000000",
+              "phone_number_id": "100000000000001"
+            },
+            "contacts": [
+              {
+                "profile": {
+                  "name": "Andr\u00e9s Prueba"
+                },
+                "wa_id": "573000000002"
+              }
+            ],
+            "messages": [
+              {
+                "from": "573000000002",
+                "id": "wamid.VITRINA-FIXTURE-IN-0005",
+                "timestamp": "1793113440",
+                "type": "audio",
+                "audio": {
+                  "mime_type": "audio/ogg; codecs=opus",
+                  "sha256": "31c63484bf13d9d9e15c55a3e96f6020dcdb032ecc567b3353d66e34141e258a",
+                  "id": "1000000000000102",
+                  "voice": true
+                }
+              }
+            ]
+          },
+          "field": "messages"
+        }
+      ]
+    }
+  ]
+}

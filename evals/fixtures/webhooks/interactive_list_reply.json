@@ -1,0 +1,48 @@
+{
+  "object": "whatsapp_business_account",
+  "entry": [
+    {
+      "id": "100000000000002",
+      "changes": [
+        {
+          "value": {
+            "messaging_product": "whatsapp",
+            "metadata": {
+              "display_phone_number": "573000000000",
+              "phone_number_id": "100000000000001"
+            },
+            "contacts": [
+              {
+                "profile": {
+                  "name": "Andr\u00e9s Prueba"
+                },
+                "wa_id": "573000000002"
+              }
+            ],
+            "messages": [
+              {
+                "context": {
+                  "from": "573000000000",
+                  "id": "wamid.VITRINA-FIXTURE-OUT-0001"
+                },
+                "from": "573000000002",
+                "id": "wamid.VITRINA-FIXTURE-IN-0007",
+                "timestamp": "1793113560",
+                "type": "interactive",
+                "interactive": {
+                  "type": "list_reply",
+                  "list_reply": {
+                    "id": "talla-m",
+                    "title": "Talla M",
+                    "description": "Disponible"
+                  }
+                }
+              }
+            ]
+          },
+          "field": "messages"
+        }
+      ]
+    }
+  ]
+}

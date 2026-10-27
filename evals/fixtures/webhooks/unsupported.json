@@ -1,0 +1,46 @@
+{
+  "object": "whatsapp_business_account",
+  "entry": [
+    {
+      "id": "100000000000002",
+      "changes": [
+        {
+          "value": {
+            "messaging_product": "whatsapp",
+            "metadata": {
+              "display_phone_number": "573000000000",
+              "phone_number_id": "100000000000001"
+            },
+            "contacts": [
+              {
+                "profile": {
+                  "name": "Andr\u00e9s Prueba"
+                },
+                "wa_id": "573000000002"
+              }
+            ],
+            "messages": [
+              {
+                "from": "573000000002",
+                "id": "wamid.VITRINA-FIXTURE-IN-0010",
+                "timestamp": "1793113740",
+                "type": "unsupported",
+                "errors": [
+                  {
+                    "code": 131051,
+                    "title": "Unsupported message type",
+                    "message": "Unsupported message type",
+                    "error_data": {
+                      "details": "Unsupported message type."
+                    }
+                  }
+                ]
+              }
+            ]
+          },
+          "field": "messages"
+        }
+      ]
+    }
+  ]
+}
