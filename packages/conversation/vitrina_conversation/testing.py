@@ -2,7 +2,8 @@
 
 ``ScriptedChat`` stands in for Muse Spark: it answers from a script (a final JSON answer, a
 tool call, or a provider failure) and records every request, so tests can assert what the
-engine sent. MX0's eval tests can use it too. ``AdGallery`` stands in for the creative
+engine sent. MX0's eval tests can use it too. Scope classifier calls (purpose ``classify``,
+T054) have their own script and record, and answer "in scope" when it runs out. ``AdGallery`` stands in for the creative
 module's approved ads (I-10).
 """
 
@@ -112,17 +113,34 @@ def tool_call(name: str, *, call_id: str | None = None, **arguments: object) -> 
     )
 
 
+def scope_answer(in_scope: bool, reason: str = "", sensitive: str = "none") -> str:
+    """The scope classifier's JSON answer (T054)."""
+    return json.dumps(
+        {"in_scope": in_scope, "reason": reason, "sensitive": sensitive}, ensure_ascii=False
+    )
+
+
 @dataclass
 class ScriptedChat:
-    """A ``ChatModel`` that answers from ``script`` in order and records every request."""
+    """A ``ChatModel`` that answers from ``script`` in order and records every request.
+
+    Scope classifier requests answer from ``scope`` and go to ``classified`` instead.
+    """
 
     script: list[ChatMessage | str | ProviderError] = field(default_factory=list)
     requests: list[ChatRequest] = field(default_factory=list)
+    scope: list[str | Exception] = field(default_factory=list)
+    classified: list[ChatRequest] = field(default_factory=list)
 
     async def complete(self, request: ChatRequest) -> ChatResponse:
-        self.requests.append(request)
-        answer = self.script.pop(0)
-        if isinstance(answer, ProviderError):
+        answer: ChatMessage | str | Exception
+        if request.purpose == "classify":
+            self.classified.append(request)
+            answer = self.scope.pop(0) if self.scope else scope_answer(True, "en tema")
+        else:
+            self.requests.append(request)
+            answer = self.script.pop(0)
+        if isinstance(answer, Exception):
             raise answer
         message = (
             answer
