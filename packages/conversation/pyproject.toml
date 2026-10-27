@@ -7,13 +7,20 @@ dependencies = [
     "vitrina-core",
     "vitrina-catalog",
     "vitrina-compliance",
+    "vitrina-creative",
+    "vitrina-local-mock",
     "vitrina-whatsapp",
 ]
+
+[project.entry-points."vitrina.tasks"]
+conversation = "vitrina_conversation.tasks:register"
 
 [tool.uv.sources]
 vitrina-core = { workspace = true }
 vitrina-catalog = { workspace = true }
 vitrina-compliance = { workspace = true }
+vitrina-creative = { workspace = true }
+vitrina-local-mock = { workspace = true }
 vitrina-whatsapp = { workspace = true }
 
 [build-system]
