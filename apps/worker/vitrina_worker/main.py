@@ -7,7 +7,10 @@ import signal
 
 from vitrina_core.db import create_engine, create_session_factory
 from vitrina_core.jobs import PostgresJobQueue, TaskRegistry, Worker, load_tasks
+from vitrina_core.ledger import PostgresLedger, SpendWatch
+from vitrina_core.providers.compose import compose
 from vitrina_core.settings import Settings, get_settings
+from vitrina_meta_model_api import live_providers
 
 logger = logging.getLogger("vitrina.worker")
 
@@ -19,14 +22,23 @@ async def serve(settings: Settings, stop: asyncio.Event | None = None) -> None:
     load_tasks(registry)
     engine = create_engine(settings)
     sessions = create_session_factory(engine)
+    ledger = PostgresLedger(sessions, SpendWatch(settings.spend_limit_usd))
+    providers = compose(settings, ledger, lambda: live_providers(settings))
     stop = stop or asyncio.Event()
     loop = asyncio.get_running_loop()
     for signum in (signal.SIGINT, signal.SIGTERM):
         with contextlib.suppress(NotImplementedError):
             loop.add_signal_handler(signum, stop.set)
-    logger.info("worker started with tasks: %s", ", ".join(sorted(registry.names())) or "none")
+    logger.info(
+        "worker started in %s mode with tasks: %s",
+        providers.mode,
+        ", ".join(sorted(registry.names())) or "none",
+    )
     try:
-        await Worker(PostgresJobQueue(sessions), registry, sessions=sessions).run(stop)
+        worker = Worker(
+            PostgresJobQueue(sessions), registry, sessions=sessions, providers=providers
+        )
+        await worker.run(stop)
     finally:
         await engine.dispose()
 
