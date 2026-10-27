@@ -32,7 +32,10 @@ export function ApiHealth() {
   const text = {
     checking: "Comprobando la conexión con la API…",
     up: state.kind === "up" ? `API conectada · versión ${state.version}` : "",
-    down: "API sin conexión. Arráncala con `make api` en la raíz del repositorio.",
+    down:
+      process.env.NODE_ENV === "production"
+        ? "No pudimos conectar con Vitrina. Intenta de nuevo en unos minutos."
+        : "API sin conexión. Arráncala con `make api` en la raíz del repositorio.",
   } as const;
 
   return (
