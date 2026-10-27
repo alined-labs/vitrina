@@ -3,7 +3,14 @@ name = "vitrina-core"
 version = "0.1.0"
 description = "Shared kernel: settings, db, auth, problem+json, pagination, idempotency, jobs, ledger, provider interfaces."
 requires-python = ">=3.12,<3.13"
-dependencies = ["pydantic>=2.14"]
+dependencies = [
+    "alembic>=1.14",
+    "asyncpg>=0.30",
+    "pgvector>=0.3",
+    "pydantic>=2.14",
+    "pydantic-settings>=2.6",
+    "sqlalchemy[asyncio]>=2.0.36",
+]
 
 [build-system]
 requires = ["hatchling"]

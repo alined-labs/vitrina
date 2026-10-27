@@ -23,6 +23,8 @@ from vitrina_api.routers import (
     sellers,
     webhooks,
 )
+from vitrina_core.settings import Settings, get_settings
+from vitrina_local_mock import MockOutbox, create_phone_router
 
 API_PREFIX = "/v1"
 
@@ -48,8 +50,12 @@ ROUTERS = (
 )
 
 
-def create_app() -> FastAPI:
+def create_app(settings: Settings | None = None) -> FastAPI:
+    settings = settings or get_settings()
     app = FastAPI(title="Vitrina API", version=version("vitrina-api"))
     for module in ROUTERS:
         app.include_router(module.router, prefix=API_PREFIX)
+    if settings.whatsapp_mock:
+        # Outside the contract and hidden from OpenAPI (plan.md §4.6, ADR-0011).
+        app.include_router(create_phone_router(MockOutbox(settings.mock_outbox_path)))
     return app
