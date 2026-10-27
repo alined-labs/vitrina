@@ -5,6 +5,7 @@ description = "FastAPI application: routers only, no business logic."
 requires-python = ">=3.12,<3.13"
 dependencies = [
     "fastapi>=0.115",
+    "python-multipart>=0.0.18",
     "uvicorn[standard]>=0.32",
     "vitrina-core",
     "vitrina-catalog",
