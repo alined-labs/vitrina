@@ -10,6 +10,9 @@ dependencies = [
     "numpy>=2",
 ]
 
+[project.entry-points."vitrina.tasks"]
+creative = "vitrina_creative.tasks:register"
+
 [tool.uv.sources]
 vitrina-core = { workspace = true }
 vitrina-catalog = { workspace = true }

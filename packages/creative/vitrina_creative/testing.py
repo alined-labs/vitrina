@@ -5,16 +5,33 @@ scale and relight that same bag over new backgrounds. Altered scenes change what
 receive: its colour, shape, proportions or the number of units. Everything is drawn in code
 (no binaries in the repository) and deterministic, and every scene carries the product mask a
 perfect segmenter would return.
+
+The scripted providers at the end stand in for SAM, Muse Image and Spark in pipeline and
+end-to-end tests: masks come from the synthetic set, scenes in the order given, and Spark
+answers each purpose (review, copy, judge) with a valid reply.
 """
 
+import json
+import re
 from dataclasses import dataclass
 from functools import cache
 
 import numpy as np
 from PIL import Image, ImageDraw, ImageEnhance
 
-from vitrina_core.providers import Blob
-from vitrina_creative.imaging import encode_png
+from vitrina_core.providers import (
+    Blob,
+    CallMeta,
+    ChatMessage,
+    ChatRequest,
+    ChatResponse,
+    ImageRequest,
+    ImageResponse,
+    Segment,
+    SegmentRequest,
+    SegmentResponse,
+)
+from vitrina_creative.imaging import decode_mask, encode_png, mask_bbox
 
 Colour = tuple[int, int, int]
 
@@ -166,3 +183,61 @@ def altered_scenes() -> tuple[SyntheticScene, ...]:
 def logo_removed_scene() -> SyntheticScene:
     """Same shape and nearly the same colours, but no logo: only the visual review sees it."""
     return place("no-logo", backdrop("teal"), bag(logo=False), (256, 270))
+
+
+# ── scripted providers ──
+
+SLOT = re.compile(r"^(\d+)\. hook=", re.MULTILINE)
+NUMBERED = re.compile(r"^(\d+)\. ", re.MULTILINE)
+
+
+def fake_meta(request: ChatRequest | ImageRequest | SegmentRequest) -> CallMeta:
+    return CallMeta(provider="local_mock", model=request.model, purpose=request.purpose)
+
+
+class MaskOracle:
+    """A perfect segmenter for the synthetic set; any other image has no product."""
+
+    def __init__(self, *scenes: SyntheticScene) -> None:
+        self.masks = {scene.image.sha256: scene.mask for scene in scenes}
+
+    async def segment(self, request: SegmentRequest) -> SegmentResponse:
+        mask = self.masks.get(request.image.sha256)
+        box = mask_bbox(decode_mask(mask)) if mask is not None else None
+        found = () if mask is None or box is None else (Segment(mask=mask, bbox=box, score=0.95),)
+        return SegmentResponse(segments=found, meta=fake_meta(request))
+
+
+class ScriptedMuse:
+    """Returns the given scenes in turn, one per request."""
+
+    def __init__(self, *scenes: SyntheticScene) -> None:
+        self.scenes = list(scenes)
+        self.requests: list[ImageRequest] = []
+
+    async def generate(self, request: ImageRequest) -> ImageResponse:
+        self.requests.append(request)
+        scene = self.scenes[(len(self.requests) - 1) % len(self.scenes)]
+        return ImageResponse(images=(scene.image,), meta=fake_meta(request))
+
+
+class SparkByPurpose:
+    """Review: unchanged. Copy: one valid text per asked slot. Judge: 4 on every dimension."""
+
+    async def complete(self, request: ChatRequest) -> ChatResponse:
+        user = request.messages[-1].content
+        text = user if isinstance(user, str) else ""
+        if request.purpose == "verify":
+            body: dict[str, object] = {"altered": False, "reason": "sin cambios en el producto"}
+        elif request.purpose == "copy":
+            body = {
+                "variants": [
+                    {"slot": int(n), "text": "Bolso tejido a mano por $85.000, veci. {wa_link}"}
+                    for n in SLOT.findall(text)
+                ]
+            }
+        else:
+            dims = dict.fromkeys(("formality", "warmth", "emoji", "regionalisms", "naturalness"), 4)
+            body = {"scores": [{"index": int(n), **dims} for n in NUMBERED.findall(text)]}
+        message = ChatMessage(role="assistant", content=json.dumps(body, ensure_ascii=False))
+        return ChatResponse(message=message, meta=fake_meta(request))
