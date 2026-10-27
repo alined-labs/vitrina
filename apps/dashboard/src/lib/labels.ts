@@ -44,6 +44,37 @@ export const AD_STATUS: Record<Schemas["AdStatus"], string> = {
   archived: "Archivado",
 };
 
+export const MODE: Record<Schemas["ConversationMode"], string> = {
+  agent: "Atiende el agente",
+  human: "Te espera a ti",
+  closed: "Cerrada",
+};
+
+export const HANDOFF_REASON: Record<Schemas["HandoffReason"], string> = {
+  customer_request: "Pidió hablar contigo",
+  complaint_refund: "Reclamo o devolución",
+  payment_issue: "Problema con un pago",
+  medical_topic: "Tema de salud",
+  low_confidence_twice: "El agente no estaba seguro",
+  negative_sentiment: "Cliente molesto",
+  amount_over_threshold: "Compra por un monto alto",
+  price_unverified: "Precio sin verificar",
+  policy_exception: "Pide una excepción a tus políticas",
+  other: "Otro motivo",
+};
+
+export const OBJECTION: Record<Schemas["ObjectionTag"], string> = {
+  price: "Precio",
+  shipping: "Envío",
+  size: "Talla",
+  availability: "Disponibilidad",
+  trust: "Confianza",
+  timing: "Tiempo",
+  payment: "Pago",
+  off_topic: "Fuera de tema",
+  other: "Otro",
+};
+
 /** 0.97 → "97 %"; 0.083 → "0,08" (Colombian decimals). */
 export function percent(value: number): string {
   return `${Math.round(value * 100)} %`;
