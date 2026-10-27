@@ -12,11 +12,16 @@ from uuid import UUID
 
 import pytest
 from cryptography.fernet import Fernet
+from fastapi import BackgroundTasks
 from fastapi.testclient import TestClient
 
 from vitrina_api.main import create_app
+from vitrina_api.routers import webhooks
 from vitrina_catalog.sellers import SellerCreate
+from vitrina_conversation.api import BackgroundInboundQueue
+from vitrina_conversation.image import Photos
 from vitrina_conversation.testing import ScriptedChat, final_answer, webhook_fixture
+from vitrina_conversation.voice import VoiceNotes
 from vitrina_core.settings import Settings
 from vitrina_local_mock import MockOutbox
 from vitrina_whatsapp.signature import sign
@@ -147,3 +152,22 @@ def test_as_3_1_a_payload_this_api_cannot_read_is_still_acknowledged(hook: Hook)
 
     assert hook.post(body, sign(body, APP_SECRET)).status_code == 200
     assert hook.replies() == []
+
+
+def test_as_3_6_without_a_database_the_live_number_reads_voice_and_photos() -> None:
+    settings = Settings(  # type: ignore[call-arg]
+        _env_file=None,
+        whatsapp_mock=False,
+        whatsapp_phone_number_id="100000000000001",
+        whatsapp_access_token="webhook-routes-test-token",
+        model_agent="spark-test",
+        model_transcribe="transcribe-test",
+    )
+    app = create_app(settings)
+    with TestClient(app):
+        queue = webhooks._ingest(app.state, BackgroundTasks()).queue
+        assert isinstance(queue, BackgroundInboundQueue)
+        deps = queue.pipeline()
+
+    assert isinstance(deps.voice, VoiceNotes)
+    assert isinstance(deps.photos, Photos)

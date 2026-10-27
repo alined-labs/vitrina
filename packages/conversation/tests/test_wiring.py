@@ -6,14 +6,23 @@ note.
 """
 
 from pathlib import Path
+from typing import Any
+from uuid import UUID
 
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
-from vitrina_catalog.api import InMemoryCatalog
+from vitrina_catalog.api import InMemoryCatalog, SellerSettings
+from vitrina_compliance.api import InMemoryCompliance
+from vitrina_conversation.api import InMemoryConversationStore
 from vitrina_conversation.image import Photos
 from vitrina_conversation.pacing import Pacer
 from vitrina_conversation.voice import VoiceNotes
-from vitrina_conversation.wiring import photos_for, postgres_pipeline, voice_notes
+from vitrina_conversation.wiring import (
+    memory_pipeline,
+    photos_for,
+    postgres_pipeline,
+    voice_notes,
+)
 from vitrina_core.ledger import InMemoryLedger
 from vitrina_core.providers.compose import ProviderMode, Providers, compose
 from vitrina_core.settings import Settings
@@ -88,3 +97,29 @@ async def test_as_3_5_photos_are_read_through_the_cloud_api(tmp_path: Path) -> N
         )
     mock = LocalMockMessenger(MockOutbox(tmp_path / "mock-whatsapp.jsonl"))
     assert photos_for(config, providers(config), mock, catalog) is None
+
+
+async def test_as_3_5_and_3_6_without_a_database_media_is_read_too() -> None:
+    config = settings(model_agent="spark-test", model_transcribe="transcribe-test")
+    composed = providers(config)
+    async with cloud_api() as client:
+        common: dict[str, Any] = {
+            "settings": config,
+            "store": InMemoryConversationStore(),
+            "compliance": InMemoryCompliance(None),
+            "seller_settings": no_seller,
+            "chat": composed.chat,
+            "catalog": InMemoryCatalog(),
+            "messenger": client,
+            "pacer": Pacer(),
+        }
+        with_media = memory_pipeline(**common, providers=composed)
+        without = memory_pipeline(**common)
+
+        assert isinstance(with_media.voice, VoiceNotes)
+        assert isinstance(with_media.photos, Photos)
+        assert (without.voice, without.photos) == (None, None)
+
+
+async def no_seller(_seller_id: UUID) -> SellerSettings | None:
+    return None
