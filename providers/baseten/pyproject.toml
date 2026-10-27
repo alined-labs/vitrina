@@ -1,0 +1,18 @@
+[project]
+name = "vitrina-baseten"
+version = "0.1.0"
+description = "Baseten adapter for the open-weights Spark fallback."
+requires-python = ">=3.12,<3.13"
+dependencies = [
+    "vitrina-core",
+]
+
+[tool.uv.sources]
+vitrina-core = { workspace = true }
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["vitrina_baseten"]

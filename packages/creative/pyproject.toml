@@ -1,0 +1,20 @@
+[project]
+name = "vitrina-creative"
+version = "0.1.0"
+description = "SAM/Muse Image pipeline, fidelity verifier, copywriter, brand-voice judge, ads, export, reels, showcase."
+requires-python = ">=3.12,<3.13"
+dependencies = [
+    "vitrina-core",
+    "vitrina-catalog",
+]
+
+[tool.uv.sources]
+vitrina-core = { workspace = true }
+vitrina-catalog = { workspace = true }
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["vitrina_creative"]

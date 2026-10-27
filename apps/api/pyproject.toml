@@ -1,0 +1,42 @@
+[project]
+name = "vitrina-api"
+version = "0.1.0"
+description = "FastAPI application: routers only, no business logic."
+requires-python = ">=3.12,<3.13"
+dependencies = [
+    "fastapi>=0.115",
+    "uvicorn[standard]>=0.32",
+    "vitrina-core",
+    "vitrina-catalog",
+    "vitrina-creative",
+    "vitrina-conversation",
+    "vitrina-compliance",
+    "vitrina-learning",
+    "vitrina-evals",
+    "vitrina-meta-model-api",
+    "vitrina-whatsapp",
+    "vitrina-modal-glimmer",
+    "vitrina-baseten",
+    "vitrina-local-mock",
+]
+
+[tool.uv.sources]
+vitrina-core = { workspace = true }
+vitrina-catalog = { workspace = true }
+vitrina-creative = { workspace = true }
+vitrina-conversation = { workspace = true }
+vitrina-compliance = { workspace = true }
+vitrina-learning = { workspace = true }
+vitrina-evals = { workspace = true }
+vitrina-meta-model-api = { workspace = true }
+vitrina-whatsapp = { workspace = true }
+vitrina-modal-glimmer = { workspace = true }
+vitrina-baseten = { workspace = true }
+vitrina-local-mock = { workspace = true }
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["vitrina_api"]
