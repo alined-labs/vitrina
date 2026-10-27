@@ -49,11 +49,16 @@ def describe_product(
     return ". ".join(parts)
 
 
-def tokens(text: str) -> set[str]:
-    """Lowercase, accent-free word set without function words."""
+def fold(text: str) -> str:
+    """Lowercase and accent-free, with single spaces: how names compare."""
     folded = unicodedata.normalize("NFKD", text.casefold())
     plain = "".join(char for char in folded if not unicodedata.combining(char))
-    return {word for word in re.findall(r"[a-z0-9ñ]+", plain) if word not in STOPWORDS}
+    return " ".join(plain.split())
+
+
+def tokens(text: str) -> set[str]:
+    """Lowercase, accent-free word set without function words."""
+    return {word for word in re.findall(r"[a-z0-9ñ]+", fold(text)) if word not in STOPWORDS}
 
 
 def product_amounts(

@@ -6,7 +6,7 @@ from typing import Annotated, Any, Literal
 from uuid import UUID
 
 import pytest
-from fastapi import APIRouter, Depends, FastAPI, File, Query, Response, UploadFile
+from fastapi import APIRouter, Depends, FastAPI, File, Form, Query, Response, UploadFile
 from fastapi.security import HTTPBearer
 from pydantic import BaseModel, Field
 
@@ -108,7 +108,10 @@ CONTRACT: dict[str, Any] = {
                             "schema": {
                                 "type": "object",
                                 "required": ["file"],
-                                "properties": {"file": {"type": "string", "format": "binary"}},
+                                "properties": {
+                                    "file": {"type": "string", "format": "binary"},
+                                    "note": {"type": "string", "maxLength": 300},
+                                },
                             }
                         }
                     },
@@ -221,7 +224,11 @@ def matching_app() -> FastAPI:
         response_class=Response,
         dependencies=[Depends(seller_auth)],
     )
-    def upload_thing(file: Annotated[UploadFile, File()]) -> Response:
+    def upload_thing(
+        file: Annotated[UploadFile, File()],
+        # Optional form fields come out as anyOf [string, null]: never null on the wire.
+        note: Annotated[str | None, Form(max_length=300)] = None,
+    ) -> Response:
         raise NotImplementedError
 
     app = FastAPI()
@@ -304,7 +311,10 @@ def test_undeclared_response_is_drift() -> None:
         operation_id="uploadThing",
         dependencies=[Depends(seller_auth)],
     )
-    def upload_thing(file: Annotated[UploadFile, File()]) -> None:
+    def upload_thing(
+        file: Annotated[UploadFile, File()],
+        note: Annotated[str | None, Form(max_length=300)] = None,
+    ) -> None:
         raise NotImplementedError
 
     assert problems_for(app) == [

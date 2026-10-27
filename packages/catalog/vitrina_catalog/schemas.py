@@ -13,6 +13,8 @@ Description = Annotated[str, Field(max_length=2000)]
 Price = Annotated[int, Field(ge=0)]
 Stock = Annotated[int, Field(ge=0)]
 FactText = Annotated[str, Field(max_length=1000)]
+# data-model.md products.source: drafts from a photo are image_import (FR-003).
+ProductSource = Literal["manual", "image_import"]
 
 
 class ProductCreate(BaseModel):
@@ -45,7 +47,7 @@ class Product(BaseModel):
     status: ProductStatus
     # Assets belong to creative; the router adds them once creative.api lists them.
     asset_ids: list[UUID] | MISSING = MISSING
-    source: Literal["manual", "image_import"] = "manual"
+    source: ProductSource = "manual"
     created_at: datetime
     updated_at: datetime | MISSING = MISSING
 
@@ -76,7 +78,9 @@ class Fact(BaseModel):
 class CatalogStore(Protocol):
     """The catalog's own CRUD, behind the /products and /facts routes (FR-002)."""
 
-    async def create_product(self, seller_id: UUID, data: ProductCreate) -> Product: ...
+    async def create_product(
+        self, seller_id: UUID, data: ProductCreate, *, source: ProductSource = "manual"
+    ) -> Product: ...
 
     async def product(self, seller_id: UUID, product_id: UUID) -> Product | None: ...
 

@@ -30,6 +30,7 @@ from vitrina_catalog.schemas import (
     FactUpdate,
     Product,
     ProductCreate,
+    ProductSource,
     ProductUpdate,
 )
 from vitrina_catalog.text import describe_product, product_amounts, tokens
@@ -53,7 +54,7 @@ class _Product:
     attributes: dict[str, str]
     amounts_cop: tuple[int, ...]
     image_embedding: tuple[float, ...] | None
-    source: str
+    source: ProductSource
     created_at: datetime
     updated_at: datetime
 
@@ -138,6 +139,7 @@ class InMemoryCatalog:
         attributes: Mapping[str, str] | None = None,
         amounts_cop: Sequence[int] = (),
         image_embedding: Sequence[float] | None = None,
+        source: ProductSource = "manual",
     ) -> UUID:
         now = self.clock()
         product = _Product(
@@ -151,7 +153,7 @@ class InMemoryCatalog:
             attributes=dict(attributes or {}),
             amounts_cop=tuple(sorted({price_cop, *amounts_cop})),
             image_embedding=tuple(image_embedding) if image_embedding is not None else None,
-            source="manual",
+            source=source,
             created_at=now,
             updated_at=now,
         )
@@ -196,7 +198,7 @@ class InMemoryCatalog:
             stock=product.stock,
             reserved=self._reserved(product),
             status=product.status,
-            source="image_import" if product.source == "image_import" else "manual",
+            source=product.source,
             created_at=product.created_at,
             updated_at=product.updated_at,
             **optional,
@@ -206,7 +208,9 @@ class InMemoryCatalog:
         product = self._products.get(product_id)
         return product if product is not None and product.seller_id == seller_id else None
 
-    async def create_product(self, seller_id: UUID, data: ProductCreate) -> Product:
+    async def create_product(
+        self, seller_id: UUID, data: ProductCreate, *, source: ProductSource = "manual"
+    ) -> Product:
         values = _sent(data.model_dump())
         product_id = self.add_product(
             seller_id,
@@ -219,6 +223,7 @@ class InMemoryCatalog:
             amounts_cop=product_amounts(
                 values["price_cop"], values.get("description"), values.get("attributes")
             ),
+            source=source,
         )
         return self._view(self._products[product_id])
 

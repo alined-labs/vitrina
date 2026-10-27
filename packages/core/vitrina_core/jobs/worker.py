@@ -30,6 +30,7 @@ from vitrina_core.http.context import seller_id_var
 from vitrina_core.jobs.queue import ClaimedJob, JobQueue
 from vitrina_core.providers import ProviderError
 from vitrina_core.providers.compose import Providers
+from vitrina_core.settings import Settings, get_settings
 from vitrina_core.storage import BlobStore
 
 logger = logging.getLogger("vitrina.jobs")
@@ -53,6 +54,8 @@ class JobContext:
     sessions: async_sessionmaker[AsyncSession] | None = None
     providers: Providers | None = None
     storage: BlobStore | None = None
+    # Model IDs and thresholds for the task: ``ctx.settings.model_id("agent")``.
+    settings: Settings = field(default_factory=get_settings)
 
     @property
     def job_id(self) -> UUID:
@@ -122,6 +125,7 @@ class Worker:
         sessions: async_sessionmaker[AsyncSession] | None = None,
         providers: Providers | None = None,
         storage: BlobStore | None = None,
+        settings: Settings | None = None,
         worker_id: str | None = None,
         poll_interval_s: float = 0.5,
         heartbeat_s: float = 15.0,
@@ -133,6 +137,7 @@ class Worker:
         self.sessions = sessions
         self.providers = providers
         self.storage = storage
+        self.settings = settings or get_settings()
         self.worker_id = worker_id or f"{socket.gethostname()}:{os.getpid()}"
         self.poll_interval_s = poll_interval_s
         self.heartbeat_s = heartbeat_s
@@ -180,7 +185,9 @@ class Worker:
         try:
             result = await asyncio.wait_for(
                 task.handler(
-                    JobContext(job, self.queue, self.sessions, self.providers, self.storage)
+                    JobContext(
+                        job, self.queue, self.sessions, self.providers, self.storage, self.settings
+                    )
                 ),
                 task.timeout_s,
             )

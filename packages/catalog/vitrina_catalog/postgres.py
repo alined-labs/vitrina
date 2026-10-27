@@ -37,6 +37,7 @@ from vitrina_catalog.schemas import (
     FactUpdate,
     Product,
     ProductCreate,
+    ProductSource,
     ProductUpdate,
 )
 from vitrina_catalog.tables import facts, products, reservations
@@ -143,7 +144,9 @@ class PostgresCatalog:
     def _products_with_reserved(self) -> sa.Select[Any]:
         return sa.select(*products.c, _reserved(products.c.id).label("reserved"))
 
-    async def create_product(self, seller_id: UUID, data: ProductCreate) -> Product:
+    async def create_product(
+        self, seller_id: UUID, data: ProductCreate, *, source: ProductSource = "manual"
+    ) -> Product:
         values = _sent(data.model_dump())
         description, attributes = values.get("description"), values.get("attributes") or {}
         text = describe_product(values["name"], description, values["price_cop"], attributes)
@@ -156,6 +159,7 @@ class PostgresCatalog:
             "stock": values.get("stock"),
             "attributes": attributes,
             "status": values.get("status", "active"),
+            "source": source,
             "amounts_cop": list(product_amounts(values["price_cop"], description, attributes)),
             "embedding": await self._embed(text),
         }

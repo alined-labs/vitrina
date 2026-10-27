@@ -337,3 +337,17 @@ def test_supabase_storage_needs_the_project_url_and_service_key() -> None:
 
     assert isinstance(store, SupabaseBlobStore)
     assert store.bucket == "vitrina-dev"
+
+
+def test_storage_outages_answer_503_like_a_model_provider() -> None:
+    app = FastAPI()
+    install_problem_handlers(app)
+
+    @app.get("/upload")
+    async def upload() -> None:
+        raise StorageUnavailableError("Supabase Storage timed out")
+
+    response = TestClient(app).get("/upload")
+
+    assert response.status_code == 503
+    assert response.json()["code"] == "PROVIDER_UNAVAILABLE"
