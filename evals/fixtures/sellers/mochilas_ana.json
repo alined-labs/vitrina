@@ -1,0 +1,60 @@
+{
+  "key": "mochilas_ana",
+  "seller": {
+    "business_name": "Mochilas Ana",
+    "owner_name": "Ana",
+    "whatsapp_number": "+573000000101",
+    "city": "Medellín"
+  },
+  "products": [
+    {
+      "key": "mochila-azul",
+      "name": "Mochila tejida azul",
+      "description": "Mochila tejida a mano, 30 cm de alto, con correa ajustable.",
+      "price_cop": 85000,
+      "stock": 3,
+      "attributes": {"color": "azul", "material": "hilo"}
+    },
+    {
+      "key": "mochila-roja",
+      "name": "Mochila tejida roja",
+      "description": "Mochila tejida a mano, 30 cm de alto, con correa ajustable.",
+      "price_cop": 85000,
+      "stock": 0,
+      "attributes": {"color": "rojo", "material": "hilo"}
+    },
+    {
+      "key": "bolso-cuero",
+      "name": "Bolso de cuero café",
+      "description": "Bolso de cuero curtido en Colombia, con cierre y bolsillo interno.",
+      "price_cop": 145000,
+      "stock": 2,
+      "attributes": {"color": "café", "material": "cuero"}
+    },
+    {
+      "key": "manilla",
+      "name": "Manilla tejida",
+      "description": "Manilla tejida en hilo encerado, talla única.",
+      "price_cop": 15000,
+      "stock": 20,
+      "attributes": {}
+    },
+    {
+      "key": "mochila-edicion-especial",
+      "name": "Mochila edición especial",
+      "description": "Borrador sin aprobar: precio por confirmar.",
+      "price_cop": 120000,
+      "stock": 1,
+      "status": "draft",
+      "attributes": {}
+    }
+  ],
+  "facts": [
+    {"key": "envio-medellin", "kind": "shipping", "text": "Envío dentro de Medellín: $8.000, llega en 1 día hábil."},
+    {"key": "envio-nacional", "kind": "shipping", "text": "Envío al resto de Colombia: $15.000, de 2 a 4 días hábiles por transportadora."},
+    {"key": "pagos", "kind": "payment", "text": "Recibimos Nequi, Daviplata, transferencia Bancolombia y pago contra entrega solo en Medellín."},
+    {"key": "horario", "kind": "hours", "text": "Atendemos de lunes a sábado de 9:00 a. m. a 6:00 p. m. Los domingos no hay atención."},
+    {"key": "cambios", "kind": "policy", "text": "Hacemos cambios dentro de los 8 días siguientes a la entrega si el producto está sin uso y con su etiqueta."},
+    {"key": "promo-borrador", "kind": "faq", "status": "draft", "text": "Promo 2x1 en manillas por $15.000 (borrador sin aprobar)."}
+  ]
+}

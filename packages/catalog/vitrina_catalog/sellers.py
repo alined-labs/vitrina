@@ -151,7 +151,10 @@ class InMemorySellerStore:
 
     rows: dict[UUID, dict[str, Any]] = field(default_factory=dict)
 
-    async def create(self, data: SellerCreate, *, auth_subject: str | None) -> Seller:
+    async def create(
+        self, data: SellerCreate, *, auth_subject: str | None, seller_id: UUID | None = None
+    ) -> Seller:
+        """``seller_id`` fixes the id, for fixtures that must be the same on every run."""
         for row in self.rows.values():
             if row["whatsapp_number"] == data.whatsapp_number or (
                 auth_subject and row["auth_subject"] == auth_subject
@@ -159,7 +162,7 @@ class InMemorySellerStore:
                 raise SellerConflictError("this WhatsApp number or account already has a seller")
         row = {
             **data.model_dump(),
-            "id": new_id(),
+            "id": seller_id or new_id(),
             "auth_subject": auth_subject,
             "business_hours": {},
             "handoff_amount_threshold_cop": 300000,

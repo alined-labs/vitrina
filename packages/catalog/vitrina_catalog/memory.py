@@ -140,10 +140,11 @@ class InMemoryCatalog:
         amounts_cop: Sequence[int] = (),
         image_embedding: Sequence[float] | None = None,
         source: ProductSource = "manual",
+        product_id: UUID | None = None,
     ) -> UUID:
         now = self.clock()
         product = _Product(
-            id=new_id(),
+            id=product_id or new_id(),
             seller_id=seller_id,
             name=name,
             price_cop=price_cop,
@@ -168,9 +169,10 @@ class InMemoryCatalog:
         *,
         status: FactStatus = "active",
         amounts_cop: Sequence[int] = (),
+        fact_id: UUID | None = None,
     ) -> UUID:
         fact = _Fact(
-            new_id(),
+            fact_id or new_id(),
             seller_id,
             kind,
             text,
