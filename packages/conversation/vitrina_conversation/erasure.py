@@ -5,8 +5,9 @@ contact before it erases the number and the name itself. Every message of the co
 conversations loses its content (text, transcript, media, the normalized copy, the agent's
 answer and its review), and so do the handoff summaries, objection quotes, conversation
 summaries and booking names written from them. The raw webhook bodies that carried the
-contact's messages are emptied, and so is any other body holding the contact's number, such as
-a delivery status. The rows stay, so counts and attribution remain.
+contact's messages become ``{}`` (the column is not nullable), and so does any other body
+holding the contact's number, such as a delivery status. The rows stay, so counts and
+attribution remain.
 """
 
 from uuid import UUID
@@ -63,13 +64,13 @@ async def erase_conversations(
         await session.execute(
             sa.update(webhook_payloads)
             .where(webhook_payloads.c.id.in_(carried))
-            .values(body=sa.null(), error=ERASED)
+            .values(body={}, error=ERASED)
         )
         if number:
             await session.execute(
                 sa.update(webhook_payloads)
                 .where(sa.cast(webhook_payloads.c.body, sa.Text).contains(f'"{number}"'))
-                .values(body=sa.null(), error=ERASED)
+                .values(body={}, error=ERASED)
             )
         await session.execute(
             sa.update(messages)

@@ -172,7 +172,7 @@ async def test_db_as_6_6_the_chat_of_an_erased_contact_keeps_no_content(
         "¿cuánto vale el envío a Medellín?",
         "El envío dentro de Medellín vale $8.000.",
     ]
-    assert bodies[erased_payload] is None
-    assert bodies[status_payload] is None  # a delivery status to Laura carries her number
-    assert bodies[kept_payload] is not None
+    assert bodies[erased_payload] == {}
+    assert bodies[status_payload] == {}  # a delivery status to Laura carries her number
+    assert bodies[kept_payload] != {}
     assert (summary, quote, name, still_there) == (None, None, None, 1)
