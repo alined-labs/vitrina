@@ -58,6 +58,9 @@ class MetaChatModel:
                 model=request.model,
                 purpose=request.purpose,
                 tokens_in=tokens(completion.usage, "prompt_tokens"),
+                tokens_cached=tokens(
+                    getattr(completion.usage, "prompt_tokens_details", None), "cached_tokens"
+                ),
                 tokens_out=tokens(completion.usage, "completion_tokens"),
                 latency_ms=latency_ms,
             ),

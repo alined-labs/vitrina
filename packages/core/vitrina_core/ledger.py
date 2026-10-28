@@ -276,7 +276,13 @@ async def _record(
     """Record the call, priced from its list price when it is live and reports no cost."""
     price = prices.get(meta.model)
     if meta.cost_usd is None and not meta.replayed and price is not None:
-        cost = price.cost(meta.tokens_in, meta.tokens_out, images=images, audio_s=audio_s)
+        cost = price.cost(
+            meta.tokens_in,
+            meta.tokens_out,
+            tokens_cached=meta.tokens_cached,
+            images=images,
+            audio_s=audio_s,
+        )
         meta = meta.model_copy(update={"cost_usd": cost})
     try:
         await ledger.record(LedgerEntry.from_meta(meta))

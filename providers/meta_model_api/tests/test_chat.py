@@ -197,9 +197,9 @@ async def test_fr_084_the_answer_carries_tool_calls_tokens_and_latency(api: Fake
         "model-from-settings",
         "agent",
     )
-    assert (meta.tokens_in, meta.tokens_out) == (120, 18)
+    assert (meta.tokens_in, meta.tokens_out, meta.tokens_cached) == (120, 18, 0)
     assert meta.latency_ms >= 0
-    # No price is guessed: the ledger stores 0 until the provider reports one (Q11).
+    # The API reports no price; the ledger prices the call from its list price.
     assert meta.cost_usd is None
     assert meta.replayed is False
 
@@ -213,7 +213,25 @@ async def test_an_answer_without_token_counts_counts_zero(
     response = await MetaChatModel(api.client()).complete(REQUEST)
 
     assert response.message.content == "Hola"
-    assert (response.meta.tokens_in, response.meta.tokens_out) == (0, 0)
+    assert (response.meta.tokens_in, response.meta.tokens_out, response.meta.tokens_cached) == (
+        0,
+        0,
+        0,
+    )
+
+
+async def test_fr_084_prompt_tokens_served_from_cache_are_counted_apart(api: FakeApi) -> None:
+    usage = {
+        "prompt_tokens": 4488,
+        "completion_tokens": 58,
+        "total_tokens": 4546,
+        "prompt_tokens_details": {"cached_tokens": 4465},
+    }
+    api.answer(completion({"role": "assistant", "content": "Hola"}, usage=usage))
+
+    response = await MetaChatModel(api.client()).complete(REQUEST)
+
+    assert (response.meta.tokens_in, response.meta.tokens_cached) == (4488, 4465)
 
 
 async def test_the_same_adapter_serves_another_compatible_endpoint(api: FakeApi) -> None:

@@ -92,7 +92,7 @@ async def test_an_unknown_price_is_recorded_as_zero_never_guessed() -> None:
     assert ledger.entries[0].cost_usd == 0.0
 
 
-SPARK = ModelPrice(input_per_mtok=1.25, output_per_mtok=4.25)
+SPARK = ModelPrice(input_per_mtok=1.25, cached_input_per_mtok=0.15, output_per_mtok=4.25)
 
 
 async def test_fr_084_a_live_call_without_a_cost_is_priced_from_its_list_price() -> None:
@@ -104,6 +104,28 @@ async def test_fr_084_a_live_call_without_a_cost_is_priced_from_its_list_price()
     # 120 tokens in at $1.25 and 30 out at $4.25 per million.
     assert ledger.entries[0].cost_usd == pytest.approx(0.0002775)
     assert response.meta.cost_usd == pytest.approx(0.0002775)
+
+
+async def test_fr_084_input_served_from_the_prompt_cache_costs_the_cached_rate() -> None:
+    ledger = InMemoryLedger()
+
+    class Cached(Chat):
+        async def complete(self, request: ChatRequest) -> ChatResponse:
+            response = await super().complete(request)
+            meta = response.meta.model_copy(
+                update={"tokens_in": 4488, "tokens_cached": 4465, "tokens_out": 58}
+            )
+            return response.model_copy(update={"meta": meta})
+
+    await LedgeredChatModel(Cached(cost=None), ledger, {"agent-model": SPARK}).complete(REQUEST)
+    no_cache_rate = SPARK.model_copy(update={"cached_input_per_mtok": None})
+    await LedgeredChatModel(Cached(cost=None), ledger, {"agent-model": no_cache_rate}).complete(
+        REQUEST
+    )
+
+    # 23 uncached at $1.25, 4,465 cached at $0.15 and 58 out at $4.25 per million; without a
+    # cached rate, all 4,488 bill as ordinary input.
+    assert [entry.cost_usd for entry in ledger.entries] == pytest.approx([0.000945, 0.0058565])
 
 
 async def test_fr_084_a_reported_cost_or_a_replay_is_never_repriced() -> None:

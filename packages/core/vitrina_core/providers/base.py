@@ -50,6 +50,8 @@ class CallMeta(Frozen):
     model: str
     purpose: ModelPurpose
     tokens_in: int = 0
+    # Of tokens_in, the input served from the provider's prompt cache, which bills lower.
+    tokens_cached: int = 0
     tokens_out: int = 0
     latency_ms: int = 0
     cost_usd: float | None = None
