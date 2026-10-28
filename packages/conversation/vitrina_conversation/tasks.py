@@ -3,8 +3,12 @@
 import dataclasses
 from uuid import UUID
 
+from vitrina_catalog.postgres import PostgresCatalog
+from vitrina_compliance.api import CAMPAIGN_SEND
+from vitrina_conversation.campaigns import campaign_send_job
 from vitrina_conversation.pacing import Pacer
 from vitrina_conversation.replay import REPLAY_SESSION, play, replay_fixture
+from vitrina_conversation.store import PostgresConversationStore
 from vitrina_conversation.wiring import (
     PROCESS_INBOUND,
     messenger_for,
@@ -84,7 +88,27 @@ async def replay_session_job(ctx: JobContext) -> str | None:
     return f"/v1/conversations/{payload['conversation_id']}"
 
 
+async def campaign_job(ctx: JobContext) -> str | None:
+    """T064: send a reactivation campaign through the worker's messenger and pacer."""
+    if ctx.sessions is None:
+        raise JobFailedError("INTERNAL_ERROR", "campaigns need the database")
+    catalog = PostgresCatalog(
+        ctx.sessions,
+        embedder=ctx.providers.embedder if ctx.providers is not None else None,
+        embed_model=ctx.settings.model_embed,
+    )
+    return await campaign_send_job(
+        ctx,
+        messenger=_messenger(ctx.settings),
+        pacer=_PACER,
+        store=PostgresConversationStore(ctx.sessions),
+        catalog=catalog,
+    )
+
+
 def register(registry: TaskRegistry) -> None:
     registry.add(PROCESS_INBOUND, process_inbound_job, timeout_s=120)
     # The slowest fixture at speed 0.1: its recorded gaps, the 6 s spacing and three turns.
     registry.add(REPLAY_SESSION, replay_session_job, timeout_s=900)
+    # At most 500 contacts (the segment cap), one template each.
+    registry.add(CAMPAIGN_SEND, campaign_job, timeout_s=1800)

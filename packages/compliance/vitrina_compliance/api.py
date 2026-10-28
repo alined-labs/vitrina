@@ -6,10 +6,33 @@ contact for a WhatsApp number; ``record_consent`` (R8 checked here) and ``opt_ou
 the ledger; ``store.is_opted_out`` comes before any marketing; ``request_erasure`` answers
 ``BORRAR MIS DATOS``, and each module erases its own part through the ``vitrina.erasure``
 entry point. For campaigns: ``evaluate(contact, at) -> SendDecision`` in the fixed order of
-FR-061 (ADR-0008) with the Ley 2300 calendar; campaigns themselves (T064) join later.
+FR-061 (ADR-0008) with the Ley 2300 calendar. Reactivation campaigns (T064):
+``preview_campaign``, ``schedule_send``, ``run_send`` (the ``campaign_send`` job) and
+``check_eligibility``, with the candidates, ads and outbox passed in ``CampaignDeps``.
 """
 
 from vitrina_compliance.calendar import BOGOTA, is_holiday, is_legal, next_legal, window
+from vitrina_compliance.campaigns import (
+    CAMPAIGN_SEND,
+    AdFinder,
+    AdRef,
+    CampaignConflictError,
+    CampaignDeps,
+    CampaignStore,
+    Candidate,
+    CandidateSource,
+    InMemoryCampaigns,
+    Outbox,
+    PostgresCampaigns,
+    ReactivationCampaign,
+    ReactivationCampaignCreate,
+    Segment,
+    check_eligibility,
+    preview_campaign,
+    render_template,
+    run_send,
+    schedule_send,
+)
 from vitrina_compliance.consents import (
     ComplianceStore,
     ConsentRecord,
@@ -36,10 +59,18 @@ from vitrina_compliance.keywords import is_affirmative, is_erasure_request, is_o
 
 __all__ = [
     "BOGOTA",
+    "CAMPAIGN_SEND",
     "ERASERS_ENTRY_POINT",
     "ERASURE_TASK",
     "FREQUENCY_WINDOW",
     "REASON_TEXT_ES",
+    "AdFinder",
+    "AdRef",
+    "CampaignConflictError",
+    "CampaignDeps",
+    "CampaignStore",
+    "Candidate",
+    "CandidateSource",
     "ComplianceStore",
     "ConsentRecord",
     "ConsentRecordCreate",
@@ -49,11 +80,18 @@ __all__ = [
     "ContactState",
     "Decision",
     "ErasureReceipt",
+    "InMemoryCampaigns",
     "InMemoryCompliance",
     "MarketingConsent",
+    "Outbox",
+    "PostgresCampaigns",
     "PostgresCompliance",
+    "ReactivationCampaign",
+    "ReactivationCampaignCreate",
     "Reason",
+    "Segment",
     "SendDecision",
+    "check_eligibility",
     "evaluate",
     "is_affirmative",
     "is_erasure_request",
@@ -63,7 +101,11 @@ __all__ = [
     "mask_phone",
     "next_legal",
     "opt_out",
+    "preview_campaign",
     "record_consent",
+    "render_template",
     "request_erasure",
+    "run_send",
+    "schedule_send",
     "window",
 ]

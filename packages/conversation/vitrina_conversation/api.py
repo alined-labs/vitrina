@@ -8,6 +8,7 @@ maps a turn to the ``POST /agent/turns`` response (FR-030).
 
 from vitrina_conversation.attribution import AdLookup, Attribution
 from vitrina_conversation.booking import BookingStore, InMemoryBookings, PostgresBookings
+from vitrina_conversation.campaigns import PostgresCandidates, campaign_deps
 from vitrina_conversation.contract import AgentTurnOutput, HandoffReason, ObjectionTag
 from vitrina_conversation.engine import (
     AgentDeps,
@@ -106,6 +107,7 @@ __all__ = [
     "PayloadTooLargeError",
     "PipelineDeps",
     "PostgresBookings",
+    "PostgresCandidates",
     "PostgresConversationStore",
     "PostgresInboundQueue",
     "ReservedItem",
@@ -118,6 +120,7 @@ __all__ = [
     "TurnResult",
     "agent_turn_result",
     "bookings",
+    "campaign_deps",
     "conversation_store",
     "conversation_view",
     "memory_pipeline",
