@@ -13,6 +13,8 @@ from typing import Literal
 from pydantic import Field, SecretStr, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
+from vitrina_core.pricing import META_LIST_PRICES, ModelPrice
+
 REPO_ROOT = Path(__file__).resolve().parents[3]
 
 ModelRole = Literal["agent", "strategist", "image", "segment", "transcribe", "embed"]
@@ -81,8 +83,10 @@ class Settings(BaseSettings):
     contact_hash_pepper: SecretStr | None = None
     contact_encryption_key: SecretStr | None = None
 
-    # Cost-ledger alert (plan.md §6).
+    # Cost-ledger alert (plan.md §6), counted at the list prices per model ID
+    # (``vitrina_core.pricing``); MODEL_PRICES (JSON) replaces the whole table.
     spend_limit_usd: float = 100.0
+    model_prices: dict[str, ModelPrice] = Field(default_factory=lambda: dict(META_LIST_PRICES))
 
     # Thresholds and limits.
     mask_iou_min: float = 0.85  # FR-012

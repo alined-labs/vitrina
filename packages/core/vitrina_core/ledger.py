@@ -2,15 +2,18 @@
 
 Wrap each provider with its ``Ledgered*`` class and every call is recorded with provider,
 model, purpose, tokens, latency, cost and the seller and request it served. Costs come
-from the provider's response or are 0: prices are never guessed. ``GET /metrics/costs``
+from the provider's response or, when it reports none, from the model's list price
+(``vitrina_core.pricing``); a model without one costs 0, never a guess. ``GET /metrics/costs``
 reports live spend; replayed calls cost nothing. ``SpendWatch`` warns once when live
 spend crosses ``SPEND_LIMIT_USD`` (plan.md §6).
 """
 
 import logging
 from collections import defaultdict
+from collections.abc import Mapping
 from dataclasses import dataclass, field
 from datetime import UTC, date, datetime, time, timedelta
+from types import MappingProxyType
 from typing import Protocol
 from uuid import UUID
 
@@ -21,6 +24,7 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 from vitrina_core.db.tables import model_calls
 from vitrina_core.http.context import current_request_id, current_seller_id
 from vitrina_core.ids import new_id
+from vitrina_core.pricing import ModelPrice
 from vitrina_core.providers import (
     CallMeta,
     ChatModel,
@@ -256,59 +260,87 @@ class PostgresLedger:
         return _report(period_from, period_to, lines)
 
 
-async def _record(ledger: ModelCallLedger, meta: CallMeta) -> None:
+# List prices by model ID (Settings.model_prices); without them every unreported cost is 0.
+Prices = Mapping[str, ModelPrice]
+NO_PRICES: Prices = MappingProxyType({})
+
+
+async def _record(
+    ledger: ModelCallLedger,
+    meta: CallMeta,
+    prices: Prices,
+    *,
+    images: int = 0,
+    audio_s: float | None = None,
+) -> CallMeta:
+    """Record the call, priced from its list price when it is live and reports no cost."""
+    price = prices.get(meta.model)
+    if meta.cost_usd is None and not meta.replayed and price is not None:
+        cost = price.cost(meta.tokens_in, meta.tokens_out, images=images, audio_s=audio_s)
+        meta = meta.model_copy(update={"cost_usd": cost})
     try:
         await ledger.record(LedgerEntry.from_meta(meta))
     except Exception:
         # Losing a ledger row must not fail the customer's turn; the log keeps the trace.
         logger.exception("could not record a %s call to %s", meta.purpose, meta.model)
+    return meta
 
 
 class LedgeredChatModel:
-    def __init__(self, inner: ChatModel, ledger: ModelCallLedger) -> None:
-        self.inner, self.ledger = inner, ledger
+    def __init__(
+        self, inner: ChatModel, ledger: ModelCallLedger, prices: Prices = NO_PRICES
+    ) -> None:
+        self.inner, self.ledger, self.prices = inner, ledger, prices
 
     async def complete(self, request: ChatRequest) -> ChatResponse:
         response = await self.inner.complete(request)
-        await _record(self.ledger, response.meta)
-        return response
+        meta = await _record(self.ledger, response.meta, self.prices)
+        return response.model_copy(update={"meta": meta})
 
 
 class LedgeredEmbedder:
-    def __init__(self, inner: Embedder, ledger: ModelCallLedger) -> None:
-        self.inner, self.ledger = inner, ledger
+    def __init__(
+        self, inner: Embedder, ledger: ModelCallLedger, prices: Prices = NO_PRICES
+    ) -> None:
+        self.inner, self.ledger, self.prices = inner, ledger, prices
 
     async def embed(self, request: EmbeddingRequest) -> EmbeddingResponse:
         response = await self.inner.embed(request)
-        await _record(self.ledger, response.meta)
-        return response
+        meta = await _record(self.ledger, response.meta, self.prices)
+        return response.model_copy(update={"meta": meta})
 
 
 class LedgeredImageModel:
-    def __init__(self, inner: ImageModel, ledger: ModelCallLedger) -> None:
-        self.inner, self.ledger = inner, ledger
+    def __init__(
+        self, inner: ImageModel, ledger: ModelCallLedger, prices: Prices = NO_PRICES
+    ) -> None:
+        self.inner, self.ledger, self.prices = inner, ledger, prices
 
     async def generate(self, request: ImageRequest) -> ImageResponse:
         response = await self.inner.generate(request)
-        await _record(self.ledger, response.meta)
-        return response
+        meta = await _record(self.ledger, response.meta, self.prices, images=len(response.images))
+        return response.model_copy(update={"meta": meta})
 
 
 class LedgeredSegmenter:
-    def __init__(self, inner: Segmenter, ledger: ModelCallLedger) -> None:
-        self.inner, self.ledger = inner, ledger
+    def __init__(
+        self, inner: Segmenter, ledger: ModelCallLedger, prices: Prices = NO_PRICES
+    ) -> None:
+        self.inner, self.ledger, self.prices = inner, ledger, prices
 
     async def segment(self, request: SegmentRequest) -> SegmentResponse:
         response = await self.inner.segment(request)
-        await _record(self.ledger, response.meta)
-        return response
+        meta = await _record(self.ledger, response.meta, self.prices, images=1)
+        return response.model_copy(update={"meta": meta})
 
 
 class LedgeredTranscriber:
-    def __init__(self, inner: Transcriber, ledger: ModelCallLedger) -> None:
-        self.inner, self.ledger = inner, ledger
+    def __init__(
+        self, inner: Transcriber, ledger: ModelCallLedger, prices: Prices = NO_PRICES
+    ) -> None:
+        self.inner, self.ledger, self.prices = inner, ledger, prices
 
     async def transcribe(self, request: TranscriptionRequest) -> TranscriptionResponse:
         response = await self.inner.transcribe(request)
-        await _record(self.ledger, response.meta)
-        return response
+        meta = await _record(self.ledger, response.meta, self.prices, audio_s=response.duration_s)
+        return response.model_copy(update={"meta": meta})

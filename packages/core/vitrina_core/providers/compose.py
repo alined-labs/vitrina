@@ -130,22 +130,28 @@ def compose(
             return missing if mode is ProviderMode.live else recorded(replay, None)
         return recorded(record, adapter) if mode is ProviderMode.record else adapter
 
+    prices = settings.model_prices
     return Providers(
         mode=mode,
         chat=LedgeredChatModel(
-            choose(adapters.chat, RecordedChatModel, NoLiveAdapter("chat")), ledger
+            choose(adapters.chat, RecordedChatModel, NoLiveAdapter("chat")), ledger, prices
         ),
         embedder=LedgeredEmbedder(
-            choose(adapters.embedder, RecordedEmbedder, NoLiveAdapter("embedding")), ledger
+            choose(adapters.embedder, RecordedEmbedder, NoLiveAdapter("embedding")),
+            ledger,
+            prices,
         ),
         image=LedgeredImageModel(
-            choose(adapters.image, RecordedImageModel, NoLiveAdapter("image")), ledger
+            choose(adapters.image, RecordedImageModel, NoLiveAdapter("image")), ledger, prices
         ),
         segmenter=LedgeredSegmenter(
-            choose(adapters.segmenter, RecordedSegmenter, NoLiveAdapter("segmentation")), ledger
+            choose(adapters.segmenter, RecordedSegmenter, NoLiveAdapter("segmentation")),
+            ledger,
+            prices,
         ),
         transcriber=LedgeredTranscriber(
             choose(adapters.transcriber, RecordedTranscriber, NoLiveAdapter("transcription")),
             ledger,
+            prices,
         ),
     )

@@ -3,6 +3,7 @@ from pathlib import Path
 import pytest
 
 from vitrina_core.ledger import InMemoryLedger
+from vitrina_core.pricing import ModelPrice
 from vitrina_core.providers import (
     Blob,
     CallMeta,
@@ -24,8 +25,9 @@ REQUEST = ChatRequest(
 
 
 class FakeChat:
-    def __init__(self) -> None:
+    def __init__(self, cost: float | None = 0.001) -> None:
         self.calls = 0
+        self.cost = cost
 
     async def complete(self, request: ChatRequest) -> ChatResponse:
         self.calls += 1
@@ -37,7 +39,7 @@ class FakeChat:
                 purpose=request.purpose,
                 tokens_in=30,
                 tokens_out=5,
-                cost_usd=0.001,
+                cost_usd=self.cost,
             ),
         )
 
@@ -110,6 +112,22 @@ async def test_fr_084_record_mode_calls_live_writes_a_cassette_and_ledgers_the_c
     assert len(list((tmp_path / "chat").glob("*.json"))) == 1
     [entry] = ledger.entries
     assert (entry.replayed, entry.cost_usd, entry.tokens_in) == (False, 0.001, 30)
+
+
+async def test_fr_084_live_calls_are_priced_from_the_settings(tmp_path: Path) -> None:
+    ledger = InMemoryLedger()
+    prices = {"model-from-settings": ModelPrice(input_per_mtok=1000.0, output_per_mtok=2000.0)}
+    providers = compose(
+        settings(tmp_path, replay=False, model_prices=prices),
+        ledger,
+        lambda: LiveProviders(chat=FakeChat(cost=None)),
+    )
+
+    response = await providers.chat.complete(REQUEST)
+
+    # 30 tokens in at $1,000 and 5 out at $2,000 per million.
+    assert response.meta.cost_usd == pytest.approx(0.04)
+    assert [entry.cost_usd for entry in ledger.entries] == pytest.approx([0.04])
 
 
 async def test_live_mode_calls_the_adapter_directly(tmp_path: Path) -> None:
