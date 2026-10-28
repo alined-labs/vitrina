@@ -28,6 +28,7 @@ from vitrina_conversation.booking import InMemoryBookings
 from vitrina_conversation.engine import AdContext
 from vitrina_conversation.image import PhotoReading
 from vitrina_conversation.pipeline import (
+    CONSENT_REPLY,
     ERASURE_REPLY,
     OPT_OUT_REPLY,
     PHOTO_NOT_SEEN_REPLY,
@@ -407,7 +408,6 @@ async def test_as_6_1_a_yes_to_the_consent_question_is_recorded(world: World) ->
             world.shop.ids["mochila-azul"],
             proposed_consent_prompt=True,
         ),
-        final_answer("¡Listo, veci! ¿Te ayudo con algo más?", confidence=0.95),
     )
     await world.say("¿Cuánto vale la mochila azul?")
 
@@ -560,19 +560,19 @@ async def test_an_unknown_seller_stores_nothing(world: World) -> None:
     assert world.store.messages == []
 
 
-async def test_as_6_1_consent_is_recorded_once_even_if_the_model_also_records_it(
-    world: World,
-) -> None:
+async def test_as_6_1_a_recorded_yes_is_confirmed_without_the_agent(world: World) -> None:
     prompt = world.shop.seller.consent_prompt_text
-    world.script(
-        final_answer(f"¡Hola! {prompt}", confidence=0.95, proposed_consent_prompt=True),
-        tool_call("record_consent", purpose="marketing", response_text="Sí"),
-        final_answer("¡Listo! Te avisamos.", confidence=0.95),
-    )
+    world.script(final_answer(f"¡Hola! {prompt}", confidence=0.95, proposed_consent_prompt=True))
     await world.say("Hola")
+    asked = len(world.chat.requests)
 
-    await world.say("Sí")
+    outcome = await world.say("Sí")
 
+    # The yes is all the message holds (R8's lexicon): a model reply to it could only restate
+    # the subscription without a citation, which R3 turns into the fallback.
+    assert (outcome.status, outcome.reply) == ("replied", CONSENT_REPLY)
+    assert world.messenger.texts[-1] == CONSENT_REPLY
+    assert len(world.chat.requests) == asked
     records = await world.compliance.consents(world.seller_id, await world.contact_id())
     assert len(records) == 1
 

@@ -16,6 +16,7 @@ from pydantic import SecretStr
 from vitrina_catalog.api import SellerSettings
 from vitrina_compliance.api import ContactIdentity, InMemoryCompliance
 from vitrina_conversation.api import InMemoryConversationStore, Pacer, PipelineDeps
+from vitrina_conversation.pipeline import CONSENT_REPLY
 from vitrina_conversation.replay import (
     LiveConversationError,
     play,
@@ -102,6 +103,7 @@ def test_as_8_1_the_fixtures_are_listed_with_their_message_counts() -> None:
 
     assert [fixture.fixture_id for fixture in fixtures] == [
         "anuncio-a7-envio",
+        "consentimiento-mochila-roja",
         "fuera-de-tema-y-baja",
         "reserva-mochila",
     ]
@@ -150,6 +152,33 @@ async def test_fr_071_a_session_plays_the_fixture_as_replay(stage: Stage) -> Non
         f"{message.message_id}.{session}" for message in fixture.messages
     ]
     assert stage.outbox.texts[1] == "El envío dentro de Medellín vale $8.000."
+
+
+async def test_as_6_1_the_consent_fixture_records_the_customers_yes(stage: Stage) -> None:
+    fixture = replay_fixture("consentimiento-mochila-roja")
+    assert fixture is not None
+    prompt = stage.shop.seller.consent_prompt_text
+    red = stage.shop.ids["mochila-roja"]
+    stage.chat.script.extend(
+        [
+            final_answer(
+                f"La mochila roja está agotada. {prompt}", red, proposed_consent_prompt=True
+            ),
+            final_answer("¡Con gusto! Aquí estamos.", confidence=0.95),
+        ]
+    )
+
+    conversation_id = await start_replay(stage.store, stage.compliance, stage.seller_id, fixture)
+    outcomes = await play(
+        fixture, stage.deps, stage.seller_id, uuid4(), speed=1, sleep=stage.clock.sleep
+    )
+
+    assert [outcome.status for outcome in outcomes] == ["replied"] * 3
+    assert outcomes[1].reply == CONSENT_REPLY
+    contact_id = stage.store.conversations[conversation_id].contact_id
+    (granted,) = await stage.compliance.consents(stage.seller_id, contact_id)
+    assert (granted.purpose, granted.status) == ("marketing", "granted")
+    assert (granted.text_shown, granted.response_text) == (prompt, "SÍ")
 
 
 @pytest.mark.parametrize(("speed", "gaps"), [(1, [20.0, 25.0]), (10, [2.0, 2.5])])
