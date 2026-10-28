@@ -17,7 +17,7 @@ which the tool makes at once outside a dry run.
 import asyncio
 import json
 from collections.abc import Awaitable, Callable, Sequence
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from datetime import UTC, datetime
 from typing import Literal
 from uuid import UUID
@@ -186,6 +186,10 @@ def parse_output(content: str | None) -> AgentTurnOutput | None:
         return None
 
 
+class _DeclinedError(Exception):
+    """The scope check turned the message down while the agent was working on it."""
+
+
 class _Turn:
     def __init__(self, request: TurnRequest, deps: AgentDeps) -> None:
         self.request = request
@@ -205,24 +209,51 @@ class _Turn:
         )
 
     async def run(self) -> TurnResult:
+        """The scope check runs beside retrieval and the first agent call (NFR-01): nothing the
+        agent does reaches a tool or the customer before the verdict, and a verdict against the
+        message cancels the agent (R10, R11)."""
         seller = self.request.seller
-        scope = await classify_scope(
-            self.request.message,
-            seller,
-            chat=self.deps.chat,
-            model=self.deps.model,
-            strict_schema=self.deps.strict_schema,
+        self._scope = asyncio.create_task(
+            classify_scope(
+                self.request.message,
+                seller,
+                chat=self.deps.chat,
+                model=self.deps.model,
+                strict_schema=self.deps.strict_schema,
+            )
         )
-        if scope.call is not None:
-            self.calls.append(scope.call)
-        if not scope.in_scope:  # R10
-            return self._canned(scope, decline_reply(seller), objection_tag="off_topic")
-        if scope.sensitive != "none":  # R11
-            reason: HandoffReason = "medical_topic" if scope.sensitive == "medical" else "other"
-            return self._canned(scope, sensitive_reply(seller), handoff_reason=reason)
+        agent = asyncio.create_task(self._agent())
+        try:
+            await asyncio.wait({self._scope, agent}, return_when=asyncio.FIRST_COMPLETED)
+            scope = await self._scope
+            if scope.call is not None:
+                self.calls.insert(0, scope.call)
+            if not scope.in_scope:  # R10
+                return self._canned(scope, decline_reply(seller), objection_tag="off_topic")
+            if scope.sensitive != "none":  # R11
+                reason: HandoffReason = "medical_topic" if scope.sensitive == "medical" else "other"
+                return self._canned(scope, sensitive_reply(seller), handoff_reason=reason)
+            result = await agent
+            return replace(result, model_calls=tuple(self.calls))  # the scope call first
+        finally:
+            for task in (self._scope, agent):
+                task.cancel()
+            await asyncio.gather(self._scope, agent, return_exceptions=True)
+
+    async def _verdict(self) -> ScopeVerdict:
+        """Waits for the scope check; ``_DeclinedError`` when the agent must stop."""
+        scope = await asyncio.shield(self._scope)
+        if not scope.in_scope or scope.sensitive != "none":
+            raise _DeclinedError
+        return scope
+
+    async def _agent(self) -> TurnResult:
+        seller = self.request.seller
         retrieved = await self.deps.catalog.search(
             seller.seller_id, self.request.message, top_k=self.deps.top_k
         )
+        if self._scope.done():  # a rule or a quick verdict: no agent call it would discard
+            await self._verdict()
         messages = [
             ChatMessage(
                 role="system",
@@ -232,6 +263,7 @@ class _Turn:
             ChatMessage(role="user", content=self.request.message),
         ]
         output = await self._answer(messages)
+        scope = await self._verdict()
         verdict: Review | None = None
         citations: list[Citation] = []
         if output is not None:
@@ -299,7 +331,8 @@ class _Turn:
         objection_tag: ObjectionTag | None = None,
         handoff_reason: HandoffReason | None = None,
     ) -> TurnResult:
-        """The engine's own answer, reviewed like the model's: no retrieval, no agent call."""
+        """The engine's own answer, reviewed like the model's; nothing retrieved or answered by
+        the agent is used."""
         output = AgentTurnOutput(
             reply=reply,
             cited_fact_ids=(),
@@ -366,6 +399,7 @@ class _Turn:
             message = await self._complete(messages, "auto" if tools_allowed else "none")
             if message.tool_calls and tools_allowed:
                 messages.append(message)
+                await self._verdict()  # no tool runs on a message the scope check turns down
                 for call in message.tool_calls:
                     record = await self.box.run(call)
                     messages.append(

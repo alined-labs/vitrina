@@ -1,7 +1,8 @@
 """T024 agent loop v1 (FR-024, FR-025; plan.md §4.1): scope → retrieval → tool loop →
 AgentTurnOutput → the checks outside the model, with one guided retry (AS-3.3, AS-3.4; R2–R5).
 The scope classifier (T054) declines off-topic messages and hands sensitive ones to the owner
-before any retrieval (R10, R11).
+(R10, R11). It runs beside retrieval and the first agent call (NFR-01), and no tool runs and no
+answer goes out before its verdict.
 """
 
 import asyncio
@@ -425,3 +426,72 @@ async def test_t052_the_turns_clock_decides_what_has_passed(shop: Shop) -> None:
     )
 
     assert len(bookings.bookings) == 1
+
+
+class SlowClassifier(ScriptedChat):
+    """The scope classifier answers only once the agent's first call has started (NFR-01)."""
+
+    def __init__(self, *args: Any, agent_blocks: bool = False, **kwargs: Any) -> None:
+        super().__init__(*args, **kwargs)
+        self.agent_started = asyncio.Event()
+        self.agent_blocks = agent_blocks
+        self.cancelled = False
+
+    async def complete(self, request: ChatRequest) -> ChatResponse:
+        if request.purpose == "classify":
+            await self.agent_started.wait()
+            return await super().complete(request)
+        self.agent_started.set()
+        if self.agent_blocks:
+            try:
+                await asyncio.sleep(5)
+            except asyncio.CancelledError:
+                self.cancelled = True
+                raise
+        return await super().complete(request)
+
+
+async def test_nfr_01_the_agent_does_not_wait_for_the_scope_check(shop: Shop) -> None:
+    reply = "El envío dentro de Medellín vale $8.000 y llega en 1 día hábil."
+    chat = SlowClassifier([final_answer(reply, shop.ids["envio-medellin"])])
+
+    result = await run_turn(
+        request(shop, "¿cuánto vale el envío a Medellín?"), deps(chat, shop, budget_s=1)
+    )
+
+    assert result.final_reply == reply
+    assert result.scope.in_scope
+    assert [call.purpose for call in result.model_calls] == ["classify", "agent"]
+
+
+async def test_r10_no_tool_runs_before_the_scope_verdict(shop: Shop) -> None:
+    chat = SlowClassifier(
+        [tool_call("reserve_item", product_id=str(shop.ids["mochila-azul"]), quantity=1)],
+        scope=[scope_answer(False, "deportes")],
+    )
+
+    result = await run_turn(
+        request(shop, "¿Quién ganó el partido?", dry_run=False), deps(chat, shop, budget_s=1)
+    )
+
+    assert result.final_reply == decline_reply(shop.seller)
+    assert (result.tool_calls, result.actions.reservations) == ((), [])
+    assert [call.purpose for call in result.model_calls] == ["classify", "agent"]
+
+
+async def test_r11_a_sensitive_verdict_cancels_the_agent_call_in_flight(shop: Shop) -> None:
+    chat = SlowClassifier(
+        [final_answer("Sí, te sirve.", confidence=0.95)],
+        scope=[scope_answer(True, "pide un consejo", "medical")],
+        agent_blocks=True,
+    )
+
+    result = await run_turn(
+        request(shop, "¿Esta mochila me sirve para el dolor de espalda?"),
+        deps(chat, shop, budget_s=1),
+    )
+
+    assert result.final_reply == sensitive_reply(shop.seller)
+    assert result.handoff is not None
+    assert chat.cancelled
+    assert [call.purpose for call in result.model_calls] == ["classify"]
