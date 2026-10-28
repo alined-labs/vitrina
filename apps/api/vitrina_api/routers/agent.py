@@ -40,7 +40,10 @@ async def run_agent_turn(
     if body.message.kind != "text":
         raise ProblemError(
             ProblemCode.VALIDATION_ERROR,
-            detail="image and audio turns arrive with T050 and T051; send kind=text",
+            detail=(
+                "this endpoint runs text turns; photos and voice notes are read when they "
+                "arrive on WhatsApp (T050, T051): send kind=text"
+            ),
         )
     text = body.message.text if isinstance(body.message.text, str) else ""
     if not text.strip():
