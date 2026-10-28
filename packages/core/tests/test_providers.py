@@ -2,6 +2,7 @@ import json
 from pathlib import Path
 
 import pytest
+from pydantic import BaseModel, ValidationError
 
 from vitrina_core.providers import (
     Blob,
@@ -99,6 +100,28 @@ def test_cassette_key_is_stable_and_follows_the_request(tmp_path: Path) -> None:
     assert cassettes.key("chat", REQUEST) == cassettes.key("chat", REQUEST.model_copy())
     assert cassettes.key("chat", REQUEST) != cassettes.key("chat", changed)
     assert cassettes.key("chat", REQUEST) != cassettes.key("embed", REQUEST)
+
+
+def test_an_unset_optional_field_keeps_the_cassette_key(tmp_path: Path) -> None:
+    # A request field added later with a None default must not orphan recorded cassettes.
+    class Before(BaseModel):
+        model: str
+
+    class After(BaseModel):
+        model: str
+        reasoning_effort: str | None = None
+
+    cassettes = Cassettes(tmp_path, CassetteMode.replay)
+    before = cassettes.key("chat", Before(model="m"))
+
+    assert cassettes.key("chat", After(model="m")) == before
+    assert cassettes.key("chat", After(model="m", reasoning_effort="low")) != before
+
+
+def test_chat_requests_offer_only_tool_choices_a_provider_can_honour() -> None:
+    # The Meta Model API answers 400 to "required" and named choices; "none" means no tools.
+    with pytest.raises(ValidationError):
+        ChatRequest.model_validate({**REQUEST.model_dump(), "tool_choice": "required"})
 
 
 async def test_cassette_file_summarizes_binary_inputs(tmp_path: Path) -> None:

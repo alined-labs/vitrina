@@ -69,7 +69,9 @@ def _body(request: ChatRequest) -> dict[str, Any]:
         "model": request.model,
         "messages": [_message(message) for message in request.messages],
     }
-    if request.tools:
+    # The API takes tool_choice "auto" only (400 for "none", "required" or a named tool):
+    # "none" is a call without tools, which still accepts the tool calls in the history.
+    if request.tools and request.tool_choice != "none":
         # agent-tools.json ``parameters`` travel verbatim (ADR-0003).
         body["tools"] = [
             {
@@ -82,7 +84,7 @@ def _body(request: ChatRequest) -> dict[str, Any]:
             }
             for tool in request.tools
         ]
-    if request.tool_choice is not None:
+    if request.tool_choice == "auto":
         body["tool_choice"] = request.tool_choice
     if request.response_format is not None:
         body["response_format"] = {
@@ -97,6 +99,8 @@ def _body(request: ChatRequest) -> dict[str, Any]:
         body["temperature"] = request.temperature
     if request.max_tokens is not None:
         body["max_completion_tokens"] = request.max_tokens
+    if request.reasoning_effort is not None:
+        body["reasoning_effort"] = request.reasoning_effort
     return body
 
 

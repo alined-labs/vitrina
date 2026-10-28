@@ -49,15 +49,22 @@ class ResponseFormat(Frozen):
     strict: bool = True
 
 
+# Muse Spark and Wonder reason before they answer; "none" is refused (400) by both.
+ReasoningEffort = Literal["minimal", "low", "medium", "high", "xhigh", "max"]
+
+
 class ChatRequest(Frozen):
     model: str
     purpose: ModelPurpose
     messages: tuple[ChatMessage, ...]
     tools: tuple[ToolSpec, ...] = ()
-    tool_choice: Literal["auto", "none", "required"] | None = None
+    # "none" keeps the tools out of the call; providers take nothing else but "auto".
+    tool_choice: Literal["auto", "none"] | None = None
     response_format: ResponseFormat | None = None
     temperature: float | None = None
+    # Reasoning tokens count against this cap: too small a cap leaves no room for the answer.
     max_tokens: int | None = None
+    reasoning_effort: ReasoningEffort | None = None
 
 
 class ChatResponse(Frozen):
