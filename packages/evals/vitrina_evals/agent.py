@@ -9,9 +9,10 @@ metrics page shows only real runs).
 Replay finds a cassette only for the very same request (AS-7.3), so a case sends the same
 requests on every run: the clock the system prompt shows is pinned, the conversation id
 comes from the case's first message, and the ids tools mint are seeded by case and turn. The
-reasoning efforts are production's settings.
+dependencies are production's (``agent_deps``), only the clock is the eval's.
 """
 
+from dataclasses import replace
 from datetime import UTC, datetime
 from uuid import UUID, uuid5
 
@@ -27,9 +28,8 @@ CASE_IDS = UUID("0192f2c1-3a5d-7e10-8b2f-4c6d8e0a1b33")
 
 
 class ConversationAgent:
-    def __init__(self, settings: Settings, model: str) -> None:
+    def __init__(self, settings: Settings) -> None:
         self.settings = settings
-        self.model = model
         self.streak = 0
         self.conversation_id = CASE_IDS
 
@@ -59,15 +59,8 @@ class ConversationAgent:
                 dry_run=True,
                 low_confidence_streak=self.streak,
             ),
-            conversation.AgentDeps(
-                chat=turn.providers.chat,
-                catalog=turn.catalog,
-                model=self.model,
-                max_tool_rounds=self.settings.agent_max_tool_rounds,
-                budget_s=self.settings.agent_turn_budget_s,
-                top_k=self.settings.retrieval_top_k,
-                reasoning_effort=self.settings.agent_reasoning_effort,
-                scope_reasoning_effort=self.settings.scope_reasoning_effort,
+            replace(
+                conversation.agent_deps(self.settings, turn.providers.chat, turn.catalog),
                 clock=lambda: EVAL_NOW,
             ),
         )
@@ -75,6 +68,7 @@ class ConversationAgent:
 
 def conversation_agent(settings: Settings) -> Agent | None:
     try:
-        return ConversationAgent(settings, settings.model_id("agent"))
+        settings.model_id("agent")
     except LookupError:  # MODEL_AGENT unset (spec.md §8): nothing real to evaluate
         return None
+    return ConversationAgent(settings)
