@@ -88,3 +88,57 @@ export function decimal(value: number, digits = 2): string {
 export function copyPreview(text: string): string {
   return text.replace("{wa_link}", "‹enlace de WhatsApp›");
 }
+
+export const CONSENT: Record<Schemas["Contact"]["marketing_consent"], string> = {
+  granted: "Acepta promociones",
+  none: "Sin autorización",
+  revoked: "Se dio de baja",
+};
+
+export const CONSENT_PURPOSE: Record<Schemas["ConsentRecordCreate"]["purpose"], string> = {
+  marketing: "Promociones",
+  data_processing: "Tratamiento de datos",
+};
+
+export const CONSENT_CHANNEL: Record<Schemas["ConsentRecordCreate"]["channel"], string> = {
+  whatsapp: "por WhatsApp",
+  in_person: "en persona",
+  web: "en la web",
+  other: "otro medio",
+};
+
+export const RECORDED_BY: Record<NonNullable<Schemas["ConsentRecord"]["recorded_by"]>, string> = {
+  agent: "registró el agente",
+  seller: "registraste tú",
+  system: "registró Vitrina",
+};
+
+type SendDecision = Schemas["SendDecision"];
+
+export const DECISION: Record<SendDecision["decision"], string> = {
+  allowed: "Se enviará",
+  blocked: "Bloqueado",
+  deferred: "Aplazado",
+  sent: "Enviado",
+  failed: "Falló",
+};
+
+// The same words as vitrina_compliance's REASON_TEXT_ES, for when a decision arrives without them.
+export const DECISION_REASON: Record<SendDecision["reason"], string> = {
+  OK: "Permitido",
+  OPTED_OUT: "Se dio de baja: no recibe mensajes de marketing",
+  NO_CONSENT_LEY_1581: "Sin autorización — Ley 1581",
+  FREQUENCY_CAP: "Ya recibió un mensaje de marketing en los últimos 7 días",
+  OUTSIDE_HOURS_LEY_2300: "Fuera del horario permitido — Ley 2300",
+  NO_MATCHING_AD: "No hay un anuncio aprobado para lo que le interesa",
+  TEMPLATE_NOT_APPROVED: "La plantilla de WhatsApp aún no está aprobada",
+  SEND_FAILED: "WhatsApp no entregó el mensaje",
+};
+
+export const CAMPAIGN_STATUS: Record<Schemas["ReactivationCampaign"]["status"], string> = {
+  preview: "Vista previa",
+  scheduled: "Programada",
+  sending: "Enviando",
+  sent: "Enviada",
+  cancelled: "Cancelada",
+};

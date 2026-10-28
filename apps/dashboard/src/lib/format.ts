@@ -60,6 +60,10 @@ const SELLER_TEXT: Partial<Record<Code, string>> = {
   PROVIDER_UNAVAILABLE: "El servicio no está disponible en este momento. Intenta más tarde.",
   PAYLOAD_TOO_LARGE: "El archivo es demasiado grande.",
   IDEMPOTENCY_CONFLICT: "Esta acción ya se envió con otros datos. Recarga la página.",
+  TEMPLATE_NOT_APPROVED: "WhatsApp aún no aprueba la plantilla de esta campaña. Nada se envió.",
+  CAMPAIGN_ALREADY_SENT: "Esta campaña ya se envió.",
+  INSUFFICIENT_DATA: "Aún no hay suficientes conversaciones para un informe. Vuelve cuando tengas más chats.",
+  BRIEF_SCHEMA_INVALID: "El informe salió incompleto. Intenta generarlo de nuevo.",
 };
 const SELLER_DETAIL: ReadonlySet<Code> = new Set(["VALIDATION_ERROR", "CONFLICT", "CREATIVE_BLOCKED"]);
 
