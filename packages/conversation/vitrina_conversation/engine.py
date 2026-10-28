@@ -24,7 +24,13 @@ from uuid import UUID
 
 from pydantic import ValidationError
 
-from vitrina_catalog.api import Catalog, Citation, SearchResult, SellerSettings
+from vitrina_catalog.api import (
+    Catalog,
+    Citation,
+    ProductNotFoundError,
+    SearchResult,
+    SellerSettings,
+)
 from vitrina_conversation.booking import BookingStore
 from vitrina_conversation.contract import (
     AgentTurnOutput,
@@ -33,7 +39,12 @@ from vitrina_conversation.contract import (
     output_schema,
     tool_specs,
 )
-from vitrina_conversation.prompts import REPAIR_INSTRUCTION, local_time, render_system_prompt
+from vitrina_conversation.prompts import (
+    REPAIR_INSTRUCTION,
+    AdContext,
+    local_time,
+    render_system_prompt,
+)
 from vitrina_conversation.scope import (
     ScopeVerdict,
     classify_scope,
@@ -99,6 +110,8 @@ class TurnRequest:
     low_confidence_streak: int = 0
     pending_consent_prompt: str | None = None
     """The consent question the last outbound message asked, if still unanswered (R8)."""
+    ad: AdContext | None = None
+    """The ad the chat came from (FR-023); the engine looks up its product's name."""
 
 
 @dataclass(frozen=True)
@@ -245,6 +258,19 @@ class _Turn:
                 task.cancel()
             await asyncio.gather(self._scope, agent, return_exceptions=True)
 
+    async def _ad(self) -> AdContext | None:
+        """The ad with its product's name; an ad whose product is gone reads as a bare code."""
+        ad = self.request.ad
+        if ad is None or ad.product_id is None or ad.product_name is not None:
+            return ad
+        try:
+            product = await self.deps.catalog.get_product(
+                self.request.seller.seller_id, ad.product_id
+            )
+        except ProductNotFoundError:
+            return AdContext(ad.code)
+        return replace(ad, product_name=product.name)
+
     async def _verdict(self) -> ScopeVerdict:
         """Waits for the scope check; ``_DeclinedError`` when the agent must stop."""
         scope = await asyncio.shield(self._scope)
@@ -262,7 +288,9 @@ class _Turn:
         messages = [
             ChatMessage(
                 role="system",
-                content=render_system_prompt(seller, retrieved, self.deps.clock()),
+                content=render_system_prompt(
+                    seller, retrieved, self.deps.clock(), ad=await self._ad()
+                ),
             ),
             *self._history(),
             ChatMessage(role="user", content=self.request.message),
@@ -387,6 +415,7 @@ class _Turn:
             owner_name=seller.owner_name,
             business_name=seller.business_name,
             customer_message=self.request.message,
+            consent_prompt=seller.consent_prompt_text,
             low_confidence_threshold=seller.low_confidence_threshold,
             low_confidence_streak=self.request.low_confidence_streak,
             retried=retried,

@@ -25,6 +25,7 @@ from vitrina_conversation.api import (
     process_inbound,
 )
 from vitrina_conversation.booking import InMemoryBookings
+from vitrina_conversation.engine import AdContext
 from vitrina_conversation.image import PhotoReading
 from vitrina_conversation.pipeline import (
     ERASURE_REPLY,
@@ -208,6 +209,9 @@ def world(shop: Shop) -> World:
     async def erase(seller_id: UUID, contact_id: UUID) -> None:
         erasures.append((seller_id, contact_id))
 
+    async def ad_details(seller_id: UUID, ad_id: UUID) -> AdContext | None:
+        return AdContext("A7", shop.ids["mochila-azul"]) if ad_id == AD_A7 else None
+
     deps = PipelineDeps(
         store=store,
         compliance=compliance,
@@ -218,6 +222,7 @@ def world(shop: Shop) -> World:
         messenger=messenger,
         pacer=Pacer(clock=clock, sleep=clock.sleep),
         ad_lookup=ads,
+        ad_details=ad_details,
         request_erasure=erase,
     )
     return World(shop, chat, store, compliance, messenger, clock, erasures, gallery, deps)
@@ -242,6 +247,29 @@ async def test_as_3_2_an_ad_code_attributes_the_chat_and_starts_it(world: World)
     assert payload["ad_id"] == str(AD_A7)
     assert payload["contact_id"] == str(await world.contact_id())
     assert payload["conversation_id"] == str(conversation.id)
+
+
+async def test_as_3_2_every_turn_of_an_attributed_chat_knows_the_ads_product(
+    world: World,
+) -> None:
+    world.script(final_answer(GREETING, confidence=0.95), final_answer(GREETING, confidence=0.95))
+
+    await world.say("Hola, vi el anuncio #A7")
+    await world.say("¿Y hacen envíos?")
+
+    product = world.shop.ids["mochila-azul"]
+    for sent in world.chat.requests:
+        assert f"anuncio #A7, de «Mochila azul» [{product}]" in str(sent.messages[0].content)
+
+
+async def test_as_3_2_an_unknown_code_reaches_the_agent_as_one(world: World) -> None:
+    world.script(final_answer(GREETING, confidence=0.95))
+
+    outcome = await world.say("Hola, vi el anuncio #A9")
+
+    assert world.conversation(outcome).attribution.status == "unknown_code"
+    system = str(world.chat.requests[0].messages[0].content)
+    assert "el código #A9, que no es de ningún anuncio vigente" in system
 
 
 async def test_as_3_3_a_question_gets_the_cited_answer_end_to_end(world: World) -> None:
