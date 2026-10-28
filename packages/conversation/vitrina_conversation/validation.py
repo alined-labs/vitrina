@@ -31,33 +31,39 @@ LOW_CONFIDENCE_THRESHOLD = 0.6  # data-model.md sellers.low_confidence_threshold
 
 Outcome = Literal["accept", "retry", "fallback"]
 
-# Words a citation-free reply may use outside its questions (R3): greetings, thanks, courtesy
-# and Colombian forms of address. Folded: lower case, no accents.
+# Words a citation-free reply may use outside its questions (R3): greetings, thanks, closings
+# ("quedo atenta si necesitas algo más") and Colombian forms of address; none states a fact.
+# Folded: lower case, no accents.
 COURTESY = frozenset({
-    "a", "al", "aqui", "amiga", "amigo", "atenta", "atento", "atenderte", "ayudarte", "bien",
-    "bienvenida", "bienvenidas", "bienvenido", "bienvenidos", "buen", "buena", "buenas", "bueno",
-    "buenos", "claro", "con", "dale", "de", "del", "dia", "dias", "don", "dona", "e", "el",
-    "encantada", "encantado", "estamos", "excelente", "favor", "feliz", "genial", "gracias",
-    "gusto", "habla", "hola", "holi", "holis", "la", "las", "le", "listo", "lo", "los", "mi", "mija",
-    "mijo", "mil", "mucho", "muchas", "muchisimas", "noche", "noches", "nos", "ok", "okay",
-    "orden", "ordenes", "para", "parce", "parcera", "parcero", "pendiente", "perfecto", "placer",
-    "por", "porfa", "que", "quedo", "querida", "querido", "reina", "saluda", "saludamos", "saludo", "saludos", "senor",
-    "senora", "servirle", "servirte", "si", "super", "tal", "tarde", "tardes", "te", "tu", "tus",
+    "a", "al", "algo", "alguna", "alguno", "amiga", "amigo", "aqui", "atenderte", "atenta",
+    "atento", "ayudarte", "bien", "bienvenida", "bienvenidas", "bienvenido", "bienvenidos", "buen",
+    "buena", "buenas", "bueno", "buenos", "claro", "con", "cualquier", "cuando", "dale", "de",
+    "decidas", "decides", "del", "dia", "dias", "don", "dona", "duda", "dudas", "e", "el",
+    "encantada", "encantado", "escribe", "escribenos", "escribes", "escribir", "escribirnos",
+    "estamos", "excelente", "favor", "feliz", "genial", "gracias", "gusto", "habla", "hola",
+    "holi", "holis", "la", "las", "le", "listo", "lo", "los", "mas", "mi", "mija", "mijo", "mil",
+    "muchas", "muchisimas", "mucho", "necesitas", "necesites", "noche", "noches", "nos", "o", "ok",
+    "okay", "orden", "ordenes", "para", "parce", "parcera", "parcero", "pendiente", "perfecto",
+    "placer", "por", "porfa", "que", "quedo", "querida", "querido", "quieras", "quieres", "reina",
+    "saluda", "saludamos", "saludo", "saludos", "seguimos", "senor", "senora", "servirle",
+    "servirte", "si", "super", "tal", "tarde", "tardes", "te", "tengas", "tienes", "tu", "tus",
     "un", "una", "vale", "veci", "vecina", "vecino", "vecinos", "y",
 })  # fmt: skip
 # Inside a question to the customer only these may appear besides courtesy words and names:
 # question words, the customer's wishes and neutral nouns. "gratis", "hay", "llega" or
 # "descuento" inside a question still claim something (MX1 review of #51).
 QUESTION_WORDS = frozenset({
-    "a", "al", "algo", "alguna", "alguno", "algun", "ayudamos", "ayudar", "ayudo", "busca",
-    "buscabas", "buscan", "buscas", "cantidad", "ciudad", "color", "colores", "como", "con", "cosa",
-    "cual", "cuales", "cuando", "cuanta", "cuantas", "cuanto", "cuantos", "de", "del", "diseno",
-    "donde", "el", "en", "envio", "es", "estilo", "gustaria", "interesa", "interesan", "la", "las",
-    "le", "les", "lo", "los", "mas", "me", "medida", "medidas", "modelo", "modelos", "necesita",
+    "a", "al", "algo", "algun", "alguna", "alguno", "anuncio", "anuncios", "ayudamos", "ayudar",
+    "ayudo", "busca", "buscabas", "buscan", "buscas", "cantidad", "ciudad", "color", "colores",
+    "como", "compra", "comprar", "con", "cosa", "cual", "cuales", "cuando", "cuanta", "cuantas",
+    "cuanto", "cuantos", "de", "del", "detalles", "diseno", "disponibilidad", "donde", "el", "en",
+    "envio", "es", "estilo", "gustaria", "informacion", "interesa", "interesan", "la", "las", "le",
+    "les", "lo", "los", "mas", "me", "medida", "medidas", "modelo", "modelos", "necesita",
     "necesitas", "nombre", "o", "ocasion", "otra", "otras", "otro", "otros", "para", "pedido",
-    "podemos", "por", "prefiere", "prefieres", "producto", "productos", "puedo", "que", "quien",
-    "quienes", "quiere", "quieren", "quieres", "referencia", "regalo", "sera", "seria", "sirve",
-    "sirvo", "su", "sus", "talla", "tallas", "tamano", "te", "tu", "tus", "un", "una", "y",
+    "podemos", "por", "precio", "precios", "prefiere", "prefieres", "producto", "productos",
+    "puedo", "que", "quien", "quienes", "quiere", "quieren", "quieres", "referencia", "regalo",
+    "saber", "sera", "seria", "sirve", "sirvo", "su", "sus", "talla", "tallas", "tamano", "te",
+    "tu", "tus", "un", "una", "vio", "viste", "y",
 })  # fmt: skip
 # A reply holding one of these answers the customer's question, so it needs a citation.
 ANSWER_WORDS = frozenset({
@@ -72,6 +78,12 @@ ASKING = frozenset({
 })  # fmt: skip
 # A question to the customer: "¿…?", or a sentence ending in "?" written without "¿".
 _QUESTION = re.compile(r"¿[^?]*\?|[^.!?¡¿\n]*\?")
+# A sentence that opens with one of these asks the customer something ("Cuéntame qué buscas.").
+REQUESTS = frozenset({
+    "avisame", "comentame", "contame", "cuentame", "cuentanos", "dime", "dinos", "escribeme",
+    "escribenos", "indicame", "mandame", "regalame",
+})  # fmt: skip
+_SENTENCE = re.compile(r"[^.!\n]+")
 
 
 @dataclass(frozen=True)
@@ -117,6 +129,7 @@ def check_groundedness(
     names: Iterable[str] = (),
     fallback: str = "",
     customer_message: str | None = None,
+    consent_prompt: str = "",
 ) -> GroundednessCheck:
     """R3: citations resolve to active items, and a reply without them claims nothing."""
     known = {citation.id for citation in citations}
@@ -128,7 +141,11 @@ def check_groundedness(
     if not output.cited_fact_ids and output.handoff_reason is None:
         declined = output.objection_tag == "off_topic" and not _has_number(output.reply)
         if not declined and makes_claim(
-            output.reply, names=names, fallback=fallback, customer_message=customer_message
+            output.reply,
+            names=names,
+            fallback=fallback,
+            customer_message=customer_message,
+            consent_prompt=consent_prompt,
         ):
             problems.append("states something about the business without citing any fact")
     return GroundednessCheck(not problems, tuple(problems))
@@ -140,24 +157,32 @@ def makes_claim(
     names: Iterable[str] = (),
     fallback: str = "",
     customer_message: str | None = None,
+    consent_prompt: str = "",
 ) -> bool:
     """Whether ``reply`` states something; greeting, thanking and asking do not (R3).
 
-    A digit or an amount is always a claim. Outside its questions a reply may hold only
-    courtesy words and the shop's and owner's names; inside them, also question words and
-    neutral nouns. A yes or no to a question the customer asked is a claim too. The fallback
-    sentence itself is not.
+    A digit or an amount is always a claim. Outside its questions and requests a reply may
+    hold only courtesy words and the shop's and owner's names; inside them, also question
+    words and neutral nouns. A yes or no to a question the customer asked is a claim too.
+    The fallback sentence and the seller's own consent question are not.
     """
+    if consent_prompt:
+        reply = reply.replace(consent_prompt, " ")
     if _has_number(reply):
         return True
     if fallback and _words(reply) == _words(fallback):
         return False
     allowed = COURTESY | {word for name in names for word in _words(name)}
-    if not set(_words(_QUESTION.sub(" ", reply))) <= allowed:
+    statement = _QUESTION.sub(" ", reply)
+    asked = _QUESTION.findall(reply)
+    for sentence in _SENTENCE.findall(statement):
+        words = _words(sentence)
+        if words and words[0] in REQUESTS:
+            asked.append(sentence)
+            statement = statement.replace(sentence, " ", 1)
+    if not set(_words(statement)) <= allowed:
         return True
-    if any(
-        not set(_words(asked)) <= allowed | QUESTION_WORDS for asked in _QUESTION.findall(reply)
-    ):
+    if any(not set(_words(ask)) <= allowed | QUESTION_WORDS | REQUESTS for ask in asked):
         return True
     return bool(customer_message and _asks(customer_message) and set(_words(reply)) & ANSWER_WORDS)
 
@@ -184,6 +209,7 @@ def review(
     owner_name: str,
     business_name: str = "",
     customer_message: str | None = None,
+    consent_prompt: str = "",
     low_confidence_threshold: float = LOW_CONFIDENCE_THRESHOLD,
     low_confidence_streak: int = 0,
     retried: bool = False,
@@ -197,6 +223,7 @@ def review(
         names=(owner_name, business_name),
         fallback=fallback,
         customer_message=customer_message,
+        consent_prompt=consent_prompt,
     )
     confidence = output.confidence if groundedness.passed else 0.0
 

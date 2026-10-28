@@ -26,7 +26,7 @@ from vitrina_catalog.sellers import InMemorySellerStore, PostgresSellerStore
 from vitrina_compliance.api import ComplianceStore, ContactIdentity, PostgresCompliance
 from vitrina_compliance.erasure import request_erasure
 from vitrina_conversation.booking import BookingStore, PostgresBookings
-from vitrina_conversation.engine import AgentDeps
+from vitrina_conversation.engine import AdContext, AgentDeps
 from vitrina_conversation.image import Photos
 from vitrina_conversation.ingest import SellerResolver
 from vitrina_conversation.pacing import Pacer
@@ -145,6 +145,10 @@ def postgres_pipeline(
         ad = await ads.by_code(seller_id, code)
         return ad.id if ad is not None else None
 
+    async def ad_details(seller_id: UUID, ad_id: UUID) -> AdContext | None:
+        ad = await ads.get(seller_id, ad_id)
+        return AdContext(ad.code, ad.product_id) if ad is not None and ad.code else None
+
     async def approved_ads(seller_id: UUID, product_id: UUID) -> list[UUID]:
         return [row["id"] for row in await ads.approved_for(seller_id, product_id)]
 
@@ -173,6 +177,7 @@ def postgres_pipeline(
         messenger=messenger,
         pacer=pacer,
         ad_lookup=ad_lookup,
+        ad_details=ad_details,
         request_erasure=erase,
         voice=voice_notes(settings, providers, messenger),
         photos=photos_for(settings, providers, messenger, catalog),

@@ -14,7 +14,7 @@ import pytest
 
 from vitrina_conversation.api import AgentDeps, Exchange, InMemoryBookings, TurnRequest, run_turn
 from vitrina_conversation.contract import output_schema, tool_specs
-from vitrina_conversation.engine import booking_confirmation
+from vitrina_conversation.engine import AdContext, booking_confirmation
 from vitrina_conversation.scope import decline_reply, sensitive_reply
 from vitrina_conversation.testing import ScriptedChat, Shop, final_answer, scope_answer, tool_call
 from vitrina_conversation.tools import BookedSlot
@@ -495,3 +495,37 @@ async def test_r11_a_sensitive_verdict_cancels_the_agent_call_in_flight(shop: Sh
     assert result.handoff is not None
     assert chat.cancelled
     assert [call.purpose for call in result.model_calls] == ["classify"]
+
+
+async def test_as_3_2_the_agent_knows_which_product_the_ad_was_for(shop: Shop) -> None:
+    product = shop.ids["mochila-azul"]
+    chat = ScriptedChat([final_answer("¡Hola! ¿En qué te ayudo?", confidence=0.95)])
+
+    await run_turn(
+        request(shop, "Hola, vi el anuncio #A7", ad=AdContext("A7", product)), deps(chat, shop)
+    )
+
+    system = str(chat.requests[0].messages[0].content)
+    assert f"anuncio #A7, de «Mochila azul» [{product}]" in system
+
+
+async def test_as_3_2_an_ad_whose_product_is_gone_reads_as_an_unknown_code(shop: Shop) -> None:
+    chat = ScriptedChat([final_answer("¡Hola! ¿En qué te ayudo?", confidence=0.95)])
+
+    await run_turn(
+        request(shop, "Hola, vi el anuncio #A7", ad=AdContext("A7", uuid4())), deps(chat, shop)
+    )
+
+    system = str(chat.requests[0].messages[0].content)
+    assert "el código #A7, que no es de ningún anuncio vigente" in system
+
+
+async def test_as_6_1_a_reply_ending_in_the_sellers_consent_question_reaches_them(
+    shop: Shop,
+) -> None:
+    reply = f"Con gusto, quedo atenta. {shop.seller.consent_prompt_text}"
+    chat = ScriptedChat([final_answer(reply, confidence=0.95, proposed_consent_prompt=True)])
+
+    result = await run_turn(request(shop, "Gracias, lo pienso"), deps(chat, shop))
+
+    assert result.final_reply == reply

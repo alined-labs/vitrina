@@ -396,3 +396,93 @@ def test_r3_greetings_and_neutral_questions_still_pass(reply: str) -> None:
     )
 
     assert (result.outcome, result.final_reply) == ("accept", reply)
+
+
+# ── R3: everyday greetings and closings are not claims (live replay, 2026-10-28) ──
+
+
+@pytest.mark.parametrize(
+    "reply",
+    [
+        "Con gusto, quedo atenta si te decides o necesitas algo más.",
+        "Con gusto, quedo atenta si te decides o necesitas algo mas.",
+        "Hola, gracias por escribir a Mochilas Ana.",
+        "Gracias por escribirnos. Aquí estamos para lo que necesites.",
+        "Cuando quieras, aquí seguimos.",
+        "Quedo pendiente por si tienes alguna duda.",
+        "Con gusto, que tengas un buen día.",
+    ],
+)
+def test_r3_closings_and_thanks_need_no_citation(reply: str) -> None:
+    result = review(
+        answer(reply, confidence=0.9), [], owner_name=OWNER, business_name="Mochilas Ana"
+    )
+
+    assert (result.outcome, result.final_reply) == ("accept", reply)
+
+
+@pytest.mark.parametrize(
+    "reply",
+    [
+        "Si necesitas algo más, el envío es gratis.",
+        "Quedo atenta, ya no tenemos la talla M.",
+        "Cuando quieras pasas, abrimos el domingo.",
+        "El anuncio no me aparece como vigente.",
+    ],
+)
+def test_r3_a_closing_that_states_a_fact_is_still_a_claim(reply: str) -> None:
+    result = review(answer(reply, confidence=0.9), [], owner_name=OWNER)
+
+    assert (result.outcome, result.final_reply) == ("fallback", FALLBACK)
+
+
+CONSENT = "¿Te aviso cuando llegue tu talla o haya promo? Responde SÍ"
+
+
+def test_r3_the_sellers_own_consent_question_is_not_a_claim() -> None:
+    reply = f"Perfecto, quedo atenta si te decides. {CONSENT}"
+
+    result = review(answer(reply, confidence=0.9), [], owner_name=OWNER, consent_prompt=CONSENT)
+
+    assert (result.outcome, result.final_reply) == ("accept", reply)
+
+
+def test_r3_a_promo_question_of_the_models_own_is_still_a_claim() -> None:
+    reply = "¿Te aviso cuando haya promo de mochilas?"
+
+    result = review(answer(reply, confidence=0.9), [], owner_name=OWNER, consent_prompt=CONSENT)
+
+    assert (result.outcome, result.final_reply) == ("fallback", FALLBACK)
+
+
+@pytest.mark.parametrize(
+    "reply",
+    [
+        "Cuéntame qué producto viste para ayudarte con disponibilidad y precio.",
+        "Dime qué color prefieres.",
+        "Escríbeme tu ciudad y te ayudo.",
+        "¡Hola! Cuéntame qué buscas.",
+        "Hola, bienvenido a Mochilas Ana. ¿Qué producto viste en el anuncio? Cuéntame para ayudarte.",
+        "Hola, gracias por escribir a Mochilas Ana. Cuéntame qué producto viste para ayudarte con la información.",
+    ],
+)
+def test_r3_a_request_to_the_customer_reads_like_a_question(reply: str) -> None:
+    result = review(
+        answer(reply, confidence=0.9), [], owner_name=OWNER, business_name="Mochilas Ana"
+    )
+
+    assert (result.outcome, result.final_reply) == ("accept", reply)
+
+
+@pytest.mark.parametrize(
+    "reply",
+    [
+        "Cuéntame si quieres el envío gratis.",
+        "Dime y te la dejo con descuento.",
+        "¿Viste el anuncio de la promo?",
+    ],
+)
+def test_r3_a_request_that_states_a_fact_is_still_a_claim(reply: str) -> None:
+    result = review(answer(reply, confidence=0.9), [], owner_name=OWNER)
+
+    assert (result.outcome, result.final_reply) == ("fallback", FALLBACK)
