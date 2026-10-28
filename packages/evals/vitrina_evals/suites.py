@@ -8,6 +8,7 @@ gives ``cost_usd_total``.
 
 import os
 import subprocess
+from collections.abc import Sequence
 
 from vitrina_core.ledger import (
     InMemoryLedger,
@@ -49,6 +50,7 @@ async def execute(
     settings: Settings,
     live: Providers | None = None,
     sample: int | None = None,
+    cases: Sequence[str] | None = None,
     agent: Agent | None = None,
 ) -> SuiteResult:
     if suite == "consent_scheduler":
@@ -67,7 +69,7 @@ async def execute(
     else:
         return SuiteResult("error", EvalMetrics(), [], "a live run needs the process's providers")
     return await run_conversations(
-        load_cases(sample=sample),
+        load_cases(sample=sample, only=cases),
         agent=agent if agent is not None else conversation_agent(settings),
         providers=providers,
         ledger=ledger,

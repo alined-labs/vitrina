@@ -7,6 +7,7 @@ whose ids derive from the fixture keys, so prompts, citations and cassettes are 
 every run (AS-7.3). Contacts and numbers are synthetic (Art. V.1).
 """
 
+from collections.abc import Collection
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Literal
@@ -87,9 +88,17 @@ class BusinessFixture(Fixture):
     facts: tuple[FactFixture, ...] = ()
 
 
-def load_cases(path: Path = CONVERSATIONS, *, sample: int | None = None) -> list[ConversationCase]:
+def load_cases(
+    path: Path = CONVERSATIONS,
+    *,
+    sample: int | None = None,
+    only: Collection[str] | None = None,
+) -> list[ConversationCase]:
+    """The suite's cases in file order: the first ``sample``, or those named in ``only``."""
     lines = [line for line in path.read_text(encoding="utf-8").splitlines() if line.strip()]
     cases = [ConversationCase.model_validate_json(line) for line in lines]
+    if only is not None:
+        cases = [case for case in cases if case.case_id in only]
     return cases[:sample] if sample is not None else cases
 
 

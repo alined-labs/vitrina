@@ -5,6 +5,7 @@ from typing import Annotated, Any, Literal, Protocol
 from pydantic import Field
 
 from vitrina_core.providers.base import Blob, CallMeta, Frozen, ModelPurpose
+from vitrina_core.settings import ReasoningEffort
 
 
 class TextPart(Frozen):
@@ -47,10 +48,6 @@ class ResponseFormat(Frozen):
     name: str
     json_schema: dict[str, Any]
     strict: bool = True
-
-
-# Muse Spark and Wonder reason before they answer; "none" is refused (400) by both.
-ReasoningEffort = Literal["minimal", "low", "medium", "high", "xhigh", "max"]
 
 
 class ChatRequest(Frozen):

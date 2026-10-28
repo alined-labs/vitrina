@@ -1,6 +1,6 @@
 from datetime import UTC, datetime
 
-from vitrina_core.ids import NIL, new_id, uuid7, uuid7_time
+from vitrina_core.ids import NIL, new_id, seeded_ids, uuid7, uuid7_time
 
 
 def test_uuid7_has_version_7_and_the_rfc_9562_variant() -> None:
@@ -29,3 +29,19 @@ def test_new_ids_are_unique_and_never_nil() -> None:
 
     assert len(ids) == 1000
     assert NIL not in ids
+
+
+def test_as_7_3_seeded_ids_repeat_inside_a_block_and_stay_unique_outside() -> None:
+    # Replay needs a tool's new id to be the same on every run: it goes back to the model.
+    with seeded_ids("case-1:0"):
+        first = [new_id(), new_id()]
+    with seeded_ids("case-1:0"):
+        again = [new_id(), new_id()]
+    with seeded_ids("case-2:0"):
+        other = new_id()
+
+    assert first == again
+    assert first[0] != first[1]
+    assert other not in first
+    assert new_id() != new_id()
+    assert new_id().version == 7

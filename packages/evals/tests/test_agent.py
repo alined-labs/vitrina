@@ -4,6 +4,7 @@ from pathlib import Path
 
 from vitrina_conversation.testing import ScriptedChat, final_answer
 from vitrina_core.ledger import InMemoryLedger
+from vitrina_core.providers import ChatMessage, ToolCall
 from vitrina_core.providers.compose import ProviderMode, compose
 from vitrina_core.settings import Settings
 from vitrina_evals.agent import ConversationAgent, conversation_agent
@@ -44,3 +45,42 @@ async def test_as_7_1_a_case_runs_through_run_turn_with_its_citations(tmp_path: 
         None,
     )
     assert chat.requests[0].model == "spark-test"
+
+
+async def test_t055_every_run_of_a_case_sends_the_same_requests_at_productions_efforts(
+    tmp_path: Path,
+) -> None:
+    # Replay finds a cassette only for the very same request: no clock, no random id may vary.
+    config = settings(tmp_path, model_agent="spark-test")
+    scene = await build_scene(load_business("mochilas_ana"))
+    item = fixture_id("mochilas_ana", "mochila-azul")
+    providers = compose(config, InMemoryLedger(), mode=ProviderMode.replay)
+    runs: list[ScriptedChat] = []
+    objection = ToolCall(
+        id="call_1", name="record_objection", arguments='{"tag": "price", "quote": "muy cara"}'
+    )
+    for _ in range(2):
+        chat = ScriptedChat(
+            [
+                ChatMessage(role="assistant", tool_calls=(objection,)),
+                final_answer("La mochila azul vale $85.000.", item),
+            ]
+        )
+        agent = conversation_agent(config)
+        assert agent is not None
+        await agent.run_turn(
+            AgentTurn(
+                scene.seller,
+                scene.catalog,
+                providers.__class__(**{**providers.__dict__, "chat": chat}),
+                (),
+                "¿cuánto vale la mochila azul?",
+            )
+        )
+        runs.append(chat)
+
+    first, second = runs
+    assert len(first.requests) == 2  # the tool's result, a new objection id, is in the second
+    assert (first.requests, first.classified) == (second.requests, second.classified)
+    assert {request.reasoning_effort for request in first.requests} == {"low"}
+    assert {request.reasoning_effort for request in first.classified} == {"minimal"}

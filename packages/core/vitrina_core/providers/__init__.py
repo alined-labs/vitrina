@@ -13,7 +13,6 @@ from vitrina_core.providers.chat import (
     ChatResponse,
     ContentPart,
     ImagePart,
-    ReasoningEffort,
     ResponseFormat,
     TextPart,
     ToolCall,
@@ -54,6 +53,7 @@ from vitrina_core.providers.recorded import (
     RecordedTranscriber,
 )
 from vitrina_core.providers.retry import is_retryable, with_backoff
+from vitrina_core.settings import ReasoningEffort
 
 __all__ = [
     "Blob",
