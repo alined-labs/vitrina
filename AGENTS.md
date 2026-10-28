@@ -27,7 +27,7 @@ A module talks to another only through its public interface (`packages/<name>/ap
 
 ## Tooling and resources
 
-- Python 3.12 with **uv** (`uv sync`, `uv run …`); Node with **pnpm** for `apps/dashboard` (never npm or yarn); **Docker** only for tooling images (cloudflared, ffmpeg), never for a local Postgres (plan §3): development uses the hosted Supabase project with its own `dev` schema per environment.
+- Python 3.14 with **uv** (`uv sync`, `uv run …`); Node with **pnpm** for `apps/dashboard` (never npm or yarn); **Docker** only for tooling images (cloudflared, ffmpeg), never for a local Postgres (plan §3): development uses the hosted Supabase project with its own `dev` schema per environment.
 - Secrets live in `.env` (gitignored); `.env.example` lists the names with placeholders. No personal data and no real phone numbers anywhere, fixtures included; synthetic numbers are `+57300000xxxx` (Art. V).
 - One long-lived dev process (API **or** worker) per environment while agent sessions run; `pytest -n 2`.
 - Every external call has a timeout, retries for `429`/`5xx`, and a recorded fallback (Art. VIII). Customer text never goes to a model in data-sharing mode (Art. V.2).

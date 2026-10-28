@@ -7,7 +7,7 @@
 
 | Item | Decision |
 | --- | --- |
-| Language / runtime | Python 3.12, FastAPI, Pydantic v2, SQLAlchemy 2 (async) + Alembic |
+| Language / runtime | Python 3.14, FastAPI, Pydantic v2, SQLAlchemy 2 (async) + Alembic |
 | Database | Postgres 16 + pgvector (Supabase). Row-level `seller_id` scoping in every query via a repository base class |
 | Queue | Postgres-backed queue (`procrastinate`) to avoid a second datastore; swap to RQ/Redis only if latency demands |
 | Storage | Supabase Storage (S3-compatible) for assets, creatives, exports; signed URLs |

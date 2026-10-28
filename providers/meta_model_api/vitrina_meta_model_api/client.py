@@ -97,7 +97,7 @@ def retry_after_s(headers: httpx2.Headers, *, now: datetime | None = None) -> fl
         return seconds
     try:
         moment = parsedate_to_datetime(raw)
-    except (TypeError, ValueError):
+    except TypeError, ValueError:
         return None
     if moment.tzinfo is None:
         moment = moment.replace(tzinfo=UTC)

@@ -2,7 +2,7 @@
 name = "vitrina-baseten"
 version = "0.1.0"
 description = "Baseten adapter for the open-weights Spark fallback."
-requires-python = ">=3.12,<3.13"
+requires-python = ">=3.14,<3.15"
 dependencies = [
     "vitrina-core",
 ]

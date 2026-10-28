@@ -127,7 +127,7 @@ def _row(event: StoredEvent) -> dict[str, Any] | None:
     occurred = payload.get("occurred_at")
     try:
         occurred_at = datetime.fromisoformat(occurred) if occurred else event.created_at
-    except (TypeError, ValueError):
+    except TypeError, ValueError:
         occurred_at = event.created_at
     if occurred_at.tzinfo is None:  # FR-085: timestamps are UTC
         occurred_at = occurred_at.replace(tzinfo=UTC)

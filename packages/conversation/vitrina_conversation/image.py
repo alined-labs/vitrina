@@ -46,7 +46,7 @@ MediaDownload = Callable[[str], Awaitable[Blob]]
 class PhotoReader(Protocol):
     """Customer photos to words, for the pipeline."""
 
-    async def read(self, seller_id: UUID, media_id: str) -> "PhotoReading": ...
+    async def read(self, seller_id: UUID, media_id: str) -> PhotoReading: ...
 
 
 @dataclass(frozen=True)

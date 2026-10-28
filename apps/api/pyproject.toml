@@ -2,7 +2,7 @@
 name = "vitrina-api"
 version = "0.1.0"
 description = "FastAPI application: routers only, no business logic."
-requires-python = ">=3.12,<3.13"
+requires-python = ">=3.14,<3.15"
 dependencies = [
     "fastapi>=0.115",
     "python-multipart>=0.0.18",

@@ -150,7 +150,7 @@ def provenance_of(image: Blob) -> Provenance | None:
             created_at=datetime.fromisoformat(fields["created_at"]),
             source_type=cast(SourceType, source_type),
         )
-    except (KeyError, ValueError):
+    except KeyError, ValueError:
         return None
 
 

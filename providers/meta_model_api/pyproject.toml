@@ -2,7 +2,7 @@
 name = "vitrina-meta-model-api"
 version = "0.1.0"
 description = "Meta Model API adapter (OpenAI-compatible): chat, embeddings, image, segmentation, transcription."
-requires-python = ">=3.12,<3.13"
+requires-python = ">=3.14,<3.15"
 dependencies = [
     "meta-sam-parser==0.1.0",
     "pillow>=11",

@@ -2,7 +2,7 @@
 name = "vitrina-worker"
 version = "0.1.0"
 description = "Background worker: runs job handlers from the packages."
-requires-python = ">=3.12,<3.13"
+requires-python = ">=3.14,<3.15"
 dependencies = [
     "vitrina-core",
     "vitrina-catalog",

@@ -46,7 +46,7 @@ class Job(BaseModel):
     finished_at: datetime | None = None
 
     @classmethod
-    def from_row(cls, row: Mapping[Any, Any]) -> "Job":
+    def from_row(cls, row: Mapping[Any, Any]) -> Job:
         values: dict[str, Any] = {
             key: row[key]
             for key in (
