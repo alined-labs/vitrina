@@ -80,6 +80,21 @@ jobs:
       - name: the worker refuses to start without a database
         run: |
           if docker run --rm vitrina:ci vitrina-worker; then exit 1; fi
+      - name: a voice note becomes 16 kHz mono WAV with the image's ffmpeg (T051)
+        run: |
+          docker run --rm vitrina:ci sh -c '
+            ffmpeg -hide_banner -loglevel error -f lavfi -i sine=frequency=440:duration=1 -c:a libopus /tmp/note.ogg &&
+            python -c "
+          import asyncio, pathlib, wave
+          from vitrina_core.providers import Blob
+          from vitrina_conversation.voice import ffmpeg_on_path
+          note = Blob(data=pathlib.Path(\"/tmp/note.ogg\").read_bytes(), mime_type=\"audio/ogg\")
+          wav = asyncio.run(ffmpeg_on_path(timeout_s=20).to_wav(note))
+          pathlib.Path(\"/tmp/note.wav\").write_bytes(wav.data)
+          with wave.open(\"/tmp/note.wav\") as audio:
+              assert (audio.getframerate(), audio.getnchannels()) == (16000, 1)
+          print(\"voice note: 16 kHz mono WAV\")
+          "'
 
   # Migrations and repository tests on a real Postgres with pgvector (plan.md §1: Postgres 16).
   # This container is CI's own; the 8 GB machines never run a local Postgres (ADR-0013).
