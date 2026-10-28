@@ -1,0 +1,28 @@
+// Cloudflare Workers config for the dashboard, built with the OpenNext adapter
+// (deploy/README.md). `pnpm run cf:deploy` builds and deploys it on vitrina.alinedlabs.co.
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "vitrina-dashboard",
+  "main": ".open-next/worker.js",
+  "compatibility_date": "2026-10-01",
+  "compatibility_flags": ["nodejs_compat", "global_fetch_strictly_public"],
+  "assets": {
+    "directory": ".open-next/assets",
+    "binding": "ASSETS"
+  },
+  "services": [
+    {
+      "binding": "WORKER_SELF_REFERENCE",
+      "service": "vitrina-dashboard"
+    }
+  ],
+  "routes": [
+    {
+      "pattern": "vitrina.alinedlabs.co",
+      "custom_domain": true
+    }
+  ],
+  "observability": {
+    "enabled": true
+  }
+}

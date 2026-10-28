@@ -12,9 +12,13 @@
     "lint": "eslint",
     "typecheck": "tsc --noEmit",
     "gen-client": "../../scripts/gen-client",
-    "check": "pnpm run typecheck && pnpm run lint && ../../scripts/gen-client --check"
+    "check": "pnpm run typecheck && pnpm run lint && ../../scripts/gen-client --check",
+    "cf:build": "opennextjs-cloudflare build",
+    "cf:preview": "opennextjs-cloudflare build && opennextjs-cloudflare preview",
+    "cf:deploy": "opennextjs-cloudflare build && opennextjs-cloudflare deploy"
   },
   "dependencies": {
+    "@opennextjs/cloudflare": "1.20.13",
     "@supabase/ssr": "0.12.7",
     "@supabase/supabase-js": "2.118.0",
     "next": "15.5.28",
@@ -32,6 +36,7 @@
     "eslint-config-next": "15.5.28",
     "openapi-typescript": "7.13.0",
     "tailwindcss": "^4",
-    "typescript": "^5"
+    "typescript": "^5",
+    "wrangler": "4.150.0"
   }
 }

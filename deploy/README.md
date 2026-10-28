@@ -1,5 +1,11 @@
-# Deploying the back end to Azure Container Apps
+# Deploying Vitrina
 
+Two parts, in this order:
+
+1. **Back end** (API and worker) on Azure Container Apps, with `deploy/azure.sh`. It prints the API address.
+2. **Front end** (the dashboard) on Cloudflare Workers at `https://vitrina.alinedlabs.co`, with the API address built into its `/api/v1/*` proxy. Build and deploy it again whenever the API address changes.
+
+## Back end: Azure Container Apps
 The API and the worker run as two container apps from the one image in the repository's
 `Dockerfile`. The database and file storage stay on Supabase. The dashboard is deployed
 separately and reaches the API through its own `/api/v1/*` proxy, so browsers stay
@@ -11,7 +17,7 @@ WhatsApp Cloud API ────────────────────�
                                         jobs table (Supabase) ◄──► vitrina-worker (no ingress)
 ```
 
-## What you need
+### What you need
 
 - The Azure CLI, signed in: `az login`, then `az account set --subscription <id>`.
 - `uv` and this repository, checked out at the commit to deploy.
@@ -26,7 +32,7 @@ WhatsApp Cloud API ────────────────────�
   the production schema and the settings both apps run with (`REPLAY=false`,
   `WHATSAPP_MOCK=false`, `STORAGE_BACKEND=supabase`, the public addresses).
 
-## Deploy
+### Deploy
 
 ```sh
 DRY_RUN=1 deploy/azure.sh   # every az command it would run, secret values as ***
@@ -49,7 +55,7 @@ The script is idempotent. In order, it:
 Every secret becomes a Container Apps secret and reaches the apps as a `secretref`. Values are
 read from `.env` and passed straight to `az`, never echoed.
 
-## After the first deploy
+### After the first deploy
 
 - Point the dashboard's API proxy at the printed address.
 - In the Meta app, set the WhatsApp webhook to `https://<api address>/v1/webhooks/whatsapp`
@@ -57,7 +63,7 @@ read from `.env` and passed straight to `az`, never echoed.
 - `GET /v1/health/providers` with a seller's token shows every dependency. In production each
   row should read `ok`, not `mocked`.
 
-## Operating
+### Operating
 
 ```sh
 az containerapp logs show --name vitrina-api --resource-group vitrina --follow
@@ -68,7 +74,7 @@ az containerapp revision activate --revision <previous> --name vitrina-api --res
 To roll back, activate the previous revision, or run `IMAGE_TAG=<older commit> deploy/azure.sh`
 after `git checkout <older commit>`.
 
-## Notes
+### Notes
 
 - **Sizes.** The API gets the smallest Consumption size (0.25 vCPU, 0.5 GiB). The worker
   starts at 0.5 vCPU and 1 GiB because creative jobs hold images in memory. Each pair must be
@@ -81,3 +87,50 @@ after `git checkout <older commit>`.
 - **Registry access.** The registry's admin user pulls the image (`--registry-username`,
   `--registry-password`). A managed identity with the `AcrPull` role is the stricter
   alternative if the subscription allows role assignments.
+
+## Front end: Cloudflare Workers
+
+The dashboard (`apps/dashboard`, Next.js 15) runs as one Worker built with the OpenNext adapter (`@opennextjs/cloudflare`). `apps/dashboard/wrangler.jsonc` names it `vitrina-dashboard` and attaches the custom domain `vitrina.alinedlabs.co`; Wrangler creates the DNS record and the certificate on deploy.
+
+### What you need
+
+- Node 20.9 or later and pnpm, and this repository at the commit to deploy.
+- Cloudflare access to the account that holds the `alinedlabs.co` zone: `pnpm exec wrangler login` in `apps/dashboard`, or a `CLOUDFLARE_API_TOKEN` with Workers Scripts and Workers Routes edit rights on that zone.
+- `apps/dashboard/.env.production.local` (git-ignored). The build reads these values and fixes them into the bundle:
+
+  ```sh
+  API_PROXY_TARGET=https://<api address printed by deploy/azure.sh>
+  NEXT_PUBLIC_SUPABASE_URL=<the Supabase project URL>
+  NEXT_PUBLIC_SUPABASE_ANON_KEY=<the project's anon (publishable) key>
+  ```
+
+  Sign-in is email and password, so Supabase needs no redirect URL for the domain.
+
+### Deploy
+
+```sh
+cd apps/dashboard
+pnpm install --frozen-lockfile
+pnpm run cf:preview   # optional: the same Worker locally on http://localhost:8787
+pnpm run cf:deploy    # next build, the OpenNext bundle, then wrangler deploy
+```
+
+### Check
+
+- `https://vitrina.alinedlabs.co` sends a signed-out visitor to `/login`; signing in shows the panel.
+- `https://vitrina.alinedlabs.co/foto` opens without signing in (the public showcase).
+- `curl -fsS https://vitrina.alinedlabs.co/api/v1/health` answers through the proxy.
+
+### Operating
+
+```sh
+pnpm exec wrangler deployments list   # recent versions
+pnpm exec wrangler rollback           # back to the previous version
+pnpm exec wrangler tail               # live logs
+```
+
+### Notes
+
+- **Visitor address.** The proxy does not forward `X-Forwarded-For` or `CF-Connecting-IP` to the API, so the middleware sends the visitor's address as `X-Vitrina-Visitor`, always overwriting any value the browser sent. The public showcase's five-an-hour limit reads it; a call made straight to the API is limited by its own address.
+- **Versions.** Next.js 15.5.28 with `@opennextjs/cloudflare` 1.20.13: 1.20.11 refused Next.js 15 and failed at run time with Next.js 16.4, and Next.js 16.0–16.4.0 carries critical advisories. CI builds the Worker bundle on every pull request (`pnpm run cf:build`).
+- **Outbound fetches.** `global_fetch_strictly_public` keeps the Worker from fetching private addresses; the API address must be public, as Container Apps' external ingress is.
