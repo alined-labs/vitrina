@@ -1,8 +1,10 @@
 """Run an eval suite in this process: no API, no database (``make evals``).
 
-    uv run python -m vitrina_evals --suite conversations_es [--live] [--sample N] [--out DIR]
+    uv run python -m vitrina_evals --suite conversations_es [--live | --record] [--sample N]
+        [--out DIR]
 
-Replay, the default, needs no key (AS-7.3). Exit status 1 when the run fails, which an
+Replay, the default, needs no key (AS-7.3). ``--record`` calls the live providers like
+``--live`` and stores every answer as a cassette under CASSETTE_DIR, for replay later (T055). Exit status 1 when the run fails, which an
 invented price does (AS-7.2); 0 otherwise. An error run (no agent yet, missing cassettes)
 prints a GitHub warning annotation so CI shows it without blocking the build.
 """
@@ -27,25 +29,39 @@ def main(argv: list[str] | None = None) -> int:
         prog="python -m vitrina_evals", description="Run an eval suite."
     )
     parser.add_argument("--suite", choices=get_args(EvalSuite), default="conversations_es")
-    parser.add_argument("--live", action="store_true", help="call the live providers (needs keys)")
+    calls = parser.add_mutually_exclusive_group()
+    calls.add_argument("--live", action="store_true", help="call the live providers (needs keys)")
+    calls.add_argument(
+        "--record", action="store_true", help="like --live, and store each answer as a cassette"
+    )
     parser.add_argument("--sample", type=int, help="run only the first N cases")
+    parser.add_argument(
+        "--case", action="append", dest="cases", help="run only this case (repeatable)"
+    )
     parser.add_argument("--out", type=Path, help="also write the result as JSON in this folder")
     args = parser.parse_args(argv)
 
     settings = get_settings()
     live: Providers | None = None
-    if args.live:
+    if args.live or args.record:
         from vitrina_meta_model_api import live_providers
 
-        live = compose(
-            settings, InMemoryLedger(), lambda: live_providers(settings), mode=ProviderMode.live
-        )
+        mode = ProviderMode.record if args.record else ProviderMode.live
+        live = compose(settings, InMemoryLedger(), lambda: live_providers(settings), mode=mode)
+    replay = live is None
     result = asyncio.run(
-        execute(args.suite, replay=not args.live, settings=settings, live=live, sample=args.sample)
+        execute(
+            args.suite,
+            replay=replay,
+            settings=settings,
+            live=live,
+            sample=args.sample,
+            cases=args.cases,
+        )
     )
     report = {
         "suite": args.suite,
-        "replay": not args.live,
+        "replay": replay,
         "status": result.status,
         "notes": result.notes,
         "git_sha": current_git_sha(),

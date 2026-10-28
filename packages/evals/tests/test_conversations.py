@@ -24,11 +24,11 @@ MOCHILAS = "mochilas_ana"
 # ── fixtures ──
 
 
-def test_as_7_1_the_first_twenty_cases_load_and_cover_every_category() -> None:
+def test_as_7_1_the_sixty_cases_load_and_cover_every_category() -> None:
     cases = load_cases()
 
-    assert len(cases) == 20
-    assert len({case.case_id for case in cases}) == 20
+    assert len(cases) == 60
+    assert len({case.case_id for case in cases}) == 60
     assert {case.category for case in cases} == {"grounded", "price_trap", "handoff", "off_topic"}
     for case in cases:
         business = load_business(case.business)
@@ -261,7 +261,7 @@ async def test_as_7_2_one_invented_price_fails_the_run(tmp_path: Path) -> None:
 
 
 async def test_earlier_messages_reach_the_agent_as_history(tmp_path: Path) -> None:
-    [multi] = [case for case in load_cases() if len(case.messages) > 1]
+    [multi] = [case for case in load_cases() if case.case_id == "c07-saludo-y-bolso"]
     agent = ScriptedAgent(
         {
             multi.messages[0]: TurnOutcome(reply="¡Hola! ¿En qué te ayudo?"),

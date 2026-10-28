@@ -5,7 +5,6 @@ Recorded inputs for the evaluation suites and replay mode (plan.md §4.5). Synth
 | Path | Contents | Tasks |
 | --- | --- | --- |
 | `conversations_es.jsonl` | 60 Spanish conversations: grounded answers, invented-price traps, handoff triggers, off-topic requests, voice-note transcripts, image matches | T028 (cases 1–20), T055 (21–60) |
-| `conversations_es_t055.jsonl` | Cases 21–60, same format, written by MX2: voice-note transcripts (`voz`), photo notes as the engine reads them (`[Foto del cliente: …]`, `foto`), handoffs and sensitive topics, off-topic and prompt injection. MX0 appends them to `conversations_es.jsonl` when recording (the suite's tests count 20 today) | T055 |
 | `sellers/*.json` | The synthetic businesses those conversations talk to: seller, products and facts with stable keys (drafts included, which the agent must never cite) | T028 |
 | `fidelity/good/`, `fidelity/altered/` | 10 good scenes and 10 altered scenes for the fidelity verifier | T033 |
 | `consent_cases.yaml` | 40 time and consent cases for the eligibility evaluator | T063, T065 |

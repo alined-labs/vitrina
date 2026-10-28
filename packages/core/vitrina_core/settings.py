@@ -15,6 +15,8 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 REPO_ROOT = Path(__file__).resolve().parents[3]
 
 ModelRole = Literal["agent", "strategist", "image", "segment", "transcribe", "embed"]
+# Muse Spark and Wonder reason before they answer; "none" is refused (400) by both (T011).
+ReasoningEffort = Literal["minimal", "low", "medium", "high", "xhigh", "max"]
 
 
 class Settings(BaseSettings):
@@ -89,6 +91,10 @@ class Settings(BaseSettings):
     health_cache_s: float = 30.0
     agent_max_tool_rounds: int = 4  # plan.md §4.1
     agent_turn_budget_s: float = 20.0  # plan.md §4.1
+    # Spark's hidden reasoning is most of a turn's time: "low" kept the cited answers at about
+    # 8.8 s p50 live, and the three-key scope check needs the least (MX2, 2026-10-28).
+    agent_reasoning_effort: ReasoningEffort = "low"
+    scope_reasoning_effort: ReasoningEffort = "minimal"
     retrieval_top_k: int = 5  # plan.md §4.1
     idempotency_ttl_hours: int = 24  # data-model.md idempotency_keys
 

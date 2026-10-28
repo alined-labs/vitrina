@@ -1,8 +1,17 @@
-"""Time-ordered UUIDv7 ids (RFC 9562), so cursors can page on ``(created_at, id)``."""
+"""Time-ordered UUIDv7 ids (RFC 9562), so cursors can page on ``(created_at, id)``.
 
+``seeded_ids(seed)`` makes ``new_id`` repeatable inside a block. Evals replay recorded model
+calls (AS-7.3), and an id a tool hands back to the model is part of the next request, so a
+dry-run turn must mint the same ids on every run.
+"""
+
+import itertools
 import os
+from collections.abc import Callable, Iterator
+from contextlib import contextmanager
+from contextvars import ContextVar
 from datetime import UTC, datetime, timedelta
-from uuid import UUID
+from uuid import UUID, uuid5
 
 NIL = UUID(int=0)
 EPOCH = datetime(1970, 1, 1, tzinfo=UTC)
@@ -27,5 +36,21 @@ def uuid7_time(value: UUID) -> datetime:
     return EPOCH + timedelta(milliseconds=value.int >> 80)
 
 
+SEEDED_NAMESPACE = UUID("0192f2e7-9c41-7b5a-8d03-5e7f1a2b4c69")
+_seeded: ContextVar[Callable[[], UUID] | None] = ContextVar("vitrina_seeded_ids", default=None)
+
+
 def new_id() -> UUID:
-    return uuid7()
+    seeded = _seeded.get()
+    return seeded() if seeded is not None else uuid7()
+
+
+@contextmanager
+def seeded_ids(seed: str) -> Iterator[None]:
+    """Inside the block ``new_id`` returns ``uuid5(seed, n)`` for n = 0, 1, … in call order."""
+    counter = itertools.count()
+    token = _seeded.set(lambda: uuid5(SEEDED_NAMESPACE, f"{seed}:{next(counter)}"))
+    try:
+        yield
+    finally:
+        _seeded.reset(token)
