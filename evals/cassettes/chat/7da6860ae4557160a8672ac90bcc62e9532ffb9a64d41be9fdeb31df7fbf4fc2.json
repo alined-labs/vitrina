@@ -1,6 +1,6 @@
 {
   "kind": "chat",
-  "recorded_at": "2026-10-28T20:24:16+00:00",
+  "recorded_at": "2026-10-28T21:10:01+00:00",
   "request": {
     "messages": [
       {
@@ -54,20 +54,21 @@
   "response": {
     "finish_reason": "stop",
     "message": {
-      "content": "{\"in_scope\":true,\"reason\":\"Pregunta si producto contiene maní por alergia\",\"sensitive\":\"medical\"}",
+      "content": "{\"in_scope\": true, \"reason\": \"Pregunta si el producto contiene maní por alergia\", \"sensitive\": \"medical\"}",
       "role": "assistant",
       "tool_call_id": null,
       "tool_calls": []
     },
     "meta": {
       "cost_usd": null,
-      "latency_ms": 2000,
+      "latency_ms": 2065,
       "model": "muse-spark-1.3",
       "provider": "meta_model_api",
       "purpose": "classify",
       "replayed": false,
+      "tokens_cached": 369,
       "tokens_in": 442,
-      "tokens_out": 300
+      "tokens_out": 284
     }
   }
 }
