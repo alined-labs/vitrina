@@ -132,3 +132,20 @@ def test_nfr_01_live_turns_reason_little_and_the_scope_check_least() -> None:
     deps = agent_deps(config, providers(config).chat, InMemoryCatalog())
 
     assert (deps.reasoning_effort, deps.scope_reasoning_effort) == ("low", "minimal")
+
+
+def test_nfr_01_the_reasoning_efforts_come_from_the_settings() -> None:
+    config = settings(
+        model_agent="spark-test", agent_reasoning_effort="medium", scope_reasoning_effort="low"
+    )
+
+    deps = agent_deps(config, providers(config).chat, InMemoryCatalog())
+
+    assert (deps.reasoning_effort, deps.scope_reasoning_effort) == ("medium", "low")
+
+
+def test_t055_the_evals_can_build_the_production_agent_deps() -> None:
+    from vitrina_conversation import api
+
+    assert api.agent_deps is agent_deps
+    assert "agent_deps" in api.__all__
