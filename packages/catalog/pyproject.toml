@@ -6,6 +6,7 @@ requires-python = ">=3.14,<3.15"
 dependencies = [
     "pgvector>=0.3",
     "pydantic>=2.14",
+    "snowballstemmer>=3.1.1",
     "sqlalchemy[asyncio]>=2.0.36",
     "vitrina-core",
 ]
