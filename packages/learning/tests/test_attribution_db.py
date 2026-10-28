@@ -99,3 +99,37 @@ async def test_db_as_4_1_ad_events_become_the_funnel_tags_and_ad_stats(
     assert await ad_stats(db_sessions, SELLER, [ad, other_ad]) == {
         ad: AdStats(chats=2, reservations=1, bookings=1)
     }
+
+
+@pytest.mark.db
+async def test_db_as_4_1_a_chat_that_never_names_an_ad_counts_as_unattributed(
+    db_sessions: async_sessionmaker[AsyncSession],
+) -> None:
+    now = datetime.now(UTC)
+    async with db_sessions() as session, session.begin():
+        ad = await approved_ad(session, SELLER, "+573000000003")
+        silent = await conversation(session, SELLER)
+        named_later = await conversation(session, SELLER)
+        from_ad = await conversation(session, SELLER)
+        # A chat opens with no ad; one names the ad's code later (data-model.md §4).
+        for chat, ads_named in ((silent, [None]), (named_later, [None, ad]), (from_ad, [ad])):
+            for step, named in enumerate(ads_named):
+                await emit(
+                    session,
+                    "ad.chat_started",
+                    {
+                        "ad_id": str(named) if named else None,
+                        "conversation_id": str(chat),
+                        "occurred_at": (now + timedelta(seconds=step)).isoformat(),
+                    },
+                    seller_id=SELLER,
+                )
+    assert await AttributionConsumer().sweep(db_sessions, now) == 4
+
+    start, end = (now - timedelta(days=1)).date(), (now + timedelta(days=1)).date()
+    report = await attribution_report(
+        db_sessions, SELLER, start, end, ads=CreativeAds(AdStore(db_sessions))
+    )
+
+    assert report.unattributed_chats == 1
+    assert [row.chats for row in report.ads] == [2]
