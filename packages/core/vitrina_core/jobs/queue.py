@@ -176,6 +176,19 @@ class PostgresJobQueue:
                 job_id, status="failed", error=error, finished_at=sa.func.now(), locked_by=None
             )
 
+    async def backlog(self) -> tuple[int, float]:
+        """Due jobs nobody has claimed yet: how many, and the longest wait in seconds."""
+        waited = sa.func.extract("epoch", sa.func.now() - jobs.c.run_after)
+        async with self.sessions() as session:
+            due, longest = (
+                await session.execute(
+                    sa.select(sa.func.count(), sa.func.coalesce(sa.func.max(waited), 0)).where(
+                        jobs.c.status == "queued", jobs.c.run_after <= sa.func.now()
+                    )
+                )
+            ).one()
+        return int(due), float(longest)
+
     async def requeue_stalled(self, stalled_after: timedelta) -> int:
         async with self.sessions() as session, session.begin():
             result = await session.execute(

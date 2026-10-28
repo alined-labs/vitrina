@@ -36,6 +36,7 @@ from vitrina_core.auth import (
     TokenVerifier,
 )
 from vitrina_core.db import create_engine, create_session_factory
+from vitrina_core.health import HealthCache
 from vitrina_core.http import (
     IdempotencyMiddleware,
     IdempotencyStore,
@@ -49,7 +50,7 @@ from vitrina_core.ledger import InMemoryLedger, PostgresLedger, SpendWatch
 from vitrina_core.providers.compose import compose
 from vitrina_core.settings import Settings, get_settings
 from vitrina_core.storage import LocalBlobStore, blob_store, create_blob_router
-from vitrina_evals.api import InMemoryEvalRuns, PostgresEvalRuns
+from vitrina_evals.api import InMemoryEvalRuns, PostgresEvalRuns, load_counters
 from vitrina_local_mock import MockOutbox, create_phone_router
 from vitrina_meta_model_api import live_providers
 
@@ -109,6 +110,9 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.state.eval_runs = (
         PostgresEvalRuns(app.state.sessions) if app.state.sessions else InMemoryEvalRuns()
     )
+    # GET /metrics/summary: each module's counters (vitrina.metrics); GET /health/providers.
+    app.state.live_counters = load_counters()
+    app.state.health_cache = HealthCache(settings.health_cache_s)
     identity = (
         ContactIdentity(pepper=settings.contact_hash_pepper, key=settings.contact_encryption_key)
         if settings.contact_hash_pepper and settings.contact_encryption_key

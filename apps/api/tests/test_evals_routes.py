@@ -88,3 +88,17 @@ async def test_the_metrics_page_shows_the_latest_finished_run(
     assert summary["latest_eval"]["run_id"] == str(run.id)
     assert summary["latest_eval"]["metrics"] == {"invented_price_rate": 0.05}
     assert summary["live"] == {}
+
+
+def test_fr_070_the_summary_carries_the_live_counters_modules_report(client: TestClient) -> None:
+    async def count(_sessions: object, _seller: UUID, _since: object) -> dict[str, int]:
+        return {"conversations_today": 4}
+
+    app = client.app
+    app.state.live_counters = [count]  # type: ignore[attr-defined]
+    app.state.sessions = object()  # type: ignore[attr-defined]  # counters run with a database
+
+    response = client.get("/v1/metrics/summary", headers=bearer())
+
+    assert response.status_code == 200
+    assert response.json()["live"] == {"conversations_today": 4}
