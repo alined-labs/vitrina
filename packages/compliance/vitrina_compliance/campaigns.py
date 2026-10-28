@@ -42,6 +42,8 @@ CAMPAIGN_SEND = "compliance.campaign_send"
 CampaignStatus = Literal["preview", "scheduled", "sending", "sent", "cancelled"]
 ConflictCode = Literal["TEMPLATE_NOT_APPROVED", "CAMPAIGN_ALREADY_SENT"]
 
+# The template's name in WhatsApp Manager, language es (MX2's Q04 handoff).
+TEMPLATE_NAME = "vitrina_reactivacion"
 # The approved marketing template (Q04: submitted by Daniel in WhatsApp Manager). Four body
 # parameters, no price, no claim about stock: the objection line only invites a reply.
 TEMPLATE_BODY = (
