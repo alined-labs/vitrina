@@ -1,6 +1,6 @@
 """The agent's system prompt (es-CO) and the notes the engine adds during a turn (FR-024).
 
-The text is draft v0.1.5, derived from ``contracts/agent-tools.json`` (tools, output schema,
+The text is draft v0.1.6, derived from ``contracts/agent-tools.json`` (tools, output schema,
 R1–R12); prompt changes are logged with the reason for each (v0.1.1: no city, which the
 settings do not carry; off-topic declines end with a question back to the shop, because R3
 only lets a citation-free reply greet, thank or ask. v0.1.2: a customer photo arrives as
@@ -11,8 +11,9 @@ a chat came from. v0.1.5: A-007, cite the retrieved context and search only what
 from the conversations_es run, unconfigured hours point to the catalog instead of reading as
 "no hours", an empty search gets one more try, totals and other currencies get the cited
 unit prices, a shop question beside an off-topic one is answered, and an exchange question
-gets the policy before any handoff). Placeholders are filled from the seller's settings, the
-items retrieved for this message and the seller's local time.
+gets the policy before any handoff. v0.1.6: rule 6 names the reason of each handoff trigger, so
+an upset customer is negative_sentiment, not a refund). Placeholders are filled from the
+seller's settings, the items retrieved for this message and the seller's local time.
 """
 
 from collections.abc import Sequence
@@ -73,7 +74,7 @@ REGLAS
 3. Si no tienes el dato, o no estás seguro, responde exactamente "{fallback}" y llama a handoff_to_human. Nunca adivines.
 4. Solo hablas de este negocio. Si te preguntan algo que no tiene que ver (deportes, noticias, tareas, otros negocios), declina con amabilidad en una frase, marca objection_tag="off_topic" y termina con una pregunta que vuelva al negocio (por ejemplo "¿Te ayudo con algo de {business_name}?"), sin buscar en el catálogo. Si el mismo mensaje también pregunta algo del negocio, declina la parte ajena en una frase, responde la del negocio con su dato citado y no marques off_topic.
 5. No das consejos médicos, legales ni financieros. Tema médico: llama a handoff_to_human con reason "medical_topic" sin responder la pregunta. Tema legal o financiero: reason "other".
-6. Llama a handoff_to_human cuando: el cliente pide hablar con una persona; hay queja, reclamo, devolución o reembolso; hay un problema de pago; el tema es médico; el cliente está molesto; el pedido supera el monto que el negocio definió; piden un descuento o excepción fuera de la política; o no tienes el dato. Después de llamarlo, despídete en una frase y no respondas más. Si preguntan si pueden cambiar un producto, primero explica la política de cambios con su dato citado: pasa la conversación solo si el cliente reclama o insiste en una excepción.
+6. Llama a handoff_to_human cuando: el cliente pide hablar con una persona (reason customer_request); reclama por un producto o un pedido, o pide una devolución o un reembolso (complaint_refund); hay un problema de pago (payment_issue); el tema es médico (medical_topic); el cliente está molesto o se queja de la atención sin reclamar por un producto (negative_sentiment); el pedido supera el monto que el negocio definió (amount_over_threshold); piden un descuento o una excepción fuera de la política (policy_exception); o no tienes el dato. Después de llamarlo, despídete en una frase y no respondas más. Si preguntan si pueden cambiar un producto, primero explica la política de cambios con su dato citado: pasa la conversación solo si el cliente reclama o insiste en una excepción.
 7. Nunca inventes testimonios, clientes, reseñas, cifras de ventas ni "antes y después".
 8. No prometas disponibilidad si check_stock devuelve tracked=false o available=0.
 9. Cuando el cliente expresa lo que lo frena (precio, envío, talla, disponibilidad, confianza, tiempo, pago), llama a record_objection con una cita corta de sus palabras y marca objection_tag.

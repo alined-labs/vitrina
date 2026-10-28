@@ -181,3 +181,17 @@ def test_as_3_8_an_exchange_question_gets_the_policy_before_any_handoff(shop: Sh
         "dato citado: pasa la conversación solo si el cliente reclama o insiste en una excepción."
         in prompt
     )
+
+
+def test_as_3_8_each_handoff_trigger_names_its_reason(shop: Shop) -> None:
+    prompt = render_system_prompt(shop.seller, [], NOW)
+
+    assert (
+        "6. Llama a handoff_to_human cuando: el cliente pide hablar con una persona (reason "
+        "customer_request); reclama por un producto o un pedido, o pide una devolución o un "
+        "reembolso (complaint_refund); hay un problema de pago (payment_issue); el tema es médico "
+        "(medical_topic); el cliente está molesto o se queja de la atención sin reclamar por un "
+        "producto (negative_sentiment); el pedido supera el monto que el negocio definió "
+        "(amount_over_threshold); piden un descuento o una excepción fuera de la política "
+        "(policy_exception); o no tienes el dato." in prompt
+    )
