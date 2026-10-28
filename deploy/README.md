@@ -79,9 +79,14 @@ after `git checkout <older commit>`.
 - **Sizes.** The API gets the smallest Consumption size (0.25 vCPU, 0.5 GiB). The worker
   starts at 0.5 vCPU and 1 GiB because creative jobs hold images in memory. Each pair must be
   one of the allowed combinations (0.25/0.5Gi, 0.5/1.0Gi, 0.75/1.5Gi, …).
-- **Client addresses.** uvicorn trusts the platform ingress's forwarded address
-  (`FORWARDED_ALLOW_IPS=*`), so per-visitor limits such as the public showcase's see the
-  visitor, not the proxy. Only the ingress can reach the container, which makes `*` safe there.
+- **Client addresses.** The ingress appends the caller's address to any `X-Forwarded-For` the
+  caller sent, so only the rightmost entry comes from Azure. uvicorn trusts loopback and
+  private peers (`FORWARDED_ALLOW_IPS`) and takes the rightmost entry they did not add, so
+  per-visitor limits such as the public showcase's see the caller, not the proxy. Never set
+  `*`: uvicorn then reads the leftmost entry, which the caller wrote. If the ingress ever
+  connects from outside those ranges, uvicorn ignores the header and the ingress counts as
+  the client: the limit gets coarser, never forgeable. After a deploy, the API's log should show
+  your own address for your `curl …/v1/health`.
 - **CORS.** Browsers call through the dashboard's proxy, which needs no CORS. `CORS_ORIGINS`
   allows a direct call from the dashboard's origin as well.
 - **Registry access.** The registry's admin user pulls the image (`--registry-username`,

@@ -1,12 +1,16 @@
-"""deploy/azure.sh in dry-run mode: the az commands it would run, with no secret in sight."""
+"""deploy/azure.sh in dry-run mode (the az commands it would run, with no secret in sight) and
+the client address its settings let the API see behind the ingress."""
 
 import os
 import re
+import shlex
 import subprocess
 from pathlib import Path
 
 import pytest
 from pydantic import SecretStr
+from starlette.types import Receive, Scope, Send
+from uvicorn.middleware.proxy_headers import ProxyHeadersMiddleware
 
 from vitrina_core.settings import REPO_ROOT, Settings
 
@@ -25,6 +29,40 @@ def secret_settings() -> set[str]:
         for name, field in Settings.model_fields.items()
         if SecretStr in getattr(field.annotation, "__args__", (field.annotation,))
     }
+
+
+def deploy_settings() -> dict[str, str]:
+    """The SETTINGS both apps run with, as bash reads them from the example config."""
+    out = subprocess.run(
+        ["bash", "-c", 'source "$1" && printf "%s\\n" "${SETTINGS[@]}"', "bash", str(CONFIG)],
+        capture_output=True,
+        text=True,
+        check=True,
+    ).stdout
+    return dict(line.split("=", 1) for line in out.splitlines())
+
+
+async def client_seen(peer: str, forwarded_for: str) -> str:
+    """The client address the API sees, through uvicorn's own proxy-header middleware."""
+    seen: list[str] = []
+
+    async def app(scope: Scope, receive: Receive, send: Send) -> None:
+        seen.append(scope["client"][0])
+
+    async def receive() -> dict[str, object]:
+        return {"type": "http.disconnect"}
+
+    async def send(message: dict[str, object]) -> None:
+        return None
+
+    middleware = ProxyHeadersMiddleware(app, trusted_hosts=deploy_settings()["FORWARDED_ALLOW_IPS"])
+    scope = {
+        "type": "http",
+        "client": (peer, 50000),
+        "headers": [(b"x-forwarded-for", forwarded_for.encode())],
+    }
+    await middleware(scope, receive, send)  # type: ignore[arg-type]
+    return seen[0]
 
 
 def dry_run(tmp_path: Path, *, exists: bool = False) -> tuple[str, dict[str, str]]:
@@ -77,7 +115,9 @@ def test_a_first_deploy_creates_everything_and_never_prints_a_secret(tmp_path: P
     assert "--command vitrina-worker" in worker
     assert "DATABASE_URL=secretref:database-url" in api
     assert "MODEL_AGENT=muse-spark-1.3" in api
-    assert "FORWARDED_ALLOW_IPS=\\*" in api
+    forwarded = f"FORWARDED_ALLOW_IPS={deploy_settings()['FORWARDED_ALLOW_IPS']}"
+    assert forwarded in shlex.split(api)
+    assert forwarded in shlex.split(worker)
     for value in values.values():
         if value.startswith("fake-"):
             assert value not in out
@@ -94,6 +134,23 @@ def test_a_second_deploy_updates_the_apps_to_the_new_image(tmp_path: Path) -> No
     assert all("--image vitrinaregistry.azurecr.io/vitrina:test" in line for line in updates)
     assert all("--set-env-vars" in line for line in updates)
     assert not any(value in out for value in values.values() if value.startswith("fake-"))
+
+
+# The Container Apps ingress appends the caller's address to any X-Forwarded-For the caller
+# sent, so the rightmost entry is the only one Azure vouches for. The ingress's own address
+# is not documented: one peer per trusted range.
+INGRESS_PEERS = ["127.0.0.1", "10.240.0.7", "100.100.0.5", "172.16.3.4", "192.168.1.9"]
+
+
+@pytest.mark.parametrize("peer", INGRESS_PEERS)
+async def test_as_8_2_the_visitor_is_the_address_the_ingress_appended(peer: str) -> None:
+    assert await client_seen(peer, "203.0.113.9") == "203.0.113.9"
+    assert await client_seen(peer, "192.0.2.1, 203.0.113.9") == "203.0.113.9"
+    assert await client_seen(peer, "10.0.0.1, 203.0.113.9") == "203.0.113.9"
+
+
+async def test_as_8_2_a_peer_outside_the_trusted_ranges_cannot_forward_an_address() -> None:
+    assert await client_seen("198.51.100.7", "192.0.2.1") == "198.51.100.7"
 
 
 def test_without_its_config_the_script_says_what_is_missing(tmp_path: Path) -> None:
