@@ -30,3 +30,5 @@ Thumbs.db
 *.swp
 .idea/
 .vscode/
+# The deploy settings a deploy operator fills in (deploy/README.md).
+deploy/azure.env

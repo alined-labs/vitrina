@@ -77,3 +77,34 @@ async def test_local_blobs_are_served_on_a_route_outside_the_contract(tmp_path: 
     assert response.status_code == 200
     assert response.content == b"jpeg bytes"
     assert not any(path.startswith("/local-blobs") for path in app.openapi()["paths"])
+
+
+DASHBOARD = "https://vitrina.alinedlabs.co"
+
+
+def test_cors_lets_the_configured_dashboard_call_the_api() -> None:
+    app = create_app(Settings(_env_file=None, cors_origins=f"{DASHBOARD}, https://preview.example"))  # type: ignore[call-arg]
+    client = TestClient(app)
+
+    preflight = client.options(
+        "/v1/products",
+        headers={
+            "Origin": DASHBOARD,
+            "Access-Control-Request-Method": "POST",
+            "Access-Control-Request-Headers": "authorization, idempotency-key",
+        },
+    )
+    stranger = client.get("/v1/health", headers={"Origin": "https://elsewhere.example"})
+
+    assert preflight.status_code == 200
+    assert preflight.headers["access-control-allow-origin"] == DASHBOARD
+    assert "idempotency-key" in preflight.headers["access-control-allow-headers"].lower()
+    assert "access-control-allow-origin" not in stranger.headers
+
+
+def test_without_cors_origins_the_api_sends_no_cross_origin_headers() -> None:
+    client = TestClient(create_app(Settings(_env_file=None)))  # type: ignore[call-arg]
+
+    response = client.get("/v1/health", headers={"Origin": DASHBOARD})
+
+    assert "access-control-allow-origin" not in response.headers

@@ -5,6 +5,7 @@ from contextlib import asynccontextmanager
 from importlib.metadata import version
 
 from fastapi import FastAPI
+from fastapi.middleware.cors import CORSMiddleware
 
 from vitrina_api.routers import (
     ads,
@@ -162,6 +163,17 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         else InMemoryIdempotencyStore()
     )
     app.add_middleware(IdempotencyMiddleware, store=store, scope=app.state.auth.idempotency_scope)
-    # Added last, so outermost: every response, errors included, carries X-Request-Id.
+    # Added late, so outer: every response, errors included, carries X-Request-Id.
     app.add_middleware(RequestIdMiddleware)
+    origins = [
+        origin.strip() for origin in (settings.cors_origins or "").split(",") if origin.strip()
+    ]
+    if origins:  # outermost: preflights are answered before anything else runs
+        app.add_middleware(
+            CORSMiddleware,
+            allow_origins=origins,
+            allow_methods=["GET", "POST", "PATCH", "DELETE"],
+            allow_headers=["Authorization", "Content-Type", "Idempotency-Key", "X-Request-Id"],
+            expose_headers=["X-Request-Id"],
+        )
     return app

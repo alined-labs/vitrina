@@ -47,6 +47,9 @@ class Settings(BaseSettings):
     public_api_url: str = "http://localhost:8000"
     # The dashboard's public address, for share links and sign-up links (T083).
     public_web_url: str = "http://localhost:3000"
+    # Browser origins allowed to call the API directly, comma-separated (the deployed dashboard).
+    # Unset: no cross-origin headers; a same-origin proxy needs none.
+    cors_origins: str | None = None
 
     # Meta Model API, OpenAI-compatible (plan.md §1, ADR-0003).
     meta_api_base_url: str = "https://api.meta.ai/v1"
