@@ -18,6 +18,9 @@ conversation = "vitrina_conversation.tasks:register"
 [project.entry-points."vitrina.erasure"]
 conversation = "vitrina_conversation.erasure:erase"
 
+[project.entry-points."vitrina.metrics"]
+conversation = "vitrina_conversation.metrics:counters"
+
 [tool.uv.sources]
 vitrina-core = { workspace = true }
 vitrina-catalog = { workspace = true }
