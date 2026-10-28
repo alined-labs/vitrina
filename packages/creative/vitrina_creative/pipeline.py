@@ -14,6 +14,7 @@ from uuid import UUID
 
 from vitrina_core.providers import Blob, ChatModel, ImageModel, Segmenter
 from vitrina_creative.compose import CreativeFormat, compose_scenes
+from vitrina_creative.concept import sam_concept
 from vitrina_creative.copy import BrandVoice, CopyAngle, CopyInput, DroppedCell, write_copy
 from vitrina_creative.judge import RubricJudge, VoicedVariant, judge_copy
 from vitrina_creative.provenance import Provenance, embed_provenance
@@ -90,7 +91,13 @@ async def run_pipeline(
     on_stage: OnStage,
 ) -> PipelineResult:
     await on_stage("segmenting", 0.05)
-    source_id, source, photo = await _best_photo(data, segmenter=segmenter, model=models.segment)
+    # SAM finds nothing for Spanish names, so it gets an English noun (concept.py).
+    concept = await sam_concept(
+        data.product.name, data.product.description, chat=chat, model=models.chat
+    )
+    source_id, source, photo = await _best_photo(
+        data, concept, segmenter=segmenter, model=models.segment
+    )
 
     await on_stage("composing", 0.2)
     scenes = await compose_scenes(
@@ -165,16 +172,14 @@ async def run_pipeline(
 
 
 async def _best_photo(
-    data: PipelineInput, *, segmenter: Segmenter, model: str
+    data: PipelineInput, concept: str, *, segmenter: Segmenter, model: str
 ) -> tuple[UUID, SegmentedPhoto, Blob]:
     """Segment every photo; compose from the one where the product is largest."""
     found: list[tuple[UUID, SegmentedPhoto, Blob]] = []
     last_error: SegmentationError | None = None
     for asset_id, photo in data.photos:
         try:
-            segmented = await segment_photo(
-                photo, label=data.product.name, segmenter=segmenter, model=model
-            )
+            segmented = await segment_photo(photo, label=concept, segmenter=segmenter, model=model)
         except SegmentationError as error:
             last_error = error
             continue

@@ -107,7 +107,7 @@ class SourceProduct:
 
     image: Blob
     mask: Blob
-    # What SAM is asked to find in the scene, e.g. "bolso".
+    # What SAM is asked to find in the scene: an English noun, e.g. "woven bag" (concept.py).
     label: str = "producto"
     # "de" + article + noun for the Spanish reason: "del bolso", "de la camiseta".
     possessive: str = "del producto"
