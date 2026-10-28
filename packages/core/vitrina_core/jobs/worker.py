@@ -74,6 +74,8 @@ class JobContext:
 
 
 Handler = Callable[[JobContext], Awaitable[str | None]]
+# Housekeeping the worker runs on an interval, outside the queue: (sessions, now) -> rows changed.
+Sweep = Callable[[async_sessionmaker[AsyncSession], datetime], Awaitable[int]]
 
 
 @dataclass(frozen=True)
@@ -83,9 +85,17 @@ class Task:
     timeout_s: float = 600.0
 
 
+@dataclass(frozen=True)
+class Periodic:
+    name: str
+    sweep: Sweep
+    every_s: float
+
+
 @dataclass
 class TaskRegistry:
     _tasks: dict[str, Task] = field(default_factory=dict)
+    _periodic: dict[str, Periodic] = field(default_factory=dict)
 
     def add(self, name: str, handler: Handler, *, timeout_s: float = 600.0) -> None:
         if name in self._tasks:
@@ -98,6 +108,15 @@ class TaskRegistry:
             return handler
 
         return decorate
+
+    def every(self, name: str, *, every_s: float, sweep: Sweep) -> None:
+        """A sweep the worker runs every ``every_s`` seconds; it needs the database."""
+        if name in self._periodic:
+            raise ValueError(f"sweep {name!r} is already registered")
+        self._periodic[name] = Periodic(name, sweep, every_s)
+
+    def periodic(self) -> tuple[Periodic, ...]:
+        return tuple(self._periodic.values())
 
     def get(self, name: str) -> Task | None:
         return self._tasks.get(name)
@@ -136,6 +155,7 @@ class Worker:
         heartbeat_s: float = 15.0,
         stalled_after_s: float = STALLED_AFTER_S,
         clock: Callable[[], datetime] = lambda: datetime.now(UTC),
+        monotonic: Callable[[], float] = time.monotonic,
     ) -> None:
         self.queue = queue
         self.registry = registry
@@ -148,6 +168,8 @@ class Worker:
         self.heartbeat_s = heartbeat_s
         self.stalled_after_s = stalled_after_s
         self.clock = clock
+        self.monotonic = monotonic
+        self._next_sweep: dict[str, float] = {}
 
     async def run(self, stop: asyncio.Event) -> None:
         """Process jobs one at a time until ``stop`` is set (one dev process per machine)."""
@@ -158,12 +180,30 @@ class Worker:
                 if time.monotonic() >= next_sweep:
                     await self.queue.requeue_stalled(timedelta(seconds=self.stalled_after_s))
                     next_sweep = time.monotonic() + self.stalled_after_s / 3
+                await self.run_sweeps()
                 ran = await self.run_once()
             except Exception:
                 logger.exception("worker loop error; retrying after the poll interval")
             if not ran:
                 with contextlib.suppress(TimeoutError):
                     await asyncio.wait_for(stop.wait(), self.poll_interval_s)
+
+    async def run_sweeps(self) -> None:
+        """Each due sweep once; one that fails is logged and waits for its next interval."""
+        if self.sessions is None:
+            return
+        for item in self.registry.periodic():
+            now = self.monotonic()
+            if now < self._next_sweep.get(item.name, now):
+                continue
+            self._next_sweep[item.name] = now + item.every_s
+            try:
+                changed = await item.sweep(self.sessions, self.clock())
+            except Exception:
+                logger.exception("sweep %s failed; next try in %g s", item.name, item.every_s)
+                continue
+            if changed:
+                logger.info("sweep %s changed %d rows", item.name, changed)
 
     async def run_once(self) -> bool:
         job = await self.queue.claim(self.worker_id, self.registry.names())

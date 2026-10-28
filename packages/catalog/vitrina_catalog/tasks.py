@@ -2,12 +2,16 @@
 
 from vitrina_catalog.importer import IMPORT_TASK, extract_products, save_drafts
 from vitrina_catalog.postgres import PostgresCatalog
+from vitrina_catalog.reservations import expire_reservations
 from vitrina_catalog.sellers import PostgresSellerStore
 from vitrina_catalog.voice import voice_profile
 from vitrina_core.jobs import JobContext, JobFailedError, TaskRegistry
 from vitrina_core.storage import BlobNotFoundError, seller_of
 
 VOICE_PROFILE = "catalog.voice_profile"
+EXPIRE_RESERVATIONS = "catalog.expire_reservations"
+# Stock already ignores expired rows; the status only has to catch up (T052).
+EXPIRE_EVERY_S = 600.0
 
 
 async def build_voice_profile(ctx: JobContext) -> str:
@@ -57,3 +61,4 @@ def register(registry: TaskRegistry) -> None:
     registry.add(VOICE_PROFILE, build_voice_profile, timeout_s=120)
     # One vision call, retried with backoff, and one re-ask on an unusable answer.
     registry.add(IMPORT_TASK, import_products, timeout_s=300)
+    registry.every(EXPIRE_RESERVATIONS, every_s=EXPIRE_EVERY_S, sweep=expire_reservations)
