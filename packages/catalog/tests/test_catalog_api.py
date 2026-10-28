@@ -30,6 +30,25 @@ async def test_as_1_4_shipping_fact_is_retrievable_by_search(catalog: InMemoryCa
     assert [result.kind for result in results] == ["shipping"]
 
 
+async def test_as_1_4_a_plural_and_its_singular_find_each_other(catalog: InMemoryCatalog) -> None:
+    closed = catalog.add_fact(SELLER, "hours", "Los domingos no hay atención")
+    bracelet = catalog.add_product(SELLER, "Manilla tejida", price_cop=25000)
+
+    assert [result.id for result in await catalog.search(SELLER, "¿abren el domingo?")] == [closed]
+    assert [result.id for result in await catalog.search(SELLER, "manillas")] == [bracelet]
+
+
+async def test_as_1_4_a_question_that_names_a_kind_finds_its_facts(
+    catalog: InMemoryCatalog,
+) -> None:
+    lunch = catalog.add_fact(SELLER, "hours", "Almuerzos de lunes a viernes, 12 a 3 pm")
+    catalog.add_fact(SELLER, "payment", "Recibimos Nequi y transferencia")
+
+    results = await catalog.search(SELLER, "horario sábado")
+
+    assert [result.id for result in results] == [lunch]
+
+
 async def test_r1_draft_and_archived_items_are_never_returned(catalog: InMemoryCatalog) -> None:
     draft = catalog.add_product(SELLER, "Bolso tejido", price_cop=85000, status="draft")
     catalog.add_product(SELLER, "Bolso de cuero", price_cop=120000, status="archived")

@@ -4,6 +4,8 @@ import re
 import unicodedata
 from collections.abc import Mapping
 
+import snowballstemmer
+
 from vitrina_core.money import amounts_cop, format_cop
 
 # Function words that would otherwise match every document.
@@ -59,6 +61,31 @@ def fold(text: str) -> str:
 def tokens(text: str) -> set[str]:
     """Lowercase, accent-free word set without function words."""
     return {word for word in re.findall(r"[a-z0-9ñ]+", fold(text)) if word not in STOPWORDS}
+
+
+# Snowball's Spanish stemmer, the one behind Postgres's `spanish` text search configuration,
+# so the in-memory catalog matches words the way the database does.
+_SPANISH = snowballstemmer.stemmer("spanish")
+
+# Each fact kind's Spanish name, as the agent says it. A question that names a kind ("¿cuál es
+# el horario?") finds that kind's facts even when their text never uses the word.
+FACT_KIND_NAMES: Mapping[str, str] = {
+    "shipping": "envío",
+    "payment": "pago",
+    "policy": "política",
+    "hours": "horario",
+}
+
+
+def stems(text: str) -> set[str]:
+    """``tokens`` reduced to Spanish stems: plurals and gender meet ("manillas", "Manilla")."""
+    return {_SPANISH.stemWord(word) for word in tokens(text)}
+
+
+def named_kinds(query: str) -> list[str]:
+    """The fact kinds whose Spanish name the query says, in a stable order."""
+    words = stems(query)
+    return sorted(kind for kind, name in FACT_KIND_NAMES.items() if stems(name) <= words)
 
 
 def product_amounts(

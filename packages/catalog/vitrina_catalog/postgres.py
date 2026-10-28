@@ -41,7 +41,7 @@ from vitrina_catalog.schemas import (
     ProductUpdate,
 )
 from vitrina_catalog.tables import facts, products, reservations
-from vitrina_catalog.text import describe_product, product_amounts, tokens
+from vitrina_catalog.text import describe_product, named_kinds, product_amounts, tokens
 from vitrina_core.http import keyset_page, next_cursor
 from vitrina_core.ids import new_id
 from vitrina_core.money import amounts_cop
@@ -386,6 +386,15 @@ class PostgresCatalog:
                         .order_by(rank.desc()),
                         "fact",
                     )
+                    # A question that names a kind ("horario") ranks that kind's facts too,
+                    # whatever their text says (FACT_KIND_NAMES).
+                    if named := named_kinds(query):
+                        await collect(
+                            sa.select(facts.c.id)
+                            .where(active_facts, facts.c.kind.in_(named))
+                            .order_by(facts.c.created_at.desc(), facts.c.id),
+                            "fact",
+                        )
             if vector is not None:
                 if include_products:
                     await collect(

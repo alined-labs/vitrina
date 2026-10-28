@@ -33,7 +33,7 @@ from vitrina_catalog.schemas import (
     ProductSource,
     ProductUpdate,
 )
-from vitrina_catalog.text import describe_product, product_amounts, tokens
+from vitrina_catalog.text import FACT_KIND_NAMES, describe_product, product_amounts, stems
 from vitrina_core.http import decode_cursor, encode_cursor
 from vitrina_core.ids import new_id
 from vitrina_core.money import amounts_cop
@@ -96,7 +96,8 @@ def _cosine(left: Sequence[float], right: Sequence[float]) -> float:
 
 
 def _overlap(query: set[str], text: str) -> float:
-    return len(query & tokens(text)) / len(query) if query else 0.0
+    """The share of the query's stems the text holds (``stems``, as Postgres matches)."""
+    return len(query & stems(text)) / len(query) if query else 0.0
 
 
 def _page[T](
@@ -242,7 +243,7 @@ class InMemoryCatalog:
         status: ProductStatus | None = None,
         q: str | None = None,
     ) -> tuple[list[Product], str | None]:
-        words = tokens(q or "")
+        words = stems(q or "")
         rows = [
             product
             for product in self._products.values()
@@ -363,7 +364,7 @@ class InMemoryCatalog:
         image_embedding: Sequence[float] | None = None,
     ) -> list[SearchResult]:
         wanted = set(kinds)
-        words = tokens(query)
+        words = stems(query)
         hits: list[SearchResult] = []
         if not wanted or "product" in wanted:
             for product in self._products.values():
@@ -390,7 +391,8 @@ class InMemoryCatalog:
                 or (wanted and fact.kind not in wanted)
             ):
                 continue
-            score = _overlap(words, fact.text)
+            # The kind's Spanish name counts as part of the fact (FACT_KIND_NAMES).
+            score = _overlap(words, f"{FACT_KIND_NAMES.get(fact.kind, '')} {fact.text}")
             if score > 0:
                 hits.append(
                     SearchResult(id=fact.id, kind=fact.kind, text=fact.text, score=round(score, 4))

@@ -95,6 +95,25 @@ async def test_db_as_1_4_facts_match_questions_without_accents_and_with_any_word
 
 
 @pytest.mark.db
+async def test_db_as_1_4_a_question_that_names_a_kind_finds_its_facts(
+    db_sessions: async_sessionmaker[AsyncSession],
+) -> None:
+    await setup(db_sessions)
+    catalog = PostgresCatalog(db_sessions)
+    lunch = await catalog.create_fact(
+        SELLER, FactCreate(kind="hours", text="Almuerzos de lunes a viernes, 12 a 3 pm")
+    )
+    await catalog.create_fact(
+        SELLER, FactCreate(kind="payment", text="Recibimos Nequi y transferencia")
+    )
+    await catalog.create_fact(OTHER, FactCreate(kind="hours", text="Abrimos todos los días"))
+
+    results = await catalog.search(SELLER, "¿cuál es el horario del sábado?")
+
+    assert [result.id for result in results] == [lunch.id]
+
+
+@pytest.mark.db
 async def test_db_fr_003_drafts_are_not_retrievable_or_citable_until_approved(
     db_sessions: async_sessionmaker[AsyncSession],
 ) -> None:
