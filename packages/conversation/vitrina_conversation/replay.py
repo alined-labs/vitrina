@@ -6,14 +6,17 @@ replay of the same fixture, never a live conversation), then feeds each message 
 ``process_inbound`` with ``is_replay`` through the messenger it is given, the local mock in
 the worker, so nothing reaches WhatsApp. The gaps between the recorded timestamps are kept,
 divided by ``speed`` (0.1 to 10). Message ids get the session id appended, so a fixture can
-play again without being taken for a redelivery.
+play again without being taken for a redelivery. The agent sees each message's recorded time,
+so a fixture asks the model the same way every time and recorded outputs (cassettes, keyed by
+the whole request) answer it again.
 """
 
 import asyncio
 import json
 import re
 from collections.abc import Awaitable, Callable
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
+from datetime import datetime
 from functools import cache
 from pathlib import Path
 from uuid import UUID
@@ -162,5 +165,10 @@ async def play(
             is_replay=True,
             media_id=message.media.media_id if message.media else None,
         )
-        outcomes.append(await process_inbound(inbound, deps))
+        agent = replace(deps.agent, clock=_frozen(message.sent_at))
+        outcomes.append(await process_inbound(inbound, replace(deps, agent=agent)))
     return outcomes
+
+
+def _frozen(moment: datetime) -> Callable[[], datetime]:
+    return lambda: moment

@@ -39,6 +39,22 @@ def test_fr_023_the_first_ad_code_is_parsed(text: str, code: str | None) -> None
     assert parse_ad_code(text) == code
 
 
+@pytest.mark.parametrize(
+    ("text", "code"),
+    [
+        ("vi el anuncio #AO", "A0"),
+        ("vi el anuncio #a1o", "A10"),
+        ("es el #AI", "A1"),
+        ("es el #al", "A1"),
+        ("#AlO", "A10"),
+        ("#AU", "AU"),
+    ],
+)
+def test_fr_014_a_retyped_o_i_or_l_reads_as_a_digit(text: str, code: str) -> None:
+    """Codes are base 32 without I, L, O or U: a retyped O is 0, an I or L is 1."""
+    assert parse_ad_code(text) == code
+
+
 async def test_as_3_2_a_known_code_attributes_the_conversation() -> None:
     result, started = await attribute(NO_ATTRIBUTION, "Hola, vi el anuncio #A7", SELLER, lookup)
 

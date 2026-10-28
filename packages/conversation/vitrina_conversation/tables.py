@@ -58,7 +58,7 @@ webhook_payloads = sa.Table(
     sa.Column("id", sa.Uuid, primary_key=True),
     _moment("received_at", nullable=False, now=True),
     sa.Column("signature_valid", sa.Boolean, nullable=False),
-    sa.Column("body", JSONB),
+    sa.Column("body", JSONB, nullable=False),
     _moment("processed_at"),
     sa.Column("error", sa.Text),
     _moment("created_at", nullable=False, now=True),
