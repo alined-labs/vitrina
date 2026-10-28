@@ -159,6 +159,7 @@ def build_attribution_report(
     counts: Mapping[tuple[UUID, str], int],
     tags: Mapping[tuple[UUID, str], int],
     ads: Mapping[UUID, AdInfo],
+    unattributed: int = 0,
 ) -> AttributionReport:
     """Every approved ad, plus any other ad with activity in the period, by code."""
     active = {ad_id for ad_id, _ in counts} | {ad_id for ad_id, _ in tags}
@@ -198,6 +199,7 @@ def build_attribution_report(
             angle: AngleAttribution(chats=chats, conversion_rate=_rate(converted, chats))
             for angle, (chats, converted) in angles.items()
         },
+        unattributed_chats=unattributed,
     )
 
 
@@ -249,13 +251,41 @@ async def attribution_report(
         objections = await tally(
             session, seller_id, "ad.objection", start=start, end=end, by=("ad_id", "tag")
         )
+        unattributed = await _unattributed_chats(session, seller_id, start, end)
     return build_attribution_report(
         period_from,
         period_to,
         counts=counts,
         tags=_by_ad(objections),
         ads=await ads.ads(seller_id),
+        unattributed=unattributed,
     )
+
+
+async def _unattributed_chats(
+    session: AsyncSession, seller_id: UUID, start: datetime, end: datetime
+) -> int:
+    """Chats whose latest start in the period names no ad. A chat that names a code later
+    has the ad's own start after the null one (data-model.md §4), so it counts for the ad."""
+    rows = attribution_events.c
+    latest = (
+        sa.select(rows.conversation_id, rows.ad_id)
+        .where(
+            rows.seller_id == seller_id,
+            rows.kind == "chat_started",
+            rows.conversation_id.is_not(None),
+            rows.occurred_at >= start,
+            rows.occurred_at < end,
+        )
+        .distinct(rows.conversation_id)
+        # Latest first; at the same instant the attributed start wins (False sorts first).
+        .order_by(rows.conversation_id, rows.occurred_at.desc(), rows.ad_id.is_(None))
+        .subquery()
+    )
+    counted = await session.scalar(
+        sa.select(sa.func.count()).select_from(latest).where(latest.c.ad_id.is_(None))
+    )
+    return int(counted or 0)
 
 
 async def attributed_chats(

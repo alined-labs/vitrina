@@ -54,6 +54,15 @@ def test_as_4_1_approved_ads_without_chats_still_show_and_old_ads_only_with_acti
     assert report.ads[2].conversion_rate == 0.0
 
 
+def test_as_4_1_chats_no_ad_started_are_counted_apart() -> None:
+    report = build_attribution_report(
+        *PERIOD, counts={(PRICE, "chat_started"): 1}, tags={}, ads=ADS, unattributed=3
+    )
+
+    assert report.unattributed_chats == 3
+    assert sum(row.chats for row in report.ads) == 1
+
+
 def test_fr_041_angles_add_up_their_ads() -> None:
     counts = {
         (PRICE, "chat_started"): 3,
