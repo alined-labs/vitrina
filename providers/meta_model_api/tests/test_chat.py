@@ -102,6 +102,32 @@ async def test_chat_sends_tools_and_the_json_schema_in_openai_form(api: FakeApi)
     }
 
 
+async def test_chat_answers_tool_choice_none_by_sending_no_tools(api: FakeApi) -> None:
+    # The API takes tool_choice "auto" only and answers 400 otherwise; a request without tools
+    # cannot call one, and the tool calls already in the history are accepted (T011 spike).
+    api.answer(completion({"role": "assistant", "content": "{}"}))
+    request = REQUEST.model_copy(update={"tools": (SEARCH,), "tool_choice": "none"})
+
+    await MetaChatModel(api.client()).complete(request)
+
+    assert "tools" not in api.body()
+    assert "tool_choice" not in api.body()
+
+
+async def test_chat_sends_the_reasoning_effort_only_when_set(api: FakeApi) -> None:
+    api.answer(
+        completion({"role": "assistant", "content": "hola"}),
+        completion({"role": "assistant", "content": "hola"}),
+    )
+    chat = MetaChatModel(api.client())
+
+    await chat.complete(REQUEST.model_copy(update={"reasoning_effort": "low"}))
+    await chat.complete(REQUEST)
+
+    assert api.body(0)["reasoning_effort"] == "low"
+    assert "reasoning_effort" not in api.body(1)
+
+
 async def test_chat_sends_images_as_base64_data_urls(api: FakeApi) -> None:
     api.answer(completion({"role": "assistant", "content": "Una mochila azul."}))
     photo = Blob(data=b"\x89PNG fake bytes", mime_type="image/png")

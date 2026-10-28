@@ -37,7 +37,10 @@ class CassetteMode(StrEnum):
 
 
 def _summarize(value: Any) -> Any:
-    """The request as stored in a cassette: blobs become their hash, size and type."""
+    """The request as stored in a cassette: blobs become their hash, size and type.
+
+    Unset (None) fields are left out, so a field added later keeps the recorded keys.
+    """
     if isinstance(value, dict):
         if set(value) == {"data", "mime_type"} and isinstance(value["data"], bytes):
             data: bytes = value["data"]
@@ -46,7 +49,7 @@ def _summarize(value: Any) -> Any:
                 "sha256": hashlib.sha256(data).hexdigest(),
                 "size": len(data),
             }
-        return {key: _summarize(item) for key, item in value.items()}
+        return {key: _summarize(item) for key, item in value.items() if item is not None}
     if isinstance(value, list | tuple):
         return [_summarize(item) for item in value]
     return value

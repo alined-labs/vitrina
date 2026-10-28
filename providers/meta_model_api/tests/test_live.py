@@ -3,10 +3,11 @@
 Needs META_API_KEY and MODEL_AGENT (MODEL_EMBED for the embedding check). Run by hand and
 copy the outcome, including the notes printed by passing checks, into research/findings/:
 
-    uv run --env-file .env pytest -m live providers/meta_model_api -rA
+    uv run --env-file .env pytest -m live providers/meta_model_api/tests/test_live.py -rA
 
 Every prompt is synthetic: no customer text reaches a model from here (Art. V.2). Each check
-is one or two short calls with a small token cap, to protect the credit (Q10).
+is one or two short calls at low reasoning effort, to protect the credit (Q10). Spark reasons
+before it answers and the reasoning counts against the token cap, so the cap leaves it room.
 """
 
 import json
@@ -25,6 +26,7 @@ from vitrina_core.providers import (
     ImagePart,
     ResponseFormat,
     TextPart,
+    ToolCall,
     ToolSpec,
 )
 from vitrina_core.settings import REPO_ROOT, Settings
@@ -59,7 +61,8 @@ def ask(settings: Settings, *messages: ChatMessage, **options: object) -> ChatRe
             "model": settings.model_id("agent"),
             "purpose": "agent",
             "messages": (ChatMessage(role="system", content=SYSTEM), *messages),
-            "max_tokens": 200,
+            "max_tokens": 4000,
+            "reasoning_effort": "low",
             **options,
         }
     )
@@ -137,7 +140,8 @@ async def test_live_spark_calls_search_catalog_and_takes_the_result_back(
     )
     question = ChatMessage(role="user", content="¿Cuánto cuesta la mochila azul?")
 
-    first = await chat.complete(ask(settings, question, tools=(spec,), tool_choice="required"))
+    # tool_choice "auto" is the only value the API takes.
+    first = await chat.complete(ask(settings, question, tools=(spec,), tool_choice="auto"))
 
     note(f"tool call: finish={first.finish_reason}, calls={len(first.message.tool_calls)}")
     assert first.message.tool_calls, "no tool call: tool calling is not supported (ADR-0003)"
@@ -198,13 +202,97 @@ async def test_live_spark_takes_agent_turn_output_verbatim(
                 name="agent_turn_output",
                 json_schema=contract("AgentTurnOutput"),  # type: ignore[arg-type]
             ),
-            max_tokens=400,
         )
     )
 
     assert isinstance(response.message.content, str)
     answer = json.loads(response.message.content)
     assert {"reply", "cited_fact_ids", "confidence"} <= set(answer)
+
+
+async def test_live_spark_uses_tools_and_agent_turn_output_in_one_request(
+    settings: Settings, chat: MetaChatModel
+) -> None:
+    # The engine's request shape (vitrina_conversation.engine): every contract tool, tool_choice
+    # auto and AgentTurnOutput as a strict response_format, together in each round.
+    tools: list[dict[str, dict[str, object]]] = contract("tools")  # type: ignore[assignment]
+    specs = tuple(
+        ToolSpec(
+            name=str(tool["function"]["name"]),
+            description=str(tool["function"]["description"]),
+            parameters=tool["function"]["parameters"],  # type: ignore[arg-type]
+        )
+        for tool in tools
+    )
+    output = ResponseFormat(
+        name="AgentTurnOutput",
+        json_schema=contract("AgentTurnOutput"),  # type: ignore[arg-type]
+    )
+    rule = ChatMessage(
+        role="system",
+        content="Busca con search_catalog antes de hablar de un producto o un precio, y cita los "
+        "ids de los hechos que uses en cited_fact_ids.",
+    )
+    question = ChatMessage(role="user", content="¿Cuánto cuesta la mochila azul?")
+    options: dict[str, object] = {"tools": specs, "tool_choice": "auto"}
+
+    first = await chat.complete(ask(settings, rule, question, response_format=output, **options))
+
+    names = [call.name for call in first.message.tool_calls]
+    note(f"tools + schema, round 1: finish={first.finish_reason}, calls={names}")
+    assert names, f"answered without a tool call: {first.message.content!r}"
+    call = first.message.tool_calls[0]
+    assert call.name == "search_catalog"
+
+    fact_id = "0192f0c4-7d3e-7a10-9b1e-3c5d2a4f6b70"
+    result = {"results": [{"id": fact_id, "kind": "product", "text": "Mochila azul: $85.000"}]}
+    second = await chat.complete(
+        ask(
+            settings,
+            rule,
+            question,
+            ChatMessage(role="assistant", tool_calls=first.message.tool_calls),
+            ChatMessage(role="tool", tool_call_id=call.id, content=json.dumps(result)),
+            response_format=output,
+            **options,
+        )
+    )
+
+    note(f"tools + schema, round 2: finish={second.finish_reason}, {second.message.content!r}")
+    assert isinstance(second.message.content, str)
+    answer = json.loads(second.message.content)
+    assert "85" in answer["reply"]
+    assert answer["cited_fact_ids"] == [fact_id]
+    assert 0 <= answer["confidence"] <= 1
+
+
+async def test_live_tool_choice_none_answers_from_the_tool_history(
+    settings: Settings, chat: MetaChatModel
+) -> None:
+    # The engine's last round and its repair call: tools are off, the history keeps the call.
+    call = ToolCall(id="call_1", name="search_catalog", arguments='{"query": "mochila azul"}')
+    result = {"results": [{"id": "f-1", "kind": "product", "text": "Mochila azul: $85.000"}]}
+    spec = ToolSpec(
+        name="search_catalog",
+        description="Buscar productos y datos del negocio.",
+        parameters={"type": "object", "properties": {"query": {"type": "string"}}},
+    )
+
+    response = await chat.complete(
+        ask(
+            settings,
+            ChatMessage(role="user", content="¿Cuánto cuesta la mochila azul?"),
+            ChatMessage(role="assistant", tool_calls=(call,)),
+            ChatMessage(role="tool", tool_call_id=call.id, content=json.dumps(result)),
+            tools=(spec,),
+            tool_choice="none",
+        )
+    )
+
+    note(f"tool_choice none: finish={response.finish_reason}, {response.message.content!r}")
+    assert not response.message.tool_calls
+    assert isinstance(response.message.content, str)
+    assert "85" in response.message.content
 
 
 async def test_live_spark_reads_an_image(settings: Settings, chat: MetaChatModel) -> None:
@@ -219,7 +307,6 @@ async def test_live_spark_reads_an_image(settings: Settings, chat: MetaChatModel
                     ImagePart(image=red),
                 ),
             ),
-            max_tokens=20,
         )
     )
 
