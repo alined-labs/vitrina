@@ -1,5 +1,8 @@
 allowBuilds:
   unrs-resolver: false
+  # Their binaries come as platform packages; the install scripts are not needed.
+  esbuild: false
+  workerd: false
 # Wrangler's local simulator (miniflare) pins undici 7.29.1, which has known advisories; the
 # patch release fixes them. It only runs on developer machines, never in the deployed Worker.
 overrides:
