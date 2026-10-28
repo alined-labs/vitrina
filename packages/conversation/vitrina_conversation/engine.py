@@ -469,6 +469,9 @@ class _Turn:
             ),
             temperature=self.deps.temperature,
             reasoning_effort=self.deps.reasoning_effort,
+            # The seller's rules and tools are the long, fixed prefix of every turn, so one key
+            # per seller serves it from Meta's prompt cache, at the cached rate.
+            prompt_cache_key=f"agent:{self.request.seller.seller_id}",
         )
         response = await with_backoff(
             lambda: self.deps.chat.complete(request), sleep=self.deps.sleep

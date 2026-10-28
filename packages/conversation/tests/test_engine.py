@@ -511,6 +511,19 @@ async def test_nfr_01_each_call_carries_its_reasoning_effort(shop: Shop) -> None
     assert [sent.reasoning_effort for sent in chat.classified] == ["minimal"]
 
 
+async def test_nfr_01_a_sellers_calls_share_a_prompt_cache_key(shop: Shop) -> None:
+    chat = ScriptedChat(
+        [tool_call("search_catalog", query="envío"), final_answer("¡Hola! ¿En qué te ayudo?")]
+    )
+
+    await run_turn(request(shop, "¿cuánto vale el envío a Medellín?"), deps(chat, shop))
+
+    seller = shop.seller.seller_id
+    # Every customer of the seller shares the rules prefix; agent and scope prompts stay apart.
+    assert [sent.prompt_cache_key for sent in chat.requests] == [f"agent:{seller}"] * 2
+    assert [sent.prompt_cache_key for sent in chat.classified] == [f"classify:{seller}"]
+
+
 async def test_as_3_2_the_agent_knows_which_product_the_ad_was_for(shop: Shop) -> None:
     product = shop.ids["mochila-azul"]
     chat = ScriptedChat([final_answer("¡Hola! ¿En qué te ayudo?", confidence=0.95)])
