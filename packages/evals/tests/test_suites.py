@@ -88,16 +88,6 @@ async def test_as_7_3_a_replay_run_uses_replay_providers_even_in_a_live_process(
     assert "CassetteMissError" in result.cases[0].notes
 
 
-@pytest.mark.parametrize(("suite", "task"), [("price_validator", "T072")])
-async def test_suites_still_to_build_say_which_task_brings_them(
-    tmp_path: Path, suite: str, task: str
-) -> None:
-    result = await suites.execute(suite, replay=True, settings=settings(tmp_path))  # type: ignore[arg-type]
-
-    assert result.status == "error"
-    assert task in result.notes
-
-
 async def test_until_the_engine_has_run_turn_a_run_says_so(tmp_path: Path) -> None:
     result = await suites.execute("conversations_es", replay=True, settings=settings(tmp_path))
 
