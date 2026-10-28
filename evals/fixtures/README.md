@@ -6,7 +6,7 @@ Recorded inputs for the evaluation suites and replay mode (plan.md §4.5). Synth
 | --- | --- | --- |
 | `conversations_es.jsonl` | 60 Spanish conversations: grounded answers, invented-price traps, handoff triggers, off-topic requests, voice-note transcripts, image matches | T028 (cases 1–20), T055 (21–60) |
 | `sellers/*.json` | The synthetic businesses those conversations talk to: seller, products and facts with stable keys (drafts included, which the agent must never cite) | T028 |
-| `fidelity/good/`, `fidelity/altered/` | 10 good scenes and 10 altered scenes for the fidelity verifier | T033 |
+| `fidelity/` | The `fidelity` suite: one synthetic product photo (`source.jpg`, made with Muse Image) and its SAM mask; 10 good scenes (Muse Image output through the compose stage) and 10 altered ones (colour, material, shape, an added logo, a second unit); `cases.json` lists them. SAM's masks and Spark's reviews for them are cassettes in `evals/cassettes` | T033, T072 |
 | `consent_cases.yaml` | 40 time and consent cases for the eligibility evaluator | T063, T065 |
 | `webhooks/*.json` | Recorded WhatsApp webhook payloads, also used as replay fixtures | T012, T080 |
 

@@ -1,0 +1,42 @@
+{
+  "kind": "segment",
+  "recorded_at": "2026-10-28T16:36:07+00:00",
+  "request": {
+    "image": {
+      "mime_type": "image/jpeg",
+      "sha256": "9e8bdd1b6ff8c45c44183d5f57e14140490d6511a08d29f0ed5c02e51e7055a8",
+      "size": 44349
+    },
+    "model": "sam-3.1",
+    "prompt": "woven bag",
+    "purpose": "verify"
+  },
+  "response": {
+    "meta": {
+      "cost_usd": null,
+      "latency_ms": 662,
+      "model": "sam-3.1",
+      "provider": "meta_model_api",
+      "purpose": "verify",
+      "replayed": false,
+      "tokens_in": 0,
+      "tokens_out": 0
+    },
+    "segments": [
+      {
+        "bbox": [
+          49,
+          216,
+          287,
+          464
+        ],
+        "label": "woven bag",
+        "mask": {
+          "data": "iVBORw0KGgoAAAANSUhEUgAAASAAAAIACAAAAAAHrO73AAAGGUlEQVR4nO3d23LbOgxAUaqT__9l96FuEtuSQOJCUcBeLz0zTUxqG5JstzltDQAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAABVt4Ss8ZiwSJ27vj6mrhYna8l6e0AWjxOz3MM-sDfgJ2d9Anz1LNYvYjLHPvquq-a8bkmfPnGTuq0zr09qURt5LTO3TJiS6e6DWgiM5P_gVfVpoIt-HvqhPC0z0J-qBD4S9co96br48H6xrk1vvFw4vHhLf80H7DvvXit6dIgp5PebIsX6s6RYqoJDTQw4e4v6qDp38C10TSFjWUMq9kM9dbPiIzm46pkFyv_z7FFdt62Bp6yE6z9CFgXYXX-465Po6aNTn5_nXvRQ_4pLb4xNExzSuI7RCIHeehWa_F5vC8wnziL3aALXmOEQpJ8hT1kBuU501kFuhtIG8OARa8Rrd3LaVeIJ8CiUO5MMeaNEzrDntjAkSmAOtO0A-e2OCBLkDOYyQNdDKZ5iL3BPk8PwlD2RnDJT-DEs_QeZn0BYo_wClnyDzc5g-kJUp0C3OMOMmmSABgQSWQLc4w6zbZIIEBBIQSGAIdJNLkFGFCTI9kxUCmRBIoA90o0uQZatMkEAd6EYDZNosEyQgkIBAAm2gW12CLIpMkP75LBJIj0ACZaAylyAmSFIlkHrkqwRS0wWqcwligiRlAmmHvkwgLVWgQpegQhOkfFbrBFIikIBAAk2gStfoShOke14LBdIhkIBAgkqBVBchRaBSN7FSE6RCIAGBBAQSlAqkub2UCqRBIAGBBAQSjAeq9UKaCZLUCqSY_lqBFAgkIJCgWKDxi1CxQOMIJCCQgEACAgmqBRq-jVULNIxAgvFA2_b66_tvW3Yzge-_Y2W05EdHg0cceoqtPk09oo9hwSEaO-Toi_Tthyj8LrZeobGh5jYvIJAgPtDNzzEmSFAy0MgIlQw0omaggRGqGWhA0UD9I1Q0UL-qgbpHqGqg7kJlA_WqG6hzhOoG6ixUOFBfocqBupQO1DNCpQP1FKodqEPxQPIIFQ8kF6oeSCyUOZDLHxdkDtT3Uln4qsyBOp0XIpCAQK09zmaIQAICtXZ6GUodqP8-f1wodSCPv96WOtDAK8XDlqkDjTgqlDnQ2FuNg0KZA7kg0Lf9ESKQgEA_dkeIQL_sFUocyOev1yYOpLAzQiUCHfxo247PQiUCWRDo1ccIFQmkv2AXCaRHoDfv51iVQOpzLHEg5eeJb9-WOJCPzIFeZkF7jmUOpDzJXr8rdaAXyhGqE6jfywgRaMfvQgQSFAqk-2PEEoGex6u6TJcINO5nhAgkqBHIcI7VCDT-mvr7G4oEeh6wYoSqBBqeof9fXybQ-d9lPVYn0Gii5xdXCsS_ihCBQIf-jRuBBAQ69miNQCICCQh04tFmBFrw_wc8ggkShAe6-QCFB7p7H06xU4_WvqIXuLu4QAnitKYPlOTwZapAZeo0LtKCB4EkiQP1_4TGmbyBNp8fiMobqDWHIdqSB3JIlD2QOVHaQNvuf44_iCrQev_YyjnLftNO0Atloa1VCcQP1H14L6Io9O_qHvt50EK2wbfY29uvg5Z_P793XP2btt8CVw90cFh92375ZuU16G43-qeebb-9sNQe6dojdHJU5xv__EbtXeymI3S-8b13JfoDXXiGzg_qYOMH35QxkHRMHzs_nSr9PpYtJB7TyE_7Wq4lixbqOaT-H94wXWyXLOR8-8j2VsP97mp6s7revd5_R7Z386sVCtiP8eOOtQpF7Mb6edBKhUL2Yv7AbJ1CMTvxeNQl7vZRT5THR64rDFHYHnwe-OIZinyG3B77wkahE-z44BclCj7BfR9-fqPw65_vn4tNv1zHL-i_wsQpmvF8RKwxKdGccY1ZZUKiWWdz0DrBhSZe68KWiks0904QuZp_owve1AQv6drokvd8Exb1iHTd--E5K1saXfxZwczlBzOt8CnKNbuQQq1RBgAAAAAAAAAAAAAAAAAAAAAAAACQyl82Mbuh9bZdfQAAAABJRU5ErkJggg==",
+          "mime_type": "image/png"
+        },
+        "score": 0.941605806350708
+      }
+    ]
+  }
+}

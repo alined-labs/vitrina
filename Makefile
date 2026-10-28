@@ -47,6 +47,7 @@ migrate: ## Upgrade DB_SCHEMA on DATABASE_URL to the latest migration
 evals: ## Replay evals in this process (fails on an invented price or a consent error)
 	$(UV) run python -m vitrina_evals --suite consent_scheduler --out tmp/evals
 	$(UV) run python -m vitrina_evals --suite conversations_es --out tmp/evals
+	$(UV) run python -m vitrina_evals --suite fidelity --out tmp/evals
 
 gen-client: ## TypeScript client from contracts/openapi.yaml (T013)
 	./scripts/gen-client
