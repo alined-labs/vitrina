@@ -11,7 +11,9 @@ retrieved for this message and the seller's local time.
 """
 
 from collections.abc import Sequence
+from dataclasses import dataclass
 from datetime import datetime
+from uuid import UUID
 from zoneinfo import ZoneInfo
 
 from vitrina_catalog.api import SearchResult, SellerSettings
@@ -100,7 +102,7 @@ CONTEXTO DE ESTA CONVERSACIÓN
 - Fecha y hora local del negocio: {today_local}
 - Horario del negocio: {business_hours}
 - Monto que el negocio definió para pasar un pedido a {owner_name}: más de {order_threshold}
-- Datos recuperados del catálogo, cada uno con su fact_id:
+{ad_line}- Datos recuperados del catálogo, cada uno con su fact_id:
 {retrieved_context}"""
 
 REPAIR_INSTRUCTION = (
@@ -110,8 +112,36 @@ REPAIR_INSTRUCTION = (
 )
 
 
+@dataclass(frozen=True)
+class AdContext:
+    """The ad a chat came from (FR-023): its code, and its product when the code is an ad's."""
+
+    code: str
+    product_id: UUID | None = None
+    product_name: str | None = None
+
+
+def render_ad_line(ad: AdContext | None, owner_name: str) -> str:
+    if ad is None:
+        return ""
+    if ad.product_id is not None and ad.product_name is not None:
+        return (
+            f"- El cliente llegó por el anuncio #{ad.code}, de «{ad.product_name}» "
+            f"[{ad.product_id}]: si pregunta por «el del anuncio», es ese producto.\n"
+        )
+    return (
+        f"- El cliente mencionó el código #{ad.code}, que no es de ningún anuncio vigente: "
+        f"salúdalo y pregúntale qué producto vio, sin repetir el código ni afirmar nada sobre "
+        f"él. No es motivo para pasar la conversación a {owner_name}.\n"
+    )
+
+
 def render_system_prompt(
-    seller: SellerSettings, retrieved: Sequence[SearchResult], now: datetime
+    seller: SellerSettings,
+    retrieved: Sequence[SearchResult],
+    now: datetime,
+    *,
+    ad: AdContext | None = None,
 ) -> str:
     voice = seller.brand_voice_profile
     formality = voice.formality if isinstance(voice.formality, float | int) else NEUTRAL_FORMALITY
@@ -131,6 +161,7 @@ def render_system_prompt(
         today_local=local_time(now, seller.timezone),
         business_hours=render_hours(seller.business_hours),
         order_threshold=format_cop(seller.handoff_amount_threshold_cop),
+        ad_line=render_ad_line(ad, seller.owner_name),
         retrieved_context=render_context(retrieved),
     )
 

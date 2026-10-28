@@ -4,6 +4,7 @@ from datetime import UTC, datetime
 
 from vitrina_catalog.api import SearchResult
 from vitrina_catalog.sellers import BrandVoiceProfile
+from vitrina_conversation.engine import AdContext
 from vitrina_conversation.prompts import render_system_prompt
 from vitrina_conversation.testing import Shop
 
@@ -86,3 +87,37 @@ def test_as_3_8_the_order_threshold_is_in_the_context(shop: Shop) -> None:
     prompt = render_system_prompt(shop.seller, [], NOW)
 
     assert "Monto que el negocio definió para pasar un pedido a Ana: más de $300.000" in prompt
+
+
+def context(prompt: str) -> str:
+    return prompt.split("CONTEXTO DE ESTA CONVERSACIÓN", 1)[1]
+
+
+def test_as_3_2_the_prompt_names_the_ad_the_chat_came_from(shop: Shop) -> None:
+    product = shop.ids["mochila-azul"]
+
+    prompt = render_system_prompt(
+        shop.seller, [], NOW, ad=AdContext("A7", product, "Mochila tejida azul")
+    )
+
+    assert (
+        f"- El cliente llegó por el anuncio #A7, de «Mochila tejida azul» [{product}]: "
+        "si pregunta por «el del anuncio», es ese producto." in context(prompt)
+    )
+
+
+def test_as_3_2_an_unknown_code_gets_a_greeting_and_a_question(shop: Shop) -> None:
+    prompt = render_system_prompt(shop.seller, [], NOW, ad=AdContext("A9"))
+
+    assert (
+        "- El cliente mencionó el código #A9, que no es de ningún anuncio vigente: salúdalo y "
+        "pregúntale qué producto vio, sin repetir el código ni afirmar nada sobre él. No es "
+        "motivo para pasar la conversación a Ana." in context(prompt)
+    )
+
+
+def test_fr_024_a_chat_without_an_ad_code_gets_no_ad_line(shop: Shop) -> None:
+    prompt = render_system_prompt(shop.seller, [], NOW)
+
+    assert "anuncio #" not in context(prompt)
+    assert "código #" not in context(prompt)

@@ -31,7 +31,14 @@ from vitrina_compliance.api import (
     record_consent,
 )
 from vitrina_conversation.attribution import AdLookup, attribute, chat_started_payload
-from vitrina_conversation.engine import AgentDeps, Exchange, TurnRequest, TurnResult, run_turn
+from vitrina_conversation.engine import (
+    AdContext,
+    AgentDeps,
+    Exchange,
+    TurnRequest,
+    TurnResult,
+    run_turn,
+)
 from vitrina_conversation.image import PhotoReader, PhotoReading
 from vitrina_conversation.normalize import NormalizedImage, normalize
 from vitrina_conversation.pacing import Pacer
@@ -96,6 +103,8 @@ class PipelineDeps:
     messenger: Messenger
     pacer: Pacer
     ad_lookup: AdLookup
+    ad_details: Callable[[UUID, UUID], Awaitable[AdContext | None]] | None = None
+    """``(seller_id, ad_id) -> AdContext`` with the ad's code and product (creative.api)."""
     request_erasure: Callable[[UUID, UUID], Awaitable[None]] | None = None
     voice: Voice | None = None
     """Voice notes to text (T051); without it they get the text-only note."""
@@ -249,6 +258,7 @@ class _Inbound:
             dry_run=False,
             low_confidence_streak=conversation.low_confidence_streak,
             pending_consent_prompt=None if consent_recorded else pending_prompt,
+            ad=await self._ad(),
         )
         try:
             turn = await run_turn(request, deps.agent)
@@ -271,6 +281,17 @@ class _Inbound:
         except (ProviderError, TimeoutError) as error:
             logger.warning("photo not read (%s)", type(error).__name__)
             return None
+
+    async def _ad(self) -> AdContext | None:
+        """The chat's ad for the agent; a code that matched no ad goes as a bare code."""
+        attribution = self.conversation.attribution
+        if attribution.status == "attributed" and attribution.ad_id is not None:
+            if self.deps.ad_details is not None:
+                return await self.deps.ad_details(self.seller_id, attribution.ad_id)
+            return None
+        if attribution.status == "unknown_code" and attribution.code is not None:
+            return AdContext(attribution.code)
+        return None
 
     async def _transcribe(self, voice: Voice, media_id: str) -> str | None:
         """None when the voice note cannot be heard (download, Transcribe, or only silence)."""
