@@ -153,6 +153,17 @@ class ConversationStore(Protocol):
         wa_message_id: str | None = None,
     ) -> None: ...
 
+    async def set_transcript(
+        self,
+        seller_id: UUID,
+        message_id: UUID,
+        transcript: str,
+        *,
+        normalized: Mapping[str, Any],
+    ) -> None:
+        """A voice note's words, and the message normalized again from them (T051)."""
+        ...
+
     async def apply_status(
         self, seller_id: UUID, wa_message_id: str, status: WebhookStatus
     ) -> bool: ...
@@ -352,6 +363,19 @@ class InMemoryConversationStore:
                     delivery_status=status,
                     wa_message_id=wa_message_id or row.stored.wa_message_id,
                 )
+
+    async def set_transcript(
+        self,
+        seller_id: UUID,
+        message_id: UUID,
+        transcript: str,
+        *,
+        normalized: Mapping[str, Any],
+    ) -> None:
+        for row in self.messages:
+            if row.seller_id == seller_id and row.stored.id == message_id:
+                row.normalized = dict(normalized)
+                row.stored = replace(row.stored, transcript=transcript, normalized=dict(normalized))
 
     async def apply_status(
         self, seller_id: UUID, wa_message_id: str, status: WebhookStatus
@@ -835,6 +859,21 @@ class PostgresConversationStore(_PostgresReads):
                 sa.update(db.messages)
                 .where(db.messages.c.id == message_id, db.messages.c.seller_id == seller_id)
                 .values(values)
+            )
+
+    async def set_transcript(
+        self,
+        seller_id: UUID,
+        message_id: UUID,
+        transcript: str,
+        *,
+        normalized: Mapping[str, Any],
+    ) -> None:
+        async with self.sessions() as session, session.begin():
+            await session.execute(
+                sa.update(db.messages)
+                .where(db.messages.c.id == message_id, db.messages.c.seller_id == seller_id)
+                .values(transcript=transcript, normalized=dict(normalized))
             )
 
     async def apply_status(

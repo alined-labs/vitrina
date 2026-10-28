@@ -3,7 +3,9 @@
 In-memory store and compliance, the scripted Spark, a recording messenger, a fake clock.
 """
 
-from dataclasses import dataclass, field
+import json
+from dataclasses import dataclass, field, replace
+from datetime import UTC, datetime
 from typing import Any
 from uuid import UUID, uuid4
 
@@ -22,8 +24,24 @@ from vitrina_conversation.api import (
     PipelineDeps,
     process_inbound,
 )
-from vitrina_conversation.pipeline import ERASURE_REPLY, OPT_OUT_REPLY, TEXT_ONLY_REPLY
-from vitrina_conversation.testing import AdGallery, ScriptedChat, Shop, final_answer, tool_call
+from vitrina_conversation.booking import InMemoryBookings
+from vitrina_conversation.pipeline import (
+    ERASURE_REPLY,
+    OPT_OUT_REPLY,
+    TEXT_ONLY_REPLY,
+    VOICE_NOT_HEARD_REPLY,
+)
+from vitrina_conversation.scope import decline_reply
+from vitrina_conversation.testing import (
+    AdGallery,
+    ScriptedChat,
+    Shop,
+    final_answer,
+    scope_answer,
+    tool_call,
+    webhook_fixture,
+)
+from vitrina_conversation.wiring import process_stored_message
 from vitrina_core.providers import (
     ChatMessage,
     OutboundImage,
@@ -73,6 +91,21 @@ class RecordingMessenger:
 
 
 @dataclass
+class FakeVoice:
+    """Voice notes by media id, as Transcribe would hear them."""
+
+    transcripts: dict[str, str] = field(default_factory=dict)
+    failure: Exception | None = None
+    heard: list[str] = field(default_factory=list)
+
+    async def transcribe(self, media_id: str) -> str:
+        self.heard.append(media_id)
+        if self.failure is not None:
+            raise self.failure
+        return self.transcripts[media_id]
+
+
+@dataclass
 class World:
     shop: Shop
     chat: ScriptedChat
@@ -105,6 +138,17 @@ class World:
 
     def script(self, *answers: ChatMessage | str | ProviderError) -> None:
         self.chat.script.extend(answers)
+
+    def with_voice(self, **transcripts: str) -> FakeVoice:
+        voice = FakeVoice(transcripts)
+        self.deps = replace(self.deps, voice=voice)
+        return voice
+
+    async def speak(self, media_id: str) -> InboundOutcome:
+        return await self.say(None, kind="audio", wa_type="audio", media_id=media_id)
+
+    def inbound_rows(self) -> list[Any]:
+        return [row for row in self.store.messages if row.stored.direction == "inbound"]
 
     def conversation(self, outcome: InboundOutcome) -> Any:
         assert outcome.conversation_id is not None
@@ -549,3 +593,163 @@ async def test_r8_an_ad_image_after_the_consent_question_keeps_it_pending(world:
 
     (record,) = await world.compliance.consents(world.seller_id, await world.contact_id())
     assert (record.status, record.text_shown) == ("granted", prompt)
+
+
+ENVIO = "¿Cuánto vale el envío a Medellín?"
+
+
+async def test_as_3_6_a_voice_note_is_answered_from_its_transcript(world: World) -> None:
+    voice = world.with_voice(voice_1=ENVIO)
+    fact = world.shop.ids["envio-medellin"]
+    reply = "El envío dentro de Medellín vale $8.000."
+    world.script(tool_call("search_catalog", query="envío Medellín"), final_answer(reply, fact))
+
+    outcome = await world.speak("voice_1")
+
+    assert (outcome.status, world.messenger.texts) == ("replied", [reply])
+    assert voice.heard == ["voice_1"]
+    (row,) = world.inbound_rows()
+    assert (row.stored.type, row.stored.text, row.stored.transcript) == ("audio", None, ENVIO)
+    assert row.normalized is not None
+    assert (row.normalized["kind"], row.normalized["text"]) == ("audio", ENVIO)
+    assert world.chat.requests[0].messages[-1].content == ENVIO
+
+
+async def test_r7_a_spoken_baja_opts_out_before_any_model_sees_it(world: World) -> None:
+    world.with_voice(voice_2="Baja por favor")
+
+    outcome = await world.speak("voice_2")
+
+    assert (outcome.status, world.messenger.texts) == ("opted_out", [OPT_OUT_REPLY])
+    assert world.chat.requests == []
+
+
+@pytest.mark.parametrize(
+    "failure",
+    [
+        ProviderError("no live transcription adapter", provider="meta_model_api"),
+        TimeoutError(),
+        None,
+    ],
+    ids=["provider", "timeout", "silence"],
+)
+async def test_as_3_6_a_voice_note_that_cannot_be_heard_gets_a_note(
+    world: World, failure: Exception | None
+) -> None:
+    voice = world.with_voice(voice_3="")
+    voice.failure = failure
+
+    outcome = await world.speak("voice_3")
+
+    assert (outcome.status, world.messenger.texts) == ("replied", [VOICE_NOT_HEARD_REPLY])
+    assert world.chat.requests == []
+    (row,) = world.inbound_rows()
+    assert row.stored.transcript is None
+
+
+async def test_fr_022_without_a_media_id_a_voice_note_is_not_sent_to_transcribe(
+    world: World,
+) -> None:
+    voice = world.with_voice()
+
+    await world.say(None, kind="audio", wa_type="audio")
+
+    assert (voice.heard, world.messenger.texts) == ([], [TEXT_ONLY_REPLY])
+
+
+async def test_fr_022_only_voice_notes_go_to_transcribe(world: World) -> None:
+    voice = world.with_voice()
+    world.script(final_answer(GREETING, confidence=0.95))
+
+    await world.say("¿Tienen esta?", kind="image", wa_type="image", media_id="image_1")
+
+    assert voice.heard == []
+
+
+async def test_r6_in_human_mode_a_voice_note_is_transcribed_for_the_owner(world: World) -> None:
+    world.with_voice(voice_4="¿Ana, ya me puedes atender?")
+    world.script(
+        final_answer("Te comunico con Ana.", confidence=0.95, handoff_reason="customer_request")
+    )
+    await world.say("Quiero hablar con Ana")
+
+    outcome = await world.speak("voice_4")
+
+    assert outcome.status == "human_mode"
+    assert world.inbound_rows()[-1].stored.transcript == "¿Ana, ya me puedes atender?"
+    assert len(world.chat.requests) == 1
+
+
+async def test_fr_024_the_model_sees_an_earlier_voice_note_as_text(world: World) -> None:
+    world.with_voice(voice_5="Hola, ¿tienen mochilas?")
+    world.script(final_answer(GREETING, confidence=0.95), final_answer(GREETING, confidence=0.95))
+    await world.speak("voice_5")
+
+    await world.say("¿Y en azul?")
+
+    contents = [message.content for message in world.chat.requests[1].messages[1:]]
+    assert contents == ["Hola, ¿tienen mochilas?", GREETING, "¿Y en azul?"]
+
+
+async def test_as_3_6_a_kept_voice_note_is_heard_by_its_media_id(world: World) -> None:
+    voice = world.with_voice(**{"1000000000000102": "Hola"})
+    world.script(final_answer(GREETING, confidence=0.95))
+    body = json.loads(webhook_fixture("audio_voice_note"))
+    payload_id = await world.store.save_webhook(body, signature_valid=True)
+
+    outcome = await process_stored_message(
+        world.deps, world.seller_id, payload_id, "wamid.VITRINA-FIXTURE-IN-0005"
+    )
+
+    assert outcome is not None
+    assert (outcome.status, voice.heard) == ("replied", ["1000000000000102"])
+
+
+async def test_as_3_10_an_off_topic_question_is_declined_and_counted(world: World) -> None:
+    world.chat.scope.append(scope_answer(False, "deportes"))
+
+    outcome = await world.say("vi el #A7, ¿quién ganó el partido?")
+
+    assert (outcome.status, world.messenger.texts) == (
+        "replied",
+        [decline_reply(world.shop.seller)],
+    )
+    assert world.chat.requests == []
+    ((_, objection, ad_id),) = world.store.objections
+    assert (objection.tag, ad_id) == ("off_topic", AD_A7)
+    kinds = [kind for _, kind, _ in world.store.events]
+    assert kinds == ["ad.chat_started", "objection.recorded", "ad.objection"]
+    reply = world.store.messages[-1]
+    assert reply.validation is not None
+    assert reply.validation["scope"] == {"passed": False, "reason": "classifier: deportes"}
+    assert reply.stored.agent_output is not None
+    assert reply.stored.agent_output["objection_tag"] == "off_topic"
+
+
+async def test_as_3_7_a_booking_on_an_attributed_chat_reports_ad_booking(world: World) -> None:
+    bookings = InMemoryBookings()
+    tuesday_8am = datetime(2026, 10, 27, 13, 0, tzinfo=UTC)
+    world.deps = replace(
+        world.deps, agent=replace(world.deps.agent, bookings=bookings, clock=lambda: tuesday_8am)
+    )
+    world.script(
+        tool_call("book_slot", service="Arreglo", starts_at="2026-10-31T10:00:00-05:00"),
+        final_answer("Listo, te esperamos el sábado a las 10:00.", confidence=0.95),
+    )
+
+    outcome = await world.say("vi el #A7, ¿me agendas el sábado a las 10?")
+
+    assert world.messenger.texts == [
+        "Listo, quedó tu cita de Arreglo para el sábado 31 de octubre de 2026, 10:00. "
+        "¿Te ayudo con algo más?"
+    ]
+    (booking,) = bookings.bookings
+    assert booking.conversation_id == outcome.conversation_id
+    booked = [payload for _, kind, payload in world.store.events if kind == "ad.booking"]
+    assert booked == [
+        {
+            "ad_id": str(AD_A7),
+            "conversation_id": str(outcome.conversation_id),
+            "booking_id": str(booking.id),
+        }
+    ]

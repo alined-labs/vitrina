@@ -2,8 +2,9 @@
 
 With a database (MX2's dev API, the deployed API and its worker): Postgres stores, the job queue
 keyed by WhatsApp message id, the creative module's ad codes and approved ads (with the
-worker's blob store, the images ``send_ad_asset`` sends) and the compliance module's erasure
-job; the API queues and the worker answers. Without one (CI's check job, a laptop
+worker's blob store, the images ``send_ad_asset`` sends), the compliance module's erasure job
+and, with the Cloud API and ``MODEL_TRANSCRIBE``, voice notes heard through Transcribe; the
+API queues and the worker answers. Without one (CI's check job, a laptop
 demo): the API's in-memory stores, no ad codes, and the answer computed in a background task
 right after the ack. The messenger is the local mock unless ``WHATSAPP_MOCK=false`` (ADR-0011:
 the live number points at MX2 only).
@@ -24,12 +25,14 @@ from vitrina_catalog.postgres import PostgresCatalog
 from vitrina_catalog.sellers import InMemorySellerStore, PostgresSellerStore
 from vitrina_compliance.api import ComplianceStore, ContactIdentity, PostgresCompliance
 from vitrina_compliance.erasure import request_erasure
+from vitrina_conversation.booking import BookingStore, PostgresBookings
 from vitrina_conversation.engine import AgentDeps
 from vitrina_conversation.ingest import SellerResolver
 from vitrina_conversation.pacing import Pacer
 from vitrina_conversation.pipeline import Inbound, InboundOutcome, PipelineDeps, process_inbound
 from vitrina_conversation.store import ConversationStore, PostgresConversationStore
 from vitrina_conversation.tools import AdAssets, ApprovedAds
+from vitrina_conversation.voice import VoiceNotes, ffmpeg_on_path
 from vitrina_core.db.tables import sellers
 from vitrina_core.jobs import PostgresJobQueue
 from vitrina_core.providers import ChatModel, Messenger
@@ -68,6 +71,7 @@ def agent_deps(
     *,
     approved_ads: ApprovedAds | None = None,
     ad_assets: AdAssets | None = None,
+    bookings: BookingStore | None = None,
 ) -> AgentDeps:
     """``LookupError`` while ``MODEL_AGENT`` is unset (spec.md §8: IDs are configuration)."""
     return AgentDeps(
@@ -79,6 +83,25 @@ def agent_deps(
         top_k=settings.retrieval_top_k,
         approved_ads=approved_ads,
         ad_assets=ad_assets,
+        bookings=bookings,
+    )
+
+
+def voice_notes(
+    settings: Settings, providers: Providers, messenger: Messenger
+) -> VoiceNotes | None:
+    """T051: the Cloud API downloads the audio (the local mock has none); Transcribe hears it."""
+    if not isinstance(messenger, WhatsAppClient):
+        return None
+    try:
+        model = settings.model_id("transcribe")
+    except LookupError:
+        return None
+    return VoiceNotes(
+        download=messenger.download_media,
+        transcriber=providers.transcriber,
+        model=model,
+        transcoder=ffmpeg_on_path(timeout_s=settings.provider_timeout_s),
     )
 
 
@@ -125,12 +148,18 @@ def postgres_pipeline(
         compliance=PostgresCompliance(sessions, identity),
         seller_settings=seller_store.settings,
         agent=agent_deps(
-            settings, providers.chat, catalog, approved_ads=approved_ads, ad_assets=ad_assets
+            settings,
+            providers.chat,
+            catalog,
+            approved_ads=approved_ads,
+            ad_assets=ad_assets,
+            bookings=PostgresBookings(sessions),
         ),
         messenger=messenger,
         pacer=pacer,
         ad_lookup=ad_lookup,
         request_erasure=erase,
+        voice=voice_notes(settings, providers, messenger),
     )
 
 
@@ -144,6 +173,7 @@ def memory_pipeline(
     catalog: Catalog,
     messenger: Messenger,
     pacer: Pacer,
+    bookings: BookingStore | None = None,
 ) -> PipelineDeps:
     async def no_ads(_seller_id: UUID, _code: str) -> UUID | None:
         return None
@@ -152,7 +182,7 @@ def memory_pipeline(
         store=store,
         compliance=compliance,
         seller_settings=seller_settings,
-        agent=agent_deps(settings, chat, catalog),
+        agent=agent_deps(settings, chat, catalog, bookings=bookings),
         messenger=messenger,
         pacer=pacer,
         ad_lookup=no_ads,
@@ -183,6 +213,7 @@ async def process_stored_message(
             profile_name=message.profile_name,
             wa_type=message.wa_type,
             raw_payload_id=payload_id,
+            media_id=message.media.media_id if message.media else None,
         ),
         deps,
     )

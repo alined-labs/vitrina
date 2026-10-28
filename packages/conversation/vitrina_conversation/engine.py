@@ -1,21 +1,23 @@
 """Agent loop v1 (T024; plan.md §4.1; FR-024, FR-025; ADR-0005, ADR-0006).
 
-One turn: retrieve the seller's active items for the message (R1) → Muse Spark with the
+One turn: the scope classifier (T054): an off-topic message gets the canned decline and a
+medical, legal or financial question goes to the owner unanswered, both without retrieval
+(R10, R11) → retrieve the seller's active items for the message (R1) → Muse Spark with the
 system prompt, recent history, the contract tools and ``AgentTurnOutput`` as
 ``response_format`` → up to ``max_tool_rounds`` tool rounds → parse the answer (fenced or
 padded JSON is read; otherwise one repair call) → the checks outside the model (R2–R5),
 with one guided retry on an invented amount. The whole turn has a time budget; a provider
 that keeps failing or a spent budget raises, so the caller decides what the customer gets.
 
-Opt-out keywords (R7), human mode (R6) and the scope classifier (R10) run before this, in
-the inbound pipeline; the turn applies nothing itself: ``TurnResult.actions`` lists what it
-decided, except reservations, which the tool makes at once outside a dry run.
+Opt-out keywords (R7) and human mode (R6) run before this, in the inbound pipeline; the turn
+applies nothing itself: ``TurnResult.actions`` lists what it decided, except reservations,
+which the tool makes at once outside a dry run.
 """
 
 import asyncio
 import json
 from collections.abc import Awaitable, Callable, Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from typing import Literal
 from uuid import UUID
@@ -23,16 +25,25 @@ from uuid import UUID
 from pydantic import ValidationError
 
 from vitrina_catalog.api import Catalog, Citation, SearchResult, SellerSettings
+from vitrina_conversation.booking import BookingStore
 from vitrina_conversation.contract import (
     AgentTurnOutput,
     HandoffReason,
+    ObjectionTag,
     output_schema,
     tool_specs,
 )
-from vitrina_conversation.prompts import REPAIR_INSTRUCTION, render_system_prompt
+from vitrina_conversation.prompts import REPAIR_INSTRUCTION, local_time, render_system_prompt
+from vitrina_conversation.scope import (
+    ScopeVerdict,
+    classify_scope,
+    decline_reply,
+    sensitive_reply,
+)
 from vitrina_conversation.tools import (
     AdAssets,
     ApprovedAds,
+    BookedSlot,
     HandoffAction,
     ObjectionAction,
     ToolBox,
@@ -103,6 +114,7 @@ class AgentDeps:
     strict_schema: bool = True
     approved_ads: ApprovedAds | None = None
     ad_assets: AdAssets | None = None
+    bookings: BookingStore | None = None
     clock: Callable[[], datetime] = _utcnow
     sleep: Callable[[float], Awaitable[None]] = asyncio.sleep
 
@@ -123,16 +135,35 @@ class TurnResult:
     model_calls: tuple[CallMeta, ...]
     actions: TurnActions
     low_confidence_streak: int
+    scope: ScopeVerdict = field(default=ScopeVerdict(True))
 
     @property
     def handoff(self) -> HandoffAction | None:
         return self.actions.handoff
+
+    @property
+    def scope_check(self) -> tuple[bool, str]:
+        """``ValidationResult.scope``: the classifier's verdict, or the agent's own decline."""
+        if not self.scope.in_scope:
+            return False, self.scope.reason
+        if self.off_topic:
+            return False, "off_topic: declined by the agent"
+        return True, self.scope.reason
 
 
 async def run_turn(request: TurnRequest, deps: AgentDeps) -> TurnResult:
     """Run one agent turn; ``TimeoutError`` when the budget runs out (Art. VIII.1)."""
     async with asyncio.timeout(deps.budget_s):
         return await _Turn(request, deps).run()
+
+
+def booking_confirmation(seller: SellerSettings, booked: Sequence[BookedSlot]) -> str:
+    """From the bookings the tool made, so it needs no citation."""
+    slots = " y ".join(
+        f"{slot.service} para el {local_time(slot.starts_at, seller.timezone)}" for slot in booked
+    )
+    made = "quedó tu cita" if len(booked) == 1 else "quedaron tus citas"
+    return f"Listo, {made} de {slots}. ¿Te ayudo con algo más?"
 
 
 def parse_output(content: str | None) -> AgentTurnOutput | None:
@@ -169,10 +200,26 @@ class _Turn:
             pending_consent_prompt=request.pending_consent_prompt,
             approved_ads=deps.approved_ads,
             ad_assets=deps.ad_assets,
+            bookings=deps.bookings,
+            clock=deps.clock,
         )
 
     async def run(self) -> TurnResult:
         seller = self.request.seller
+        scope = await classify_scope(
+            self.request.message,
+            seller,
+            chat=self.deps.chat,
+            model=self.deps.model,
+            strict_schema=self.deps.strict_schema,
+        )
+        if scope.call is not None:
+            self.calls.append(scope.call)
+        if not scope.in_scope:  # R10
+            return self._canned(scope, decline_reply(seller), objection_tag="off_topic")
+        if scope.sensitive != "none":  # R11
+            reason: HandoffReason = "medical_topic" if scope.sensitive == "medical" else "other"
+            return self._canned(scope, sensitive_reply(seller), handoff_reason=reason)
         retrieved = await self.deps.catalog.search(
             seller.seller_id, self.request.message, top_k=self.deps.top_k
         )
@@ -212,6 +259,10 @@ class _Turn:
             final = verdict.final_reply or FALLBACK_REPLY.format(owner_name=seller.owner_name)
             handoff_reason = verdict.handoff_reason
         accepted = verdict is not None and verdict.outcome == "accept"
+        booked = self.box.actions.bookings
+        if booked and not accepted and handoff_reason is None:
+            # The tool booked it: the customer hears that, never "no tengo ese dato" (T052).
+            final = booking_confirmation(seller, booked)
 
         actions = self.box.actions
         if handoff_reason is not None and actions.handoff is None:  # R5
@@ -237,6 +288,47 @@ class _Turn:
             model_calls=tuple(self.calls),
             actions=actions,
             low_confidence_streak=streak,
+            scope=scope,
+        )
+
+    def _canned(
+        self,
+        scope: ScopeVerdict,
+        reply: str,
+        *,
+        objection_tag: ObjectionTag | None = None,
+        handoff_reason: HandoffReason | None = None,
+    ) -> TurnResult:
+        """The engine's own answer, reviewed like the model's: no retrieval, no agent call."""
+        output = AgentTurnOutput(
+            reply=reply,
+            cited_fact_ids=(),
+            confidence=1.0,
+            handoff_reason=handoff_reason,
+            objection_tag=objection_tag,
+            proposed_consent_prompt=False,
+        )
+        verdict = self._review(output, [], retried=False)
+        actions = self.box.actions
+        if handoff_reason is not None:
+            actions.handoff = HandoffAction(new_id(), handoff_reason, self._summary(handoff_reason))
+        if objection_tag is not None:
+            actions.objections.append(
+                ObjectionAction(new_id(), objection_tag, self.request.message[:200])
+            )
+        return TurnResult(
+            conversation_id=self.request.conversation_id,
+            output=output,
+            final_reply=verdict.final_reply or reply,
+            review=verdict,
+            cited_ids=(),
+            off_topic=objection_tag == "off_topic",
+            tool_calls=(),
+            retrieved=(),
+            model_calls=tuple(self.calls),
+            actions=actions,
+            low_confidence_streak=verdict.low_confidence_streak,
+            scope=scope,
         )
 
     def _history(self) -> list[ChatMessage]:
@@ -256,6 +348,7 @@ class _Turn:
             citations,
             owner_name=seller.owner_name,
             business_name=seller.business_name,
+            customer_message=self.request.message,
             low_confidence_threshold=seller.low_confidence_threshold,
             low_confidence_streak=self.request.low_confidence_streak,
             retried=retried,

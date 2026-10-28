@@ -1,16 +1,22 @@
-"""T024 agent loop v1 (FR-024, FR-025; plan.md §4.1): retrieval → tool loop → AgentTurnOutput →
-the checks outside the model, with one guided retry (AS-3.3, AS-3.4; R2–R5).
+"""T024 agent loop v1 (FR-024, FR-025; plan.md §4.1): scope → retrieval → tool loop →
+AgentTurnOutput → the checks outside the model, with one guided retry (AS-3.3, AS-3.4; R2–R5).
+The scope classifier (T054) declines off-topic messages and hands sensitive ones to the owner
+before any retrieval (R10, R11).
 """
 
 import asyncio
+from datetime import UTC, datetime, timedelta
 from typing import Any
 from uuid import uuid4
 
 import pytest
 
-from vitrina_conversation.api import AgentDeps, Exchange, TurnRequest, run_turn
+from vitrina_conversation.api import AgentDeps, Exchange, InMemoryBookings, TurnRequest, run_turn
 from vitrina_conversation.contract import output_schema, tool_specs
-from vitrina_conversation.testing import ScriptedChat, Shop, final_answer, tool_call
+from vitrina_conversation.engine import booking_confirmation
+from vitrina_conversation.scope import decline_reply, sensitive_reply
+from vitrina_conversation.testing import ScriptedChat, Shop, final_answer, scope_answer, tool_call
+from vitrina_conversation.tools import BookedSlot
 from vitrina_core.providers import ChatRequest, ChatResponse, ProviderUnavailableError
 
 FALLBACK = "No tengo ese dato, te comunico con Ana"
@@ -69,7 +75,7 @@ async def test_as_3_3_a_tool_backed_cited_answer_reaches_the_customer(shop: Shop
     tool_message = chat.requests[1].messages[-1]
     assert tool_message.role == "tool"
     assert str(shop.ids["envio-medellin"]) in str(tool_message.content)
-    assert len(result.model_calls) == 2
+    assert [call.purpose for call in result.model_calls] == ["classify", "agent", "agent"]
 
 
 async def test_as_3_4_an_invented_price_gets_one_guided_retry(shop: Shop) -> None:
@@ -207,7 +213,25 @@ async def test_as_4_2_an_objection_tag_is_recorded_with_the_customers_words(shop
     assert (objection.tag, objection.quote) == ("shipping", message)
 
 
-async def test_as_3_10_an_off_topic_answer_is_flagged(shop: Shop) -> None:
+async def test_as_3_10_an_off_topic_question_gets_the_canned_decline(shop: Shop) -> None:
+    chat = ScriptedChat(scope=[scope_answer(False, "deportes")])
+
+    result = await run_turn(request(shop, "¿Quién ganó el partido?"), deps(chat, shop))
+
+    assert (result.final_reply, result.off_topic) == (decline_reply(shop.seller), True)
+    assert result.output is not None
+    assert (result.output.objection_tag, result.output.cited_fact_ids) == ("off_topic", ())
+    assert (result.retrieved, result.tool_calls, chat.requests) == ((), (), [])
+    (objection,) = result.actions.objections
+    assert (objection.tag, objection.quote) == ("off_topic", "¿Quién ganó el partido?")
+    assert result.review is not None
+    assert result.review.outcome == "accept"
+    assert result.handoff is None
+    assert [call.purpose for call in result.model_calls] == ["classify"]
+    assert (result.scope.in_scope, result.scope.reason) == (False, "classifier: deportes")
+
+
+async def test_as_3_10_the_agents_own_off_topic_tag_still_flags_a_decline(shop: Shop) -> None:
     reply = "Solo te puedo ayudar con Mochilas Ana. ¿Buscas alguna mochila?"
     chat = ScriptedChat([final_answer(reply, confidence=0.95, objection_tag="off_topic")])
 
@@ -215,6 +239,48 @@ async def test_as_3_10_an_off_topic_answer_is_flagged(shop: Shop) -> None:
 
     assert result.off_topic
     assert result.final_reply == reply
+    assert result.scope_check == (False, "off_topic: declined by the agent")
+
+
+@pytest.mark.parametrize(
+    ("sensitive", "reason"),
+    [("medical", "medical_topic"), ("legal", "other"), ("financial", "other")],
+)
+async def test_r11_a_sensitive_question_goes_to_the_owner_unanswered(
+    shop: Shop, sensitive: str, reason: str
+) -> None:
+    chat = ScriptedChat(scope=[scope_answer(True, "pide un consejo", sensitive)])
+    message = "¿Esta mochila me sirve para el dolor de espalda?"
+
+    result = await run_turn(request(shop, message), deps(chat, shop))
+
+    assert result.final_reply == sensitive_reply(shop.seller)
+    assert result.handoff is not None
+    assert result.handoff.reason == reason
+    assert message in result.handoff.summary
+    assert (result.retrieved, chat.requests, result.off_topic) == ((), [], False)
+    assert result.actions.objections == []
+
+
+async def test_r10_a_classifier_outage_leaves_the_question_to_the_agent(shop: Shop) -> None:
+    reply = "¡Hola! ¿En qué te ayudo?"
+    chat = ScriptedChat(
+        [final_answer(reply, confidence=0.95)],
+        scope=[ProviderUnavailableError("down", provider="meta_model_api")],
+    )
+
+    result = await run_turn(request(shop, "¿Hacen domicilios?"), deps(chat, shop))
+
+    assert (result.final_reply, len(chat.requests)) == (reply, 1)
+    assert result.scope.in_scope
+
+
+async def test_r10_a_greeting_needs_no_classifier_call(shop: Shop) -> None:
+    chat = ScriptedChat([final_answer("¡Hola! ¿En qué te ayudo?", confidence=0.95)])
+
+    await run_turn(request(shop, "Hola, buenas tardes"), deps(chat, shop))
+
+    assert (chat.classified, len(chat.requests)) == ([], 1)
 
 
 async def test_art_viii_a_provider_hiccup_is_retried(shop: Shop) -> None:
@@ -275,3 +341,87 @@ async def test_r3_an_uncited_claim_never_reaches_the_customer(shop: Shop) -> Non
 
     assert result.final_reply == FALLBACK
     assert result.low_confidence_streak == 1
+
+
+async def test_r3_a_bare_yes_to_the_customers_question_never_reaches_them(shop: Shop) -> None:
+    chat = ScriptedChat([final_answer("Dale, listo.", confidence=0.95)])
+
+    result = await run_turn(request(shop, "¿Tienen la mochila en verde?"), deps(chat, shop))
+
+    assert result.final_reply == FALLBACK
+
+
+TUESDAY_8AM = datetime(2026, 10, 27, 13, 0, tzinfo=UTC)
+BOOK_SATURDAY = tool_call("book_slot", service="Arreglo", starts_at="2026-10-31T10:00:00-05:00")
+
+
+async def test_t052_a_booking_the_review_rejects_is_confirmed_from_the_tool(shop: Shop) -> None:
+    chat = ScriptedChat(
+        [BOOK_SATURDAY, final_answer("Listo, te esperamos el sábado a las 10:00.", confidence=0.95)]
+    )
+    turn_deps = deps(chat, shop, bookings=InMemoryBookings(), clock=lambda: TUESDAY_8AM)
+
+    result = await run_turn(
+        request(shop, "¿Me agendas el sábado a las 10?", dry_run=False), turn_deps
+    )
+
+    assert result.final_reply == (
+        "Listo, quedó tu cita de Arreglo para el sábado 31 de octubre de 2026, 10:00. "
+        "¿Te ayudo con algo más?"
+    )
+    assert (result.handoff, result.low_confidence_streak) == (None, 1)
+
+
+async def test_t052_a_booking_with_a_handoff_keeps_the_fallback(shop: Shop) -> None:
+    invented = final_answer("Listo, son $50.000 por el arreglo.", confidence=0.95)
+    chat = ScriptedChat([BOOK_SATURDAY, invented, invented])
+    turn_deps = deps(chat, shop, bookings=InMemoryBookings(), clock=lambda: TUESDAY_8AM)
+
+    result = await run_turn(request(shop, "Agéndame el sábado a las 10", dry_run=False), turn_deps)
+
+    assert result.final_reply == FALLBACK
+    assert result.handoff is not None
+    assert result.handoff.reason == "price_unverified"
+
+
+async def test_t052_a_reply_that_passes_after_a_booking_is_kept(shop: Shop) -> None:
+    reply = "¡Con gusto, veci! ¿Te ayudo con algo más?"
+    chat = ScriptedChat([BOOK_SATURDAY, final_answer(reply, confidence=0.95)])
+    turn_deps = deps(chat, shop, bookings=InMemoryBookings(), clock=lambda: TUESDAY_8AM)
+
+    result = await run_turn(
+        request(shop, "¿Me agendas el sábado a las 10?", dry_run=False), turn_deps
+    )
+
+    assert result.final_reply == reply
+
+
+def test_t052_two_bookings_are_confirmed_together(shop: Shop) -> None:
+    saturday = datetime(2026, 10, 31, 10, 0, tzinfo=UTC) - timedelta(hours=-5)
+    booked = [
+        BookedSlot(uuid4(), "Corte", saturday),
+        BookedSlot(uuid4(), "Barba", saturday + timedelta(minutes=30)),
+    ]
+
+    assert booking_confirmation(shop.seller, booked) == (
+        "Listo, quedaron tus citas de Corte para el sábado 31 de octubre de 2026, 10:00 y "
+        "Barba para el sábado 31 de octubre de 2026, 10:30. ¿Te ayudo con algo más?"
+    )
+
+
+async def test_t052_the_turns_clock_decides_what_has_passed(shop: Shop) -> None:
+    saturday_8am = datetime(2026, 10, 24, 13, 0, tzinfo=UTC)
+    bookings = InMemoryBookings()
+    chat = ScriptedChat(
+        [
+            tool_call("book_slot", service="Arreglo", starts_at="2026-10-24T10:00:00-05:00"),
+            final_answer("¡Con gusto, veci! ¿Te ayudo con algo más?", confidence=0.95),
+        ]
+    )
+
+    await run_turn(
+        request(shop, "¿Me agendas hoy a las 10?", dry_run=False),
+        deps(chat, shop, bookings=bookings, clock=lambda: saturday_8am),
+    )
+
+    assert len(bookings.bookings) == 1
