@@ -49,10 +49,16 @@ def test_fr_024_local_time_and_hours_are_in_spanish(shop: Shop) -> None:
     assert "lunes 09:00–18:00; sábado 09:00–13:00" in prompt
 
 
-def test_fr_024_unregistered_hours_are_stated(shop: Shop) -> None:
+def test_as_3_3_unconfigured_hours_point_to_the_catalog(shop: Shop) -> None:
     seller = shop.seller.model_copy(update={"business_hours": {}})
 
-    assert "sin horario registrado" in render_system_prompt(seller, [], NOW)
+    prompt = render_system_prompt(seller, [], NOW)
+
+    assert (
+        "- Horario del negocio: no está en la configuración; si te preguntan, búscalo con "
+        "search_catalog\n" in context(prompt)
+    )
+    assert "sin horario registrado" not in prompt
 
 
 def test_fr_024_brand_voice_comes_from_the_profile(shop: Shop) -> None:
@@ -121,3 +127,57 @@ def test_fr_024_a_chat_without_an_ad_code_gets_no_ad_line(shop: Shop) -> None:
 
     assert "anuncio #" not in context(prompt)
     assert "código #" not in context(prompt)
+
+
+def test_a_007_the_agent_cites_the_context_and_searches_only_what_it_lacks(shop: Shop) -> None:
+    prompt = render_system_prompt(shop.seller, [], NOW)
+
+    assert (
+        "1. Cada precio, disponibilidad, envío, pago, horario o política que afirmes debe venir de "
+        "un dato con fact_id: de los datos recuperados en el contexto o, si no están ahí, de "
+        "search_catalog." in prompt
+    )
+    assert "- search_catalog: para datos del negocio que no estén ya en el contexto." in prompt
+    assert "llama a search_catalog y cita" not in prompt
+
+
+def test_as_3_3_an_empty_search_gets_one_more_try(shop: Shop) -> None:
+    prompt = render_system_prompt(shop.seller, [], NOW)
+
+    assert (
+        "Si no trae nada, búscalo una vez más con una o dos palabras clave, como el nombre del "
+        "producto o el tema, antes de decir que no tienes el dato." in prompt
+    )
+
+
+def test_as_3_4_totals_and_other_currencies_get_the_cited_prices(shop: Shop) -> None:
+    prompt = render_system_prompt(shop.seller, [], NOW)
+
+    assert (
+        "Si te piden un total, no escribas la suma: da el precio de cada producto con su dato "
+        "citado, y pasa la conversación solo si el pedido supera el monto que el negocio definió."
+        in prompt
+    )
+    assert (
+        "Los precios están en pesos colombianos: si te los piden en otra moneda, da el precio en "
+        "pesos, sin convertirlo." in prompt
+    )
+
+
+def test_as_3_10_a_shop_question_beside_an_off_topic_one_is_answered(shop: Shop) -> None:
+    prompt = render_system_prompt(shop.seller, [], NOW)
+
+    assert (
+        "Si el mismo mensaje también pregunta algo del negocio, declina la parte ajena en una "
+        "frase, responde la del negocio con su dato citado y no marques off_topic." in prompt
+    )
+
+
+def test_as_3_8_an_exchange_question_gets_the_policy_before_any_handoff(shop: Shop) -> None:
+    prompt = render_system_prompt(shop.seller, [], NOW)
+
+    assert (
+        "Si preguntan si pueden cambiar un producto, primero explica la política de cambios con su "
+        "dato citado: pasa la conversación solo si el cliente reclama o insiste en una excepción."
+        in prompt
+    )
