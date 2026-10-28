@@ -2,8 +2,11 @@
 
 Contract paths: /public/showcases, /public/showcases/{slug} (T083, P2; AS-8.2, FR-072). No sign-in:
 the visitor's address, hashed with a key and the hour, limits uploads to five an hour.
+Behind the dashboard's proxy the address arrives in ``X-Vitrina-Visitor`` (the proxy drops the
+forwarding headers and always sets this one); a direct call is limited by its own address.
 """
 
+import ipaddress
 import secrets
 from datetime import UTC, datetime
 from typing import Annotated
@@ -57,6 +60,15 @@ def _store(request: Request) -> tuple[ShowcaseStore, PostgresJobQueue]:
     return ShowcaseStore(state.sessions), state.jobs
 
 
+def visitor_address(request: Request) -> str:
+    """The visitor's address: the dashboard proxy's header when it holds an IP, else the client."""
+    forwarded = request.headers.get("x-vitrina-visitor", "").strip()
+    try:
+        return str(ipaddress.ip_address(forwarded))
+    except ValueError:
+        return request.client.host if request.client else "unknown"
+
+
 @router.post(
     "/public/showcases",
     status_code=202,
@@ -76,9 +88,7 @@ async def create_showcase(
     settings: Settings = request.app.state.settings
     now = datetime.now(UTC)
     window = window_start(now)
-    digest = address_hash(
-        request.client.host if request.client else "unknown", _key(settings), window
-    )
+    digest = address_hash(visitor_address(request), _key(settings), window)
     if await store.hit(digest, window) > RATE_LIMIT:
         retry = int((window + WINDOW - now).total_seconds()) + 1
         raise ProblemError(

@@ -155,3 +155,8 @@ jobs:
       - name: check (tsc, eslint, client drift)
         run: pnpm run check
       - run: pnpm run build
+      # The Cloudflare Worker bundle (OpenNext), so an adapter break shows here, not on deploy day.
+      - name: Cloudflare build (OpenNext)
+        run: pnpm run cf:build
+        env:
+          API_PROXY_TARGET: https://api.example.invalid
