@@ -3,8 +3,8 @@ contact of the segment, a send re-evaluates each one, writes only to ``allowed``
 the approved template, and keeps every decision, sent or not.
 """
 
-from collections.abc import Sequence
-from dataclasses import dataclass, field
+from collections.abc import Callable, Sequence
+from dataclasses import dataclass, field, replace
 from datetime import UTC, datetime, timedelta
 from uuid import UUID, uuid4
 
@@ -42,6 +42,8 @@ AD = AdRef(UUID("00000000-0000-7000-8000-0000000000d1"), "A7")
 WEDNESDAY_10 = datetime(2026, 10, 28, 10, 0, tzinfo=BOGOTA)
 SATURDAY_16 = datetime(2026, 10, 31, 16, 0, tzinfo=BOGOTA)
 NEXT_WINDOW = datetime(2026, 11, 3, 7, 0, tzinfo=BOGOTA)  # Mon Nov 2 is a holiday
+WEDNESDAY_19 = datetime(2026, 10, 28, 19, 0, tzinfo=BOGOTA)  # the window closes
+THURSDAY_7 = datetime(2026, 10, 29, 7, 0, tzinfo=BOGOTA)
 PROMPT = "¿Te aviso cuando llegue tu talla o haya promo? Responde SÍ"
 
 
@@ -381,6 +383,64 @@ async def test_as_6_3_a_send_outside_hours_waits_for_the_next_window(world: Worl
 
     assert len(world.messages.sent) == 1
     assert (again.next_at, again.campaign.status) == (None, "sent")
+
+
+def ticking(*readings: datetime) -> Callable[[], datetime]:
+    """A clock that gives each reading once, in order: the moments a send pass looks at it."""
+    times = iter(readings)
+    return lambda: next(times)
+
+
+async def test_as_6_3_a_pass_that_runs_into_19_00_defers_the_rest(world: World) -> None:
+    await world.contact("573000000011")
+    await world.contact("573000000012")
+    campaign_id = await started(world)
+    # First contact: checked at 18:59:30 and again after its pacing wait; second: at 19:00:05.
+    clock = ticking(
+        WEDNESDAY_19 - timedelta(seconds=30),
+        WEDNESDAY_19 - timedelta(seconds=20),
+        WEDNESDAY_19 + timedelta(seconds=5),
+    )
+
+    run = await run_send(
+        replace(world.deps(), clock=clock),
+        SELLER,
+        campaign_id,
+        business_name="Mochilas Ana",
+        now=WEDNESDAY_19 - timedelta(minutes=1),
+    )
+
+    (message,) = world.messages.sent
+    (late,) = [d for d in run.campaign.decisions if d.decision != "sent"]
+    assert world.numbers[late.contact_id] != message.to
+    assert (late.decision, late.reason) == ("deferred", "OUTSIDE_HOURS_LEY_2300")
+    assert late.evaluated_at == WEDNESDAY_19 + timedelta(seconds=5)
+    assert late.next_allowed_at == THURSDAY_7
+    assert (run.next_at, run.campaign.status) == (THURSDAY_7, "sending")
+
+
+async def test_as_6_3_a_send_is_checked_again_after_the_pacing_wait(world: World) -> None:
+    contact = await world.contact("573000000011")
+    campaign_id = await started(world)
+    clock = ticking(WEDNESDAY_19 - timedelta(seconds=2), WEDNESDAY_19 + timedelta(seconds=4))
+
+    run = await run_send(
+        replace(world.deps(), clock=clock),
+        SELLER,
+        campaign_id,
+        business_name="Mochilas Ana",
+        now=WEDNESDAY_19 - timedelta(seconds=3),
+    )
+
+    assert world.paced == ["573000000011"]
+    assert world.messages.sent == []
+    (decision,) = run.campaign.decisions
+    assert (decision.contact_id, decision.decision) == (contact, "deferred")
+    assert decision.next_allowed_at == THURSDAY_7
+    contact_now = await world.compliance.contact(SELLER, contact)
+    assert contact_now is not None
+    assert contact_now.last_marketing_sent_at is None
+    assert run.next_at == THURSDAY_7
 
 
 async def test_fr_064_every_evaluation_is_kept(world: World) -> None:
