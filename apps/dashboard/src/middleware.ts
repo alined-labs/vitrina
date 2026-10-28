@@ -8,15 +8,25 @@ import { authEnabled, supabaseAnonKey, supabaseUrl } from "@/lib/env";
 const PUBLIC_PAGES = /^\/(foto|v\/[a-z0-9-]+)\/?$/;
 
 // The API proxy drops forwarding headers, so behind Cloudflare the API would see every visitor
-// at the proxy's address. The visitor's address travels in this header instead; it is always
-// overwritten here, so a browser cannot supply its own (the public upload limit reads it).
+// at the proxy's address. The visitor's address travels in the first header instead, and the
+// second carries the secret this proxy shares with the API, which trusts the address only when
+// the secret matches: a caller that skips the dashboard cannot choose its own (the public upload
+// limit reads it). Both are always overwritten here, so a browser cannot supply either.
 const VISITOR_HEADER = "x-vitrina-visitor";
+const PROXY_SECRET_HEADER = "x-vitrina-proxy-secret";
 
 function withVisitor(request: NextRequest): NextResponse {
   const headers = new Headers(request.headers);
   const visitor = request.headers.get("cf-connecting-ip");
-  if (visitor) headers.set(VISITOR_HEADER, visitor);
-  else headers.delete(VISITOR_HEADER);
+  // A Worker secret, read on every request; never a NEXT_PUBLIC_ value. Unset in local work.
+  const secret = process.env.VISITOR_PROXY_SECRET;
+  if (visitor && secret) {
+    headers.set(VISITOR_HEADER, visitor);
+    headers.set(PROXY_SECRET_HEADER, secret);
+  } else {
+    headers.delete(VISITOR_HEADER);
+    headers.delete(PROXY_SECRET_HEADER);
+  }
   return NextResponse.next({ request: { headers } });
 }
 

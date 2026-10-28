@@ -60,13 +60,20 @@ def _store(request: Request) -> tuple[ShowcaseStore, PostgresJobQueue]:
     return ShowcaseStore(state.sessions), state.jobs
 
 
-def visitor_address(request: Request) -> str:
-    """The visitor's address: the dashboard proxy's header when it holds an IP, else the client."""
-    forwarded = request.headers.get("x-vitrina-visitor", "").strip()
-    try:
-        return str(ipaddress.ip_address(forwarded))
-    except ValueError:
-        return request.client.host if request.client else "unknown"
+def visitor_address(request: Request, settings: Settings) -> str:
+    """The address the showcase's hourly limit counts (T083, AS-8.2).
+
+    The dashboard's proxy names the visitor in X-Vitrina-Visitor and proves it is the proxy with
+    X-Vitrina-Proxy-Secret (VISITOR_PROXY_SECRET). Any other caller is counted by its own
+    address, which uvicorn takes from the ingress (deploy/README.md).
+    """
+    if settings.visitor_proxy_matches(request.headers.get("x-vitrina-proxy-secret")):
+        forwarded = request.headers.get("x-vitrina-visitor", "").strip()
+        try:
+            return str(ipaddress.ip_address(forwarded))
+        except ValueError:
+            pass
+    return request.client.host if request.client else "unknown"
 
 
 @router.post(
@@ -88,7 +95,7 @@ async def create_showcase(
     settings: Settings = request.app.state.settings
     now = datetime.now(UTC)
     window = window_start(now)
-    digest = address_hash(visitor_address(request), _key(settings), window)
+    digest = address_hash(visitor_address(request, settings), _key(settings), window)
     if await store.hit(digest, window) > RATE_LIMIT:
         retry = int((window + WINDOW - now).total_seconds()) + 1
         raise ProblemError(
