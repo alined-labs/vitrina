@@ -21,10 +21,12 @@ from vitrina_learning.attribution import (
 )
 from vitrina_learning.briefs import (
     GENERATE_TASK,
+    AppliedBrief,
     Brief,
     BriefContent,
     BriefDataset,
     PostgresBriefs,
+    apply_brief,
     build_dataset,
     write_brief,
 )
@@ -45,6 +47,7 @@ __all__ = [
     "AdInfo",
     "AdObjections",
     "AngleAttribution",
+    "AppliedBrief",
     "AttributionConsumer",
     "AttributionReport",
     "Brief",
@@ -54,6 +57,7 @@ __all__ = [
     "ObjectionReport",
     "PostgresBriefs",
     "ad_stats",
+    "apply_brief",
     "attributed_chats",
     "attribution_report",
     "build_attribution_report",

@@ -14,6 +14,7 @@ FR-061 (ADR-0008) with the Ley 2300 calendar. Reactivation campaigns (T064):
 from vitrina_compliance.calendar import BOGOTA, is_holiday, is_legal, next_legal, window
 from vitrina_compliance.campaigns import (
     CAMPAIGN_SEND,
+    TEMPLATE_NAME,
     AdFinder,
     AdRef,
     CampaignConflictError,
@@ -64,6 +65,7 @@ __all__ = [
     "ERASURE_TASK",
     "FREQUENCY_WINDOW",
     "REASON_TEXT_ES",
+    "TEMPLATE_NAME",
     "AdFinder",
     "AdRef",
     "CampaignConflictError",

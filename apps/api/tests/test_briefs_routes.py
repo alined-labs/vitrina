@@ -14,7 +14,9 @@ from vitrina_core.ledger import InMemoryLedger
 from vitrina_core.providers import CallMeta, ChatMessage, ChatRequest, ChatResponse
 from vitrina_core.providers.compose import ProviderMode, compose
 from vitrina_core.settings import Settings
-from vitrina_learning.api import AttributionConsumer
+from vitrina_creative.testing import source_photo
+from vitrina_learning.api import AttributionConsumer, BriefContent, PostgresBriefs
+from vitrina_learning.briefs import BriefDataset, DatasetProduct
 from vitrina_learning.testing import approved_ad, conversation
 
 SECRET = "briefs-routes-test-secret-with-32-bytes+"
@@ -36,14 +38,25 @@ def client() -> TestClient:
 
 @pytest.mark.parametrize(
     ("method", "path"),
-    [("get", "/v1/briefs"), ("post", "/v1/briefs/generate"), ("get", f"/v1/briefs/{SELLER}")],
+    [
+        ("get", "/v1/briefs"),
+        ("post", "/v1/briefs/generate"),
+        ("get", f"/v1/briefs/{SELLER}"),
+        ("post", f"/v1/briefs/{SELLER}/apply"),
+    ],
 )
 def test_briefs_need_a_seller(client: TestClient, method: str, path: str) -> None:
     assert getattr(client, method)(path).status_code == 401
 
 
-def test_fr_050_generating_needs_the_database(client: TestClient) -> None:
-    response = client.post("/v1/briefs/generate", json=PERIOD, headers=bearer())
+@pytest.mark.parametrize(
+    ("path", "body"),
+    [("/v1/briefs/generate", PERIOD), (f"/v1/briefs/{SELLER}/apply", None)],
+)
+def test_fr_050_generating_and_applying_need_the_database(
+    client: TestClient, path: str, body: dict[str, str] | None
+) -> None:
+    response = client.post(path, json=body, headers=bearer())
 
     assert response.status_code == 503
     assert response.json()["code"] == "PROVIDER_UNAVAILABLE"
@@ -168,3 +181,83 @@ async def test_db_as_5_1_ten_attributed_chats_give_a_brief_the_seller_reads(
         assert client.get(done["result_ref"], headers=bearer(OTHER)).status_code == 404
 
     assert wonder.requests[0].model == "wonder-test"
+
+
+def owner(subject: str = "owner-apply") -> dict[str, str]:
+    claims = {"sub": subject, "aud": "authenticated", "exp": 4102444800}
+    return {"Authorization": f"Bearer {jwt.encode(claims, SECRET, algorithm='HS256')}"}
+
+
+@pytest.mark.db
+async def test_db_as_5_2_applying_a_brief_queues_its_creative_jobs_and_a_campaign_preview(
+    migrated_schema: tuple[str, str], db_sessions: async_sessionmaker[AsyncSession]
+) -> None:
+    url, schema = migrated_schema
+    settings = Settings(
+        _env_file=None, database_url=url, db_schema=schema, supabase_jwt_secret=SECRET
+    )  # type: ignore[call-arg]
+
+    with TestClient(create_app(settings)) as client:
+        seller = client.post(
+            "/v1/sellers",
+            json={
+                "business_name": "Tejidos Vecina",
+                "owner_name": "Ana",
+                "whatsapp_number": "+573000000003",
+                "city": "Medellín",
+            },
+            headers=owner(),
+        )
+        assert seller.status_code == 201, seller.text
+        seller_id = UUID(seller.json()["id"])
+        product = client.post(
+            "/v1/products", json={"name": "Bolso tejido", "price_cop": 85000}, headers=owner()
+        ).json()
+        photo = client.post(
+            "/v1/assets",
+            files={"file": ("bolso.png", source_photo().image.data, "image/png")},
+            data={"product_id": product["id"]},
+            headers=owner(),
+        )
+        assert photo.status_code == 201, photo.text
+        content = BriefContent.model_validate(
+            {
+                "headline": "El bolso tejido vende con el ángulo 'hecho a mano'.",
+                "insights": [{"text": "Tres chats.", "evidence": {"chats": 3}}],
+                "recommended_angles": [{"angle": "handmade", "rationale": "Más chats."}],
+                "creative_directives": [
+                    {"product_id": product["id"], "angle": "handmade", "scene_brief": "Telar."}
+                ],
+                "reactivation_segments": [
+                    {"objection_tag": "shipping", "message_angle": "envío claro"}
+                ],
+            }
+        )
+        dataset = BriefDataset(
+            business_name="Tejidos Vecina",
+            period_from=TODAY - timedelta(days=7),
+            period_to=TODAY,
+            attributed_chats=3,
+            ads=[],
+            by_angle={},
+            objections={},
+            products=[DatasetProduct(id=product["id"], name="Bolso tejido", price_cop=85000)],
+            ads_by_status={},
+        )
+        brief = await PostgresBriefs(db_sessions).create(seller_id, dataset, content, [])
+
+        applied = client.post(f"/v1/briefs/{brief.id}/apply", headers=owner())
+        assert applied.status_code == 202, applied.text
+        [job_id] = applied.json()["creative_job_ids"]
+        campaign_id = applied.json()["reactivation_campaign_id"]
+
+        job = client.get(f"/v1/jobs/{job_id}", headers=owner()).json()
+        assert (job["kind"], job["status"]) == ("creative", "queued")
+        campaign = client.get(f"/v1/reactivation/campaigns/{campaign_id}", headers=owner()).json()
+        assert (campaign["status"], campaign["brief_id"]) == ("preview", str(brief.id))
+        assert client.get(f"/v1/briefs/{brief.id}", headers=owner()).json()["status"] == "applied"
+
+        again = client.post(f"/v1/briefs/{brief.id}/apply", headers=owner())
+        assert again.status_code == 409
+        stranger = client.post(f"/v1/briefs/{brief.id}/apply", headers=owner("someone-else"))
+        assert stranger.status_code in (403, 404)
