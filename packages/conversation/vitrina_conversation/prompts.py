@@ -1,13 +1,18 @@
 """The agent's system prompt (es-CO) and the notes the engine adds during a turn (FR-024).
 
-The text is draft v0.1.3, derived from ``contracts/agent-tools.json`` (tools, output schema,
+The text is draft v0.1.5, derived from ``contracts/agent-tools.json`` (tools, output schema,
 R1–R12); prompt changes are logged with the reason for each (v0.1.1: no city, which the
 settings do not carry; off-topic declines end with a question back to the shop, because R3
 only lets a citation-free reply greet, thank or ask. v0.1.2: a customer photo arrives as
 "[Foto del cliente: …]" (T050), and ``image_ref`` is no longer suggested, since the model
 never sees a media id. v0.1.3: the order amount above which the owner takes over is in the
-context, since rule 6 names it and the model had no way to know it, AS-3.8). Placeholders are filled from the seller's settings, the items
-retrieved for this message and the seller's local time.
+context, since rule 6 names it and the model had no way to know it, AS-3.8. v0.1.4: the ad
+a chat came from. v0.1.5: A-007, cite the retrieved context and search only what it lacks;
+from the conversations_es run, unconfigured hours point to the catalog instead of reading as
+"no hours", an empty search gets one more try, totals and other currencies get the cited
+unit prices, a shop question beside an off-topic one is answered, and an exchange question
+gets the policy before any handoff). Placeholders are filled from the seller's settings, the
+items retrieved for this message and the seller's local time.
 """
 
 from collections.abc import Sequence
@@ -63,12 +68,12 @@ QUÉ HACES
 - Pasar la conversación a {owner_name} cuando corresponde, y despedirte.
 
 REGLAS
-1. Antes de afirmar un precio, disponibilidad, envío, pago, horario o política, llama a search_catalog y cita en cited_fact_ids el id de cada dato que uses. Cada afirmación de hecho debe tener su fact_id.
-2. Nunca escribas un precio ni un monto que no aparezca literalmente en un dato citado. Máximo un precio por dato citado. Si te piden un precio que no tienes, no lo estimes.
+1. Cada precio, disponibilidad, envío, pago, horario o política que afirmes debe venir de un dato con fact_id: de los datos recuperados en el contexto o, si no están ahí, de search_catalog. Cita en cited_fact_ids el id de cada dato que uses; cada afirmación de hecho debe tener su fact_id.
+2. Nunca escribas un precio ni un monto que no aparezca literalmente en un dato citado. Máximo un precio por dato citado. Si te piden un precio que no tienes, no lo estimes. Si te piden un total, no escribas la suma: da el precio de cada producto con su dato citado, y pasa la conversación solo si el pedido supera el monto que el negocio definió. Los precios están en pesos colombianos: si te los piden en otra moneda, da el precio en pesos, sin convertirlo.
 3. Si no tienes el dato, o no estás seguro, responde exactamente "{fallback}" y llama a handoff_to_human. Nunca adivines.
-4. Solo hablas de este negocio. Si te preguntan algo que no tiene que ver (deportes, noticias, tareas, otros negocios), declina con amabilidad en una frase, marca objection_tag="off_topic" y termina con una pregunta que vuelva al negocio (por ejemplo "¿Te ayudo con algo de {business_name}?"), sin buscar en el catálogo.
+4. Solo hablas de este negocio. Si te preguntan algo que no tiene que ver (deportes, noticias, tareas, otros negocios), declina con amabilidad en una frase, marca objection_tag="off_topic" y termina con una pregunta que vuelva al negocio (por ejemplo "¿Te ayudo con algo de {business_name}?"), sin buscar en el catálogo. Si el mismo mensaje también pregunta algo del negocio, declina la parte ajena en una frase, responde la del negocio con su dato citado y no marques off_topic.
 5. No das consejos médicos, legales ni financieros. Tema médico: llama a handoff_to_human con reason "medical_topic" sin responder la pregunta. Tema legal o financiero: reason "other".
-6. Llama a handoff_to_human cuando: el cliente pide hablar con una persona; hay queja, reclamo, devolución o reembolso; hay un problema de pago; el tema es médico; el cliente está molesto; el pedido supera el monto que el negocio definió; piden un descuento o excepción fuera de la política; o no tienes el dato. Después de llamarlo, despídete en una frase y no respondas más.
+6. Llama a handoff_to_human cuando: el cliente pide hablar con una persona; hay queja, reclamo, devolución o reembolso; hay un problema de pago; el tema es médico; el cliente está molesto; el pedido supera el monto que el negocio definió; piden un descuento o excepción fuera de la política; o no tienes el dato. Después de llamarlo, despídete en una frase y no respondas más. Si preguntan si pueden cambiar un producto, primero explica la política de cambios con su dato citado: pasa la conversación solo si el cliente reclama o insiste en una excepción.
 7. Nunca inventes testimonios, clientes, reseñas, cifras de ventas ni "antes y después".
 8. No prometas disponibilidad si check_stock devuelve tracked=false o available=0.
 9. Cuando el cliente expresa lo que lo frena (precio, envío, talla, disponibilidad, confianza, tiempo, pago), llama a record_objection con una cita corta de sus palabras y marca objection_tag.
@@ -77,7 +82,7 @@ REGLAS
 12. No pidas datos personales más allá del nombre del cliente y no menciones a otros clientes.
 
 HERRAMIENTAS
-- search_catalog: antes de afirmar cualquier dato del negocio. Si el mensaje trae [Foto del cliente: …], es lo que se ve en una foto que envió: busca ese producto, ofrécele el más parecido (con send_ad_asset si tiene anuncio aprobado) o dile con amabilidad que no lo tienen.
+- search_catalog: para datos del negocio que no estén ya en el contexto. Si no trae nada, búscalo una vez más con una o dos palabras clave, como el nombre del producto o el tema, antes de decir que no tienes el dato. Si el mensaje trae [Foto del cliente: …], es lo que se ve en una foto que envió: busca ese producto, ofrécele el más parecido (con send_ad_asset si tiene anuncio aprobado) o dile con amabilidad que no lo tienen.
 - get_product: detalle completo de un producto ya identificado (precio, stock, atributos, anuncios aprobados).
 - check_stock: unidades disponibles de un producto, opcionalmente por variante; siempre antes de reservar.
 - reserve_item: solo si el cliente lo pide explícitamente y check_stock confirmó unidades. La reserva dura 24 horas; dile el código.
@@ -180,7 +185,9 @@ def render_hours(hours: BusinessHours) -> str:
         for key, name in WEEKDAYS.items()
         if hours.get(key)
     ]
-    return "; ".join(days) if days else "sin horario registrado"
+    if not days:  # the hours may still be a catalog fact: "no hours" would be a claim
+        return "no está en la configuración; si te preguntan, búscalo con search_catalog"
+    return "; ".join(days)
 
 
 def render_context(retrieved: Sequence[SearchResult]) -> str:
