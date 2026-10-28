@@ -33,6 +33,7 @@ from vitrina_core.providers import (
     ChatModel,
     ChatRequest,
     ProviderError,
+    ReasoningEffort,
     ResponseFormat,
 )
 
@@ -130,6 +131,7 @@ async def classify_scope(
     chat: ChatModel,
     model: str,
     strict_schema: bool = True,
+    reasoning_effort: ReasoningEffort | None = None,
 ) -> ScopeVerdict:
     if in_scope_by_rule(message):
         return ScopeVerdict(True, reason="rule: courtesy or follow-up")
@@ -150,6 +152,7 @@ async def classify_scope(
             name="ScopeVerdict", json_schema=SCOPE_SCHEMA, strict=strict_schema
         ),
         temperature=0.0,
+        reasoning_effort=reasoning_effort,
     )
     try:
         response = await chat.complete(request)
