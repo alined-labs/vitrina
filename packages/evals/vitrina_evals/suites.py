@@ -24,11 +24,12 @@ from vitrina_core.settings import REPO_ROOT, Settings
 from vitrina_evals.agent import conversation_agent
 from vitrina_evals.cases import load_cases
 from vitrina_evals.consent import load_consent_cases, run_consent_scheduler
+from vitrina_evals.price_suite import run_price_validator
 from vitrina_evals.runner import Agent, SuiteResult, run_conversations
 from vitrina_evals.schemas import EvalMetrics, EvalSuite
 
 # Suites in the contract that later tasks build.
-PLANNED = {"fidelity": "T072", "price_validator": "T072"}
+PLANNED = {"fidelity": "T072"}
 
 
 def tracked(providers: Providers, ledger: ModelCallLedger) -> Providers:
@@ -57,6 +58,8 @@ async def execute(
         return run_consent_scheduler(
             load_consent_cases()[:sample] if sample else load_consent_cases()
         )
+    if suite == "price_validator":
+        return await run_price_validator()
     if suite != "conversations_es":
         return SuiteResult(
             "error", EvalMetrics(), [], f"the {suite} suite arrives with {PLANNED[suite]}"

@@ -88,7 +88,7 @@ async def test_as_7_3_a_replay_run_uses_replay_providers_even_in_a_live_process(
     assert "CassetteMissError" in result.cases[0].notes
 
 
-@pytest.mark.parametrize(("suite", "task"), [("fidelity", "T072"), ("price_validator", "T072")])
+@pytest.mark.parametrize(("suite", "task"), [("fidelity", "T072")])
 async def test_suites_still_to_build_say_which_task_brings_them(
     tmp_path: Path, suite: str, task: str
 ) -> None:
