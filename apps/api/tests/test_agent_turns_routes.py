@@ -171,13 +171,15 @@ async def test_fr_030_needs_a_seller_token(api: Api) -> None:
 @pytest.mark.parametrize(
     ("kind", "text"), [("image", "foto"), ("audio", None), ("text", None), ("text", "  ")]
 )
-async def test_fr_030_only_text_turns_with_text_are_accepted_for_now(
+async def test_fr_030_only_text_turns_with_text_are_accepted(
     api: Api, kind: str, text: str | None
 ) -> None:
     response = api.turn(text, kind=kind)
 
     assert response.status_code == 400
     assert response.json()["code"] == "VALIDATION_ERROR"
+    if kind != "text":  # photos and voice notes are read when they arrive on WhatsApp
+        assert "WhatsApp" in response.json()["detail"]
 
 
 async def test_fr_030_without_a_model_id_the_provider_is_unavailable() -> None:
