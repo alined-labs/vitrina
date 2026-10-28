@@ -1,8 +1,9 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useState } from "react";
 import { api, type components } from "@/lib/api/client";
 import { problemMessage } from "@/lib/format";
+import { useLoad } from "@/lib/use-load";
 
 type Fact = components["schemas"]["Fact"];
 type FactKind = components["schemas"]["FactKind"];
@@ -28,9 +29,7 @@ export function Facts() {
     else setFacts(data.items ?? []);
   }, []);
 
-  useEffect(() => {
-    void load();
-  }, [load]);
+  useLoad(load);
 
   async function submit(form: HTMLFormElement) {
     const fields = new FormData(form);

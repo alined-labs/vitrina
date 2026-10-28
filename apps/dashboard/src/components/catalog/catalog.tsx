@@ -1,9 +1,10 @@
 "use client";
 
 import { useRouter } from "next/navigation";
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useState } from "react";
 import { api, type components } from "@/lib/api/client";
 import { formatCop, problemMessage } from "@/lib/format";
+import { useLoad } from "@/lib/use-load";
 
 type Product = components["schemas"]["Product"];
 
@@ -22,9 +23,7 @@ export function Catalog() {
     else setProducts(data.items ?? []);
   }, []);
 
-  useEffect(() => {
-    void load();
-  }, [load]);
+  useLoad(load);
 
   async function upload(product: Product, file: File) {
     setBusy(product.id);

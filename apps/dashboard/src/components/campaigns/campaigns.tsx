@@ -36,8 +36,10 @@ export function Campaigns() {
     else setMessage(problemMessage(error, "No pudimos cargar tus campañas."));
   }, []);
 
+  // Reloads when the selection changes too (a new campaign opens by its id). Started from a
+  // promise callback, as in useLoad, so no state update runs inside the effect itself.
   useEffect(() => {
-    void load();
+    void Promise.resolve().then(load);
   }, [load, selected]);
 
   if (state === "not_connected") {

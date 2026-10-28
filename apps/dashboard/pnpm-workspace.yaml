@@ -3,7 +3,16 @@ allowBuilds:
   # Their binaries come as platform packages; the install scripts are not needed.
   esbuild: false
   workerd: false
+# OpenNext 1.20.14 fixes truncated responses under concurrent requests on Next 16. It was
+# only hours old when adopted, so it is exempt from pnpm's release-age delay; its npm
+# provenance points at the release workflows of opennextjs/opennextjs-cloudflare and -aws.
+minimumReleaseAgeExclude:
+  - "@opennextjs/aws@4.1.13"
+  - "@opennextjs/cloudflare@1.20.14"
 # Wrangler's local simulator (miniflare) pins undici 7.29.1, which has known advisories; the
 # patch release fixes them. It only runs on developer machines, never in the deployed Worker.
 overrides:
   "undici@>=7.0.0 <7.30.1": 7.30.1
+  # OpenNext's build-time minifier pulls glob 10.4, whose CLI has a command-injection advisory;
+  # the minifier only uses the library, and 10.5.0 is the patch release of the same major.
+  "glob@>=10.2.0 <10.5.0": 10.5.0

@@ -29,10 +29,13 @@ export function Briefs() {
     return data?.items ?? [];
   }, []);
 
+  // Started from a promise callback, as in useLoad, so no state update runs inside the effect itself.
   useEffect(() => {
-    void load().then((items) => {
-      if (!selected && items[0]) router.replace(`/informes?informe=${items[0].id}`);
-    });
+    void Promise.resolve()
+      .then(load)
+      .then((items) => {
+        if (!selected && items[0]) router.replace(`/informes?informe=${items[0].id}`);
+      });
   }, [load, selected, router]);
 
   // A brief is a background job: poll it until Wonder finishes, then open the new brief.

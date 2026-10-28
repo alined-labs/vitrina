@@ -4,6 +4,7 @@ import { useCallback, useEffect, useState } from "react";
 import { api, type components } from "@/lib/api/client";
 import { problemMessage } from "@/lib/format";
 import { AD_STATUS, ANGLE } from "@/lib/labels";
+import { useLoad } from "@/lib/use-load";
 
 type Ad = components["schemas"]["Ad"];
 type AdStatus = components["schemas"]["AdStatus"];
@@ -14,20 +15,20 @@ const TAB_LABEL: Record<AdStatus, string> = { approved: "Aprobados", draft: "Bor
 /** Approved ads with their code and link, the package to post, and their attribution (US-2, US-4). */
 export function Ads() {
   const [status, setStatus] = useState<AdStatus>("approved");
-  const [ads, setAds] = useState<Ad[] | null>(null);
+  // Each tab keeps its own list: a tab shows as loading until its first answer arrives, and an
+  // answer that comes back after the user switched tabs only fills its own tab.
+  const [lists, setLists] = useState<Partial<Record<AdStatus, Ad[]>>>({});
+  const ads = lists[status] ?? null;
   const [names, setNames] = useState<Record<string, string>>({});
   const [message, setMessage] = useState<string | null>(null);
 
   const load = useCallback(async () => {
     const { data, error } = await api.GET("/ads", { params: { query: { status, limit: 100 } } });
-    if (data) setAds(data.items ?? []);
+    if (data) setLists((current) => ({ ...current, [status]: data.items ?? [] }));
     else setMessage(problemMessage(error, "No pudimos cargar tus anuncios."));
   }, [status]);
 
-  useEffect(() => {
-    setAds(null);
-    void load();
-  }, [load]);
+  useLoad(load);
 
   useEffect(() => {
     void api.GET("/products", { params: { query: { limit: 100 } } }).then(({ data }) => {
