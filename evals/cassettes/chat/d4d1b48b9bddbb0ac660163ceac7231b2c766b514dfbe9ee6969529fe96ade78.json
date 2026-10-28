@@ -1,6 +1,6 @@
 {
   "kind": "chat",
-  "recorded_at": "2026-10-28T20:25:15+00:00",
+  "recorded_at": "2026-10-28T20:33:31+00:00",
   "request": {
     "messages": [
       {
@@ -425,21 +425,21 @@
       "tool_call_id": null,
       "tool_calls": [
         {
-          "arguments": "{\"query\":\"horario sábado abre mediodía\"}",
-          "id": "call_9757c29a-85bb-40ae-ba44-c7b0a6516c9b",
+          "arguments": "{\"kinds\":[\"hours\"],\"query\":\"horario sábado mediodía abren\",\"top_k\":5}",
+          "id": "call_5ca357d2-0a6a-48f1-9bff-17352cbd64e0",
           "name": "search_catalog"
         }
       ]
     },
     "meta": {
       "cost_usd": null,
-      "latency_ms": 1492,
+      "latency_ms": 1441,
       "model": "muse-spark-1.3",
       "provider": "meta_model_api",
       "purpose": "agent",
       "replayed": false,
       "tokens_in": 4065,
-      "tokens_out": 92
+      "tokens_out": 125
     }
   }
 }

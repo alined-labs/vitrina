@@ -1,6 +1,6 @@
 {
   "kind": "chat",
-  "recorded_at": "2026-10-28T20:25:15+00:00",
+  "recorded_at": "2026-10-28T20:33:31+00:00",
   "request": {
     "messages": [
       {
@@ -54,7 +54,7 @@
   "response": {
     "finish_reason": "stop",
     "message": {
-      "content": "{\"in_scope\": true, \"reason\": \"Pregunta por horario de apertura del negocio\", \"sensitive\": \"none\"}",
+      "content": "{\"in_scope\": true, \"reason\": \"Pregunta sobre horarios de apertura\", \"sensitive\": \"none\"}",
       "role": "assistant",
       "tool_call_id": null,
       "tool_calls": []
@@ -67,7 +67,7 @@
       "purpose": "classify",
       "replayed": false,
       "tokens_in": 433,
-      "tokens_out": 125
+      "tokens_out": 138
     }
   }
 }
