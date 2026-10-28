@@ -13,6 +13,9 @@ dependencies = [
 [project.entry-points."vitrina.tasks"]
 creative = "vitrina_creative.tasks:register"
 
+[project.entry-points."vitrina.metrics"]
+creative = "vitrina_creative.metrics:counters"
+
 [tool.uv.sources]
 vitrina-core = { workspace = true }
 vitrina-catalog = { workspace = true }
