@@ -77,3 +77,29 @@ def test_env_file_is_read_from_the_repository_root(tmp_path: Path) -> None:
     settings = Settings(_env_file=env_file)  # type: ignore[call-arg]
 
     assert (settings.db_schema, settings.spend_limit_usd) == ("dev_mx2", 80.0)
+
+
+def test_as_8_2_a_blank_visitor_proxy_secret_trusts_no_proxy(tmp_path: Path) -> None:
+    env_file = tmp_path / ".env"
+    env_file.write_text("VISITOR_PROXY_SECRET=\n")
+
+    for settings in (
+        Settings(_env_file=env_file),  # type: ignore[call-arg]
+        make(visitor_proxy_secret="   "),
+        make(),
+    ):
+        assert settings.visitor_proxy_secret is None
+        assert not settings.visitor_proxy_matches("")
+        assert not settings.visitor_proxy_matches(None)
+
+
+def test_as_8_2_only_the_proxy_secret_itself_matches(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("VISITOR_PROXY_SECRET", "proxy-secret-for-tests")
+
+    settings = make()
+
+    assert settings.visitor_proxy_matches("proxy-secret-for-tests")
+    assert not settings.visitor_proxy_matches("proxy-secret-for-test")
+    assert not settings.visitor_proxy_matches("")
+    assert not settings.visitor_proxy_matches(None)
+    assert "proxy-secret-for-tests" not in repr(settings)
