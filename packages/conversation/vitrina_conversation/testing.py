@@ -19,6 +19,7 @@ from vitrina_core.providers import (
     ProviderError,
     ToolCall,
 )
+from vitrina_core.settings import REPO_ROOT
 
 SHOP_SELLER_ID = UUID("0b6f5c0e-3a52-4d55-9d0a-6c1a3f1e2b10")
 
@@ -129,3 +130,11 @@ class ScriptedChat:
             finish_reason="tool_calls" if message.tool_calls else "stop",
             meta=CallMeta(provider="local_mock", model=request.model, purpose=request.purpose),
         )
+
+
+WEBHOOK_FIXTURES = REPO_ROOT / "evals" / "fixtures" / "webhooks"
+
+
+def webhook_fixture(name: str) -> bytes:
+    """A recorded WhatsApp webhook body, byte for byte (evals/fixtures/webhooks)."""
+    return (WEBHOOK_FIXTURES / f"{name}.json").read_bytes()

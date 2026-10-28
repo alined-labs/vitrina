@@ -21,7 +21,6 @@ from pydantic import BaseModel, ConfigDict, Field, ValidationError
 from vitrina_catalog.api import (
     Catalog,
     ProductNotFoundError,
-    Reservation,
     SearchKind,
     SellerSettings,
 )
@@ -153,13 +152,24 @@ class OptOutAction:
     erase: bool
 
 
+@dataclass(frozen=True)
+class ReservedItem:
+    """A reservation the tool made, with what ``ad.reservation`` reports (data-model.md §4)."""
+
+    reservation_id: UUID | None
+    code: str | None
+    expires_at: datetime | None
+    product_id: UUID
+    quantity: int
+
+
 @dataclass
 class TurnActions:
     handoff: HandoffAction | None = None
     objections: list[ObjectionAction] = field(default_factory=list)
     consent: ConsentAction | None = None
     opt_out: OptOutAction | None = None
-    reservations: list[Reservation] = field(default_factory=list)
+    reservations: list[ReservedItem] = field(default_factory=list)
 
 
 @dataclass(frozen=True)
@@ -264,7 +274,15 @@ class ToolBox:
                     args.product_id,
                 )
                 if reservation.status == "reserved":
-                    self.actions.reservations.append(reservation)
+                    self.actions.reservations.append(
+                        ReservedItem(
+                            reservation.reservation_id,
+                            reservation.code,
+                            reservation.expires_at,
+                            args.product_id,
+                            args.quantity,
+                        )
+                    )
                 return "ok", reservation.model_dump(mode="json")
             case HandoffArgs():
                 if self.actions.handoff is None:
@@ -275,7 +293,15 @@ class ToolBox:
                     return "skipped_dry_run", SKIPPED
                 return "ok", {"handoff_id": str(self.actions.handoff.id), "seller_notified": False}
             case RecordObjectionArgs():
-                objection = ObjectionAction(new_id(), args.tag, args.quote, args.product_id)
+                # A product id the model made up would break the row's foreign key: keep only
+                # an active product of this shop.
+                product_id = args.product_id
+                if product_id is not None:
+                    try:
+                        await self.catalog.get_product(self.seller_id, product_id)
+                    except ProductNotFoundError:
+                        product_id = None
+                objection = ObjectionAction(new_id(), args.tag, args.quote, product_id)
                 self.actions.objections.append(objection)
                 return "ok", {"objection_id": str(objection.id)}
             case RecordConsentArgs():
