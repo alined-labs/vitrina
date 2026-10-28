@@ -5,6 +5,7 @@ description = "Wonder brief generation and apply, analytics aggregates."
 requires-python = ">=3.12,<3.13"
 dependencies = [
     "vitrina-core",
+    "vitrina-catalog",
     "vitrina-creative",
     "vitrina-compliance",
 ]
@@ -14,6 +15,7 @@ learning = "vitrina_learning.tasks:register"
 
 [tool.uv.sources]
 vitrina-core = { workspace = true }
+vitrina-catalog = { workspace = true }
 vitrina-creative = { workspace = true }
 vitrina-compliance = { workspace = true }
 
