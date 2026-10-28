@@ -12,23 +12,20 @@ from starlette.datastructures import State
 from vitrina_catalog.sellers import InMemorySellerStore
 from vitrina_conversation.api import (
     BackgroundInboundQueue,
-    ConversationStore,
     InboundQueue,
     Ingest,
-    InMemoryConversationStore,
     InvalidSignatureError,
-    Pacer,
     PayloadTooLargeError,
-    PostgresConversationStore,
     PostgresInboundQueue,
+    conversation_store,
     memory_pipeline,
-    messenger_for,
+    messenger,
+    pacer,
     sellers_in_memory,
     sellers_on_postgres,
 )
 from vitrina_core.auth import WhatsAppSignature
 from vitrina_core.http import ProblemCode, ProblemError, problem_responses
-from vitrina_core.providers import Messenger
 from vitrina_core.settings import Settings
 from vitrina_whatsapp.handshake import verify_subscription
 
@@ -96,7 +93,7 @@ async def receive_whatsapp_webhook(
 
 def _ingest(state: State, background: BackgroundTasks) -> Ingest:
     settings: Settings = state.settings
-    store = _store(state)
+    store = conversation_store(state)
     if state.sessions is not None:
         queue: InboundQueue = PostgresInboundQueue(state.sessions, state.jobs)
         sellers = sellers_on_postgres(state.sessions)
@@ -111,8 +108,8 @@ def _ingest(state: State, background: BackgroundTasks) -> Ingest:
                 seller_settings=state.sellers.settings,
                 chat=state.providers.chat,
                 catalog=state.catalog,
-                messenger=_messenger(state),
-                pacer=_pacer(state),
+                messenger=messenger(state),
+                pacer=pacer(state),
             ),
         )
         directory = state.sellers
@@ -126,29 +123,3 @@ def _ingest(state: State, background: BackgroundTasks) -> Ingest:
         sellers=sellers,
         app_secret=secret.get_secret_value() if secret else "",
     )
-
-
-def _store(state: State) -> ConversationStore:
-    store: ConversationStore | None = getattr(state, "conversations", None)
-    if store is None:
-        store = (
-            PostgresConversationStore(state.sessions)
-            if state.sessions is not None
-            else InMemoryConversationStore()
-        )
-        state.conversations = store
-    return store
-
-
-def _messenger(state: State) -> Messenger:
-    messenger: Messenger | None = getattr(state, "messenger", None)
-    if messenger is None:
-        messenger = state.messenger = messenger_for(state.settings)
-    return messenger
-
-
-def _pacer(state: State) -> Pacer:
-    pacer: Pacer | None = getattr(state, "pacer", None)
-    if pacer is None:
-        pacer = state.pacer = Pacer(state.settings.outbound_spacing_s)
-    return pacer

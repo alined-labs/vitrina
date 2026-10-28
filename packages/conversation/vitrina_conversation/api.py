@@ -26,8 +26,19 @@ from vitrina_conversation.ingest import (
 )
 from vitrina_conversation.pacing import Pacer
 from vitrina_conversation.pipeline import Inbound, InboundOutcome, PipelineDeps, process_inbound
-from vitrina_conversation.schemas import AgentTurnRequest, AgentTurnResult, agent_turn_result
+from vitrina_conversation.runtime import conversation_store, messenger, pacer
+from vitrina_conversation.schemas import (
+    AgentTurnRequest,
+    AgentTurnResult,
+    Conversation,
+    HumanMessageCreate,
+    Message,
+    agent_turn_result,
+    conversation_view,
+    message_view,
+)
 from vitrina_conversation.store import (
+    ConversationRecord,
     ConversationState,
     ConversationStore,
     InMemoryConversationStore,
@@ -69,11 +80,14 @@ __all__ = [
     "Attribution",
     "BackgroundInboundQueue",
     "ConsentAction",
+    "Conversation",
+    "ConversationRecord",
     "ConversationState",
     "ConversationStore",
     "Exchange",
     "HandoffAction",
     "HandoffReason",
+    "HumanMessageCreate",
     "InMemoryConversationStore",
     "Inbound",
     "InboundOutcome",
@@ -81,6 +95,7 @@ __all__ = [
     "Ingest",
     "IngestResult",
     "InvalidSignatureError",
+    "Message",
     "ObjectionAction",
     "ObjectionTag",
     "OptOutAction",
@@ -98,8 +113,13 @@ __all__ = [
     "TurnRequest",
     "TurnResult",
     "agent_turn_result",
+    "conversation_store",
+    "conversation_view",
     "memory_pipeline",
+    "message_view",
+    "messenger",
     "messenger_for",
+    "pacer",
     "parse_output",
     "postgres_pipeline",
     "process_inbound",

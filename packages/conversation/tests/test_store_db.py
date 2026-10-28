@@ -104,6 +104,31 @@ async def test_db_fr_024_recent_messages_come_oldest_first(ctx: Ctx) -> None:
     assert await ctx.store.recent_messages(uuid4(), conversation.id, limit=5) == []
 
 
+async def test_db_t043_an_ad_image_keeps_the_id_the_tool_gave_and_its_ad(ctx: Ctx) -> None:
+    conversation = await ctx.store.open_conversation(ctx.seller_id, ctx.contact_id)
+    message_id, ad_id = new_id(), uuid4()
+
+    stored = await ctx.store.add_message(
+        ctx.seller_id,
+        conversation.id,
+        direction="outbound",
+        sender="agent",
+        type="image",
+        text="Así se ve la mochila azul",
+        delivery_status="queued",
+        message_id=message_id,
+        media_key=f"ad:{ad_id}",
+    )
+
+    assert stored is not None
+    assert (stored.id, stored.media_key) == (message_id, f"ad:{ad_id}")
+    (recent,) = await ctx.store.recent_messages(ctx.seller_id, conversation.id, limit=5)
+    assert (recent.id, recent.type, recent.media_key) == (message_id, "image", f"ad:{ad_id}")
+    async with ctx.sessions() as session:
+        row = (await session.execute(sa.select(messages).where(messages.c.id == message_id))).one()
+    assert (row.media_key, row.text) == (f"ad:{ad_id}", "Así se ve la mochila azul")
+
+
 async def test_db_fr_028_delivery_status_never_moves_backwards(ctx: Ctx) -> None:
     conversation = await ctx.store.open_conversation(ctx.seller_id, ctx.contact_id)
     out = await ctx.store.add_message(
@@ -195,3 +220,60 @@ async def test_db_as_3_1_the_raw_payload_is_kept(ctx: Ctx) -> None:
     payload_id = await ctx.store.save_webhook(body, signature_valid=True)
 
     assert await ctx.store.webhook(payload_id) == body
+
+
+async def test_db_as_3_8_the_waiting_list_and_its_handoff(ctx: Ctx) -> None:
+    conversation = await ctx.store.open_conversation(ctx.seller_id, ctx.contact_id)
+    handoff = HandoffAction(new_id(), "customer_request", "Quiere hablar con Ana.")
+    await ctx.store.open_handoff(ctx.seller_id, conversation.id, handoff)
+
+    waiting, _ = await ctx.store.list_conversations(ctx.seller_id, limit=10, needs_attention=True)
+    await ctx.store.add_message(
+        ctx.seller_id,
+        conversation.id,
+        direction="outbound",
+        sender="seller",
+        type="text",
+        text="Hola, soy Ana.",
+        delivery_status="sent",
+    )
+    after, _ = await ctx.store.list_conversations(ctx.seller_id, limit=10, needs_attention=True)
+
+    (record,) = waiting
+    assert record.handoff is not None
+    assert (record.handoff.id, record.handoff.reason) == (handoff.id, "customer_request")
+    assert after == []
+
+
+async def test_db_as_3_9_release_closes_the_handoff_and_resets_the_streak(ctx: Ctx) -> None:
+    conversation = await ctx.store.open_conversation(ctx.seller_id, ctx.contact_id)
+    await ctx.store.update_conversation(
+        ctx.seller_id, conversation.id, touched_at=NOW, low_confidence_streak=2
+    )
+    await ctx.store.open_handoff(
+        ctx.seller_id, conversation.id, HandoffAction(new_id(), "low_confidence_twice", "No sé.")
+    )
+
+    await ctx.store.set_mode(ctx.seller_id, conversation.id, "agent", touched_at=NOW)
+
+    record = await ctx.store.get_conversation(ctx.seller_id, conversation.id)
+    assert record is not None
+    assert (record.state.mode, record.state.low_confidence_streak) == ("agent", 0)
+    assert record.handoff is not None
+    assert record.handoff.released_at == NOW
+    assert await ctx.store.get_conversation(uuid4(), conversation.id) is None
+
+
+async def test_db_fr_080_messages_page_oldest_first_with_a_cursor(ctx: Ctx) -> None:
+    conversation = await ctx.store.open_conversation(ctx.seller_id, ctx.contact_id)
+    for n in range(3):
+        await inbound(ctx, conversation.id, f"wamid.VITRINA-DB-PAGE-{n}", f"mensaje {n}")
+
+    first, cursor = await ctx.store.list_messages(ctx.seller_id, conversation.id, limit=2)
+    rest, end = await ctx.store.list_messages(
+        ctx.seller_id, conversation.id, limit=2, cursor=cursor
+    )
+
+    assert [m.text for m in first] == ["mensaje 0", "mensaje 1"]
+    assert [m.text for m in rest] == ["mensaje 2"]
+    assert (cursor is not None, end) == (True, None)

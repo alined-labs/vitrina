@@ -1,8 +1,9 @@
 """How the inbound pipeline is put together in the API and in the worker (T027).
 
 With a database (MX2's dev API, the deployed API and its worker): Postgres stores, the job queue
-keyed by WhatsApp message id, the creative module's ad codes and the compliance module's
-erasure job; the API queues and the worker answers. Without one (CI's check job, a laptop
+keyed by WhatsApp message id, the creative module's ad codes and approved ads (with the
+worker's blob store, the images ``send_ad_asset`` sends) and the compliance module's erasure
+job; the API queues and the worker answers. Without one (CI's check job, a laptop
 demo): the API's in-memory stores, no ad codes, and the answer computed in a background task
 right after the ack. The messenger is the local mock unless ``WHATSAPP_MOCK=false`` (ADR-0011:
 the live number points at MX2 only).
@@ -11,6 +12,7 @@ the live number points at MX2 only).
 import logging
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
+from functools import partial
 from uuid import UUID
 
 import sqlalchemy as sa
@@ -27,12 +29,14 @@ from vitrina_conversation.ingest import SellerResolver
 from vitrina_conversation.pacing import Pacer
 from vitrina_conversation.pipeline import Inbound, InboundOutcome, PipelineDeps, process_inbound
 from vitrina_conversation.store import ConversationStore, PostgresConversationStore
+from vitrina_conversation.tools import AdAssets, ApprovedAds
 from vitrina_core.db.tables import sellers
 from vitrina_core.jobs import PostgresJobQueue
 from vitrina_core.providers import ChatModel, Messenger
 from vitrina_core.providers.compose import Providers
 from vitrina_core.settings import Settings
-from vitrina_creative.api import AdStore
+from vitrina_core.storage import BlobStore
+from vitrina_creative.api import AdStore, get_approved_asset
 from vitrina_local_mock import LocalMockMessenger, MockOutbox
 from vitrina_whatsapp.client import WhatsAppClient
 from vitrina_whatsapp.config import WhatsAppConfig
@@ -57,7 +61,14 @@ def messenger_for(settings: Settings) -> Messenger:
     )
 
 
-def agent_deps(settings: Settings, chat: ChatModel, catalog: Catalog) -> AgentDeps:
+def agent_deps(
+    settings: Settings,
+    chat: ChatModel,
+    catalog: Catalog,
+    *,
+    approved_ads: ApprovedAds | None = None,
+    ad_assets: AdAssets | None = None,
+) -> AgentDeps:
     """``LookupError`` while ``MODEL_AGENT`` is unset (spec.md §8: IDs are configuration)."""
     return AgentDeps(
         chat=chat,
@@ -66,6 +77,8 @@ def agent_deps(settings: Settings, chat: ChatModel, catalog: Catalog) -> AgentDe
         max_tool_rounds=settings.agent_max_tool_rounds,
         budget_s=settings.agent_turn_budget_s,
         top_k=settings.retrieval_top_k,
+        approved_ads=approved_ads,
+        ad_assets=ad_assets,
     )
 
 
@@ -76,6 +89,7 @@ def postgres_pipeline(
     providers: Providers,
     messenger: Messenger,
     pacer: Pacer,
+    storage: BlobStore | None = None,
 ) -> PipelineDeps:
     identity = (
         ContactIdentity(pepper=settings.contact_hash_pepper, key=settings.contact_encryption_key)
@@ -86,11 +100,21 @@ def postgres_pipeline(
         sessions, embedder=providers.embedder, embed_model=settings.model_embed
     )
     ads = AdStore(sessions)
+    seller_store = PostgresSellerStore(sessions)
     jobs = PostgresJobQueue(sessions)
 
     async def ad_lookup(seller_id: UUID, code: str) -> UUID | None:
         ad = await ads.by_code(seller_id, code)
         return ad.id if ad is not None else None
+
+    async def approved_ads(seller_id: UUID, product_id: UUID) -> list[UUID]:
+        return [row["id"] for row in await ads.approved_for(seller_id, product_id)]
+
+    ad_assets = (
+        partial(get_approved_asset, store=ads, storage=storage, sellers=seller_store)
+        if storage is not None
+        else None
+    )
 
     async def erase(seller_id: UUID, contact_id: UUID) -> None:
         async with sessions() as session, session.begin():
@@ -99,8 +123,10 @@ def postgres_pipeline(
     return PipelineDeps(
         store=PostgresConversationStore(sessions),
         compliance=PostgresCompliance(sessions, identity),
-        seller_settings=PostgresSellerStore(sessions).settings,
-        agent=agent_deps(settings, providers.chat, catalog),
+        seller_settings=seller_store.settings,
+        agent=agent_deps(
+            settings, providers.chat, catalog, approved_ads=approved_ads, ad_assets=ad_assets
+        ),
         messenger=messenger,
         pacer=pacer,
         ad_lookup=ad_lookup,
