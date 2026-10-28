@@ -1,0 +1,123 @@
+{
+  "name": "Anuncio #A7 y pregunta de env\u00edo",
+  "description": "Una clienta llega desde el anuncio #A7, pregunta el env\u00edo a Medell\u00edn y se despide.",
+  "webhooks": [
+    {
+      "object": "whatsapp_business_account",
+      "entry": [
+        {
+          "id": "100000000000002",
+          "changes": [
+            {
+              "value": {
+                "messaging_product": "whatsapp",
+                "metadata": {
+                  "display_phone_number": "573000000000",
+                  "phone_number_id": "100000000000001"
+                },
+                "contacts": [
+                  {
+                    "profile": {
+                      "name": "Laura Prueba"
+                    },
+                    "wa_id": "573000000011"
+                  }
+                ],
+                "messages": [
+                  {
+                    "from": "573000000011",
+                    "id": "wamid.VITRINA-REPLAY-01-01",
+                    "timestamp": "1793116800",
+                    "type": "text",
+                    "text": {
+                      "body": "Hola, vi el anuncio #A7"
+                    }
+                  }
+                ]
+              },
+              "field": "messages"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "object": "whatsapp_business_account",
+      "entry": [
+        {
+          "id": "100000000000002",
+          "changes": [
+            {
+              "value": {
+                "messaging_product": "whatsapp",
+                "metadata": {
+                  "display_phone_number": "573000000000",
+                  "phone_number_id": "100000000000001"
+                },
+                "contacts": [
+                  {
+                    "profile": {
+                      "name": "Laura Prueba"
+                    },
+                    "wa_id": "573000000011"
+                  }
+                ],
+                "messages": [
+                  {
+                    "from": "573000000011",
+                    "id": "wamid.VITRINA-REPLAY-01-02",
+                    "timestamp": "1793116820",
+                    "type": "text",
+                    "text": {
+                      "body": "\u00bfCu\u00e1nto vale el env\u00edo a Medell\u00edn?"
+                    }
+                  }
+                ]
+              },
+              "field": "messages"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "object": "whatsapp_business_account",
+      "entry": [
+        {
+          "id": "100000000000002",
+          "changes": [
+            {
+              "value": {
+                "messaging_product": "whatsapp",
+                "metadata": {
+                  "display_phone_number": "573000000000",
+                  "phone_number_id": "100000000000001"
+                },
+                "contacts": [
+                  {
+                    "profile": {
+                      "name": "Laura Prueba"
+                    },
+                    "wa_id": "573000000011"
+                  }
+                ],
+                "messages": [
+                  {
+                    "from": "573000000011",
+                    "id": "wamid.VITRINA-REPLAY-01-03",
+                    "timestamp": "1793116845",
+                    "type": "text",
+                    "text": {
+                      "body": "Gracias, lo pienso"
+                    }
+                  }
+                ]
+              },
+              "field": "messages"
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

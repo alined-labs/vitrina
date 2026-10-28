@@ -282,3 +282,27 @@ def message_view(message: StoredMessage) -> Message:
         is_replay=message.is_replay,
         created_at=message.created_at,
     )
+
+
+# ── replay (T080): openapi.yaml /replay/fixtures and /replay/sessions, inline schemas ──
+
+
+class ReplayFixtureView(BaseModel):
+    fixture_id: str
+    name: str
+    description: str | MISSING = MISSING
+    message_count: int
+
+
+class ReplaySessionCreate(BaseModel):
+    fixture_id: str
+    speed: Annotated[float, Field(ge=0.1, le=10, description="Playback speed multiplier")] = 1
+    use_recorded_model_outputs: Annotated[bool, Field(description="true = fully offline demo")] = (
+        False
+    )
+
+
+class ReplaySessionStarted(BaseModel):
+    session_id: UUID
+    conversation_id: UUID
+    job_id: UUID

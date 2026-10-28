@@ -157,6 +157,28 @@ async def test_db_as_3_6_a_voice_note_keeps_its_transcript(ctx: Ctx) -> None:
     )
 
 
+async def test_db_as_3_5_a_photo_keeps_what_it_shows(ctx: Ctx) -> None:
+    conversation = await ctx.store.open_conversation(ctx.seller_id, ctx.contact_id)
+    stored = await ctx.store.add_message(
+        ctx.seller_id,
+        conversation.id,
+        direction="inbound",
+        sender="customer",
+        type="image",
+        text=None,
+        wa_message_id="wamid.VITRINA-DB-IN-PHOTO",
+        normalized={"kind": "image", "text": ""},
+    )
+    assert stored is not None
+    seen = {"kind": "image", "text": "", "image": {"description": "Mochila azul"}}
+
+    await ctx.store.set_normalized(ctx.seller_id, stored.id, seen)
+    await ctx.store.set_normalized(uuid4(), stored.id, {})
+
+    (recent,) = await ctx.store.recent_messages(ctx.seller_id, conversation.id, limit=5)
+    assert recent.normalized == seen
+
+
 async def test_db_fr_028_delivery_status_never_moves_backwards(ctx: Ctx) -> None:
     conversation = await ctx.store.open_conversation(ctx.seller_id, ctx.contact_id)
     out = await ctx.store.add_message(

@@ -112,6 +112,7 @@ def _ingest(state: State, background: BackgroundTasks) -> Ingest:
                 messenger=messenger(state),
                 pacer=pacer(state),
                 bookings=bookings(state),
+                providers=state.providers,
             ),
         )
         directory = state.sellers

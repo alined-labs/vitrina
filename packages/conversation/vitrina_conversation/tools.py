@@ -5,7 +5,9 @@ checked against the contract's parameters, and anything wrong goes back to the m
 tool error instead of failing the turn. Read-only tools answer from the catalog. In a dry run
 the tools with side effects answer ``skipped_dry_run`` (R9). Decisions (handoff, objection,
 consent, opt-out) are kept in ``TurnActions`` either way, for the pipeline to apply;
-``reserve_item`` reserves at once outside a dry run, because its code goes to the customer.
+``reserve_item`` reserves at once outside a dry run, because its code goes to the customer;
+an order above the seller's threshold also hands the chat to the owner, decided in a dry run
+too (AS-3.8).
 ``send_ad_asset`` queues the approved ad's image for the pipeline to send after the reply
 (T043); a caption is customer text too, so it keeps only the product's own amounts (R2).
 ``book_slot`` books at once outside a dry run, inside the seller's hours (T052).
@@ -23,6 +25,7 @@ from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
 from vitrina_catalog.api import (
     Catalog,
+    ProductDetail,
     ProductNotFoundError,
     SearchKind,
     SellerSettings,
@@ -32,6 +35,7 @@ from vitrina_conversation.booking import BookingResult, BookingStore, SlotReques
 from vitrina_conversation.contract import HandoffReason, ObjectionTag
 from vitrina_conversation.validation import check_prices
 from vitrina_core.ids import new_id
+from vitrina_core.money import format_cop
 from vitrina_core.providers import Blob, ToolCall
 from vitrina_creative.api import ApprovedAsset
 
@@ -310,6 +314,8 @@ class ToolBox:
                 )
                 return "ok", stock.model_dump(mode="json")
             case ReserveItemArgs():
+                product = await self._product(self.catalog.get_product, args.product_id)
+                over = self._over_threshold(product, args.quantity)
                 if self.dry_run:
                     return "skipped_dry_run", SKIPPED
                 reservation = await self._product(
@@ -333,7 +339,8 @@ class ToolBox:
                             args.quantity,
                         )
                     )
-                return "ok", reservation.model_dump(mode="json")
+                result = reservation.model_dump(mode="json")
+                return "ok", {**result, "handoff": "amount_over_threshold"} if over else result
             case HandoffArgs():
                 if self.actions.handoff is None:
                     self.actions.handoff = HandoffAction(
@@ -376,6 +383,22 @@ class ToolBox:
                     )
                 return "ok", await self._book(args)
         raise ToolError(f"there is no tool named {name}")
+
+    def _over_threshold(self, product: ProductDetail, quantity: int) -> bool:
+        """AS-3.8: an order above the seller's threshold goes to the owner (R5 keeps a first one)."""
+        total = product.price_cop * quantity
+        threshold = self.seller.handoff_amount_threshold_cop
+        if total <= threshold:
+            return False
+        if self.actions.handoff is None:
+            summary = (
+                f"Pedido de {quantity} × {product.name} por {format_cop(total)}, por encima del "
+                f"monto definido ({format_cop(threshold)}). Último mensaje: «{self.message}»"
+            )
+            self.actions.handoff = HandoffAction(
+                new_id(), "amount_over_threshold", summary[:500], "high"
+            )
+        return True
 
     async def _book(self, args: BookSlotArgs) -> dict[str, Any]:
         assert self.bookings is not None

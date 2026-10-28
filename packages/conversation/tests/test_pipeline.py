@@ -25,9 +25,11 @@ from vitrina_conversation.api import (
     process_inbound,
 )
 from vitrina_conversation.booking import InMemoryBookings
+from vitrina_conversation.image import PhotoReading
 from vitrina_conversation.pipeline import (
     ERASURE_REPLY,
     OPT_OUT_REPLY,
+    PHOTO_NOT_SEEN_REPLY,
     TEXT_ONLY_REPLY,
     VOICE_NOT_HEARD_REPLY,
 )
@@ -106,6 +108,21 @@ class FakeVoice:
 
 
 @dataclass
+class FakePhotos:
+    """Customer photos by media id, as Spark would read them."""
+
+    readings: dict[str, PhotoReading] = field(default_factory=dict)
+    failure: Exception | None = None
+    seen: list[str] = field(default_factory=list)
+
+    async def read(self, seller_id: UUID, media_id: str) -> PhotoReading:
+        self.seen.append(media_id)
+        if self.failure is not None:
+            raise self.failure
+        return self.readings[media_id]
+
+
+@dataclass
 class World:
     shop: Shop
     chat: ScriptedChat
@@ -143,6 +160,14 @@ class World:
         voice = FakeVoice(transcripts)
         self.deps = replace(self.deps, voice=voice)
         return voice
+
+    def with_photos(self, **readings: PhotoReading) -> FakePhotos:
+        photos = FakePhotos(readings)
+        self.deps = replace(self.deps, photos=photos)
+        return photos
+
+    async def send_photo(self, media_id: str, caption: str | None = None) -> InboundOutcome:
+        return await self.say(caption, kind="image", wa_type="image", media_id=media_id)
 
     async def speak(self, media_id: str) -> InboundOutcome:
         return await self.say(None, kind="audio", wa_type="audio", media_id=media_id)
@@ -753,3 +778,125 @@ async def test_as_3_7_a_booking_on_an_attributed_chat_reports_ad_booking(world: 
             "booking_id": str(booking.id),
         }
     ]
+
+
+BLUE_BAG = "Mochila azul de tela con correas negras"
+
+
+async def test_as_3_5_a_photo_is_answered_with_the_closest_product(world: World) -> None:
+    product = world.shop.ids["mochila-azul"]
+    world.with_photos(photo_1=PhotoReading(BLUE_BAG, (product,)))
+    world.gallery.approve(product)
+    reply = "¡La tenemos! Es la mochila azul; te envío la foto del anuncio."
+    world.script(tool_call("send_ad_asset", product_id=product), final_answer(reply, product))
+
+    outcome = await world.send_photo("photo_1")
+
+    assert (outcome.status, world.messenger.texts) == ("replied", [reply])
+    assert len(world.messenger.images) == 1
+    assert world.chat.requests[0].messages[-1].content == f"[Foto del cliente: {BLUE_BAG}]"
+    (row,) = world.inbound_rows()
+    assert row.normalized is not None
+    assert row.normalized["image"] == {
+        "description": BLUE_BAG,
+        "matched_product_ids": [str(product)],
+    }
+
+
+async def test_as_3_5_the_caption_travels_with_the_photo(world: World) -> None:
+    world.with_photos(photo_2=PhotoReading(BLUE_BAG, ()))
+    world.script(final_answer("¿De qué talla la buscas?", confidence=0.95))
+
+    await world.send_photo("photo_2", caption="¿La tienen en rojo?")
+
+    assert world.chat.requests[0].messages[-1].content == (
+        f"¿La tienen en rojo?\n[Foto del cliente: {BLUE_BAG}]"
+    )
+
+
+async def test_as_3_5_a_photo_without_a_product_gets_a_note(world: World) -> None:
+    world.with_photos(photo_3=PhotoReading(None))
+
+    outcome = await world.send_photo("photo_3")
+
+    assert (outcome.status, world.messenger.texts) == ("replied", [PHOTO_NOT_SEEN_REPLY])
+    assert world.chat.requests == []
+
+
+@pytest.mark.parametrize(
+    "failure",
+    [ProviderError("media expired", provider="whatsapp"), TimeoutError()],
+    ids=["provider", "timeout"],
+)
+async def test_art_viii_a_photo_that_cannot_be_read_falls_back_to_its_caption(
+    world: World, failure: Exception
+) -> None:
+    photos = world.with_photos()
+    photos.failure = failure
+    world.script(final_answer("¿De qué talla la buscas?", confidence=0.95))
+
+    await world.send_photo("photo_4", caption="¿La tienen en rojo?")
+    no_caption = await world.send_photo("photo_5")
+
+    assert world.chat.requests[0].messages[-1].content == "¿La tienen en rojo?"
+    assert no_caption.reply == PHOTO_NOT_SEEN_REPLY
+
+
+async def test_fr_022_only_photos_with_a_media_id_go_to_spark(world: World) -> None:
+    photos = world.with_photos()
+    world.deps = replace(world.deps, voice=FakeVoice({"voice_7": "Hola"}))
+    world.script(final_answer(GREETING, confidence=0.95), final_answer(GREETING, confidence=0.95))
+
+    await world.speak("voice_7")
+    await world.say("¿La tienen en rojo?", kind="image", wa_type="image")
+
+    assert photos.seen == []
+    assert world.chat.requests[1].messages[-1].content == "¿La tienen en rojo?"
+
+
+async def test_r6_in_human_mode_photos_are_not_read(world: World) -> None:
+    photos = world.with_photos()
+    world.script(
+        final_answer("Te comunico con Ana.", confidence=0.95, handoff_reason="customer_request")
+    )
+    await world.say("Quiero hablar con Ana")
+
+    outcome = await world.send_photo("photo_6")
+
+    assert (outcome.status, photos.seen) == ("human_mode", [])
+
+
+async def test_as_3_5_a_kept_photo_is_read_by_its_media_id(world: World) -> None:
+    photos = world.with_photos(**{"1000000000000101": PhotoReading(BLUE_BAG, ())})
+    world.script(final_answer("¿De qué talla la buscas?", confidence=0.95))
+    body = json.loads(webhook_fixture("image_with_caption"))
+    payload_id = await world.store.save_webhook(body, signature_valid=True)
+
+    await process_stored_message(
+        world.deps, world.seller_id, payload_id, "wamid.VITRINA-FIXTURE-IN-0004"
+    )
+
+    assert photos.seen == ["1000000000000101"]
+
+
+async def test_as_3_8_an_order_above_the_threshold_hands_the_chat_over(world: World) -> None:
+    product = world.shop.ids["mochila-azul"]
+    seller = world.shop.seller.model_copy(update={"handoff_amount_threshold_cop": 150000})
+
+    async def settings(seller_id: UUID) -> SellerSettings | None:
+        return seller
+
+    world.deps = replace(world.deps, seller_settings=settings)
+    world.script(
+        tool_call("reserve_item", product_id=product, quantity=2),
+        final_answer("Listo, te separé las 2 mochilas; Ana te escribe para cerrar.", product),
+    )
+
+    outcome = await world.say("vi el #A7, quiero 2 mochilas azules")
+
+    assert world.conversation(outcome).mode == "human"
+    ((_, handoff),) = world.store.handoffs
+    assert handoff.reason == "amount_over_threshold"
+    kinds = [kind for _, kind, _ in world.store.events]
+    assert "ad.reservation" in kinds
+    assert "ad.handoff" in kinds
