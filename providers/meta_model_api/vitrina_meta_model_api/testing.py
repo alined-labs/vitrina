@@ -4,6 +4,7 @@ Answers follow the OpenAI chat-completions and embeddings formats; the first liv
 re-checks them (research/OPEN.md Q01).
 """
 
+import base64
 import json
 from typing import Any
 
@@ -82,6 +83,18 @@ def embeddings(*vectors: list[float], prompt_tokens: int = 9) -> httpx2.Response
             "usage": {"prompt_tokens": prompt_tokens, "total_tokens": prompt_tokens},
         },
     )
+
+
+def images(*pictures: bytes, usage: dict[str, int] | None = None) -> httpx2.Response:
+    """An images answer in the documented ``ImagesResponse`` shape, base64 PNG items."""
+    body: dict[str, Any] = {
+        "created": 1793116800,
+        "data": [{"b64_json": base64.b64encode(picture).decode("ascii")} for picture in pictures],
+        "output_format": "png",
+    }
+    if usage is not None:
+        body["usage"] = usage
+    return httpx2.Response(200, json=body)
 
 
 def error(status: int, message: str, **headers: str) -> httpx2.Response:
