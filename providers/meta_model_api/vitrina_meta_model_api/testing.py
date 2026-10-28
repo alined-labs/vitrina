@@ -53,7 +53,7 @@ USAGE = {"prompt_tokens": 120, "completion_tokens": 18, "total_tokens": 138}
 
 
 def completion(
-    message: dict[str, Any], *, finish_reason: str = "stop", usage: dict[str, int] | None = USAGE
+    message: dict[str, Any], *, finish_reason: str = "stop", usage: dict[str, Any] | None = USAGE
 ) -> httpx2.Response:
     """``usage=None`` leaves the usage object out."""
     body: dict[str, Any] = {

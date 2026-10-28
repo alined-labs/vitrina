@@ -60,8 +60,12 @@ def test_missing_model_id_names_its_variable() -> None:
 def test_fr_084_the_default_prices_are_meta_list_prices() -> None:
     prices = make().model_prices
 
-    assert prices["muse-spark-1.3"] == ModelPrice(input_per_mtok=1.25, output_per_mtok=4.25)
-    assert prices["muse-wonder-1.0"] == ModelPrice(input_per_mtok=4.0, output_per_mtok=20.0)
+    assert prices["muse-spark-1.3"] == ModelPrice(
+        input_per_mtok=1.25, cached_input_per_mtok=0.15, output_per_mtok=4.25
+    )
+    assert prices["muse-wonder-1.0"] == ModelPrice(
+        input_per_mtok=4.0, cached_input_per_mtok=0.2, output_per_mtok=20.0
+    )
     assert prices["muse-image-1.0"] == ModelPrice(per_image=0.01)
     assert prices["sam-3.1"] == ModelPrice(per_image=0.0025)
     assert prices["muse-voice-transcribe-1.0"] == ModelPrice(per_audio_hour=0.18)
