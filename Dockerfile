@@ -4,8 +4,9 @@
 # Settings come from the environment, by the names in .env.example. With none set it starts
 # in replay mode on the local WhatsApp mock: no keys, no database (AS-7.3).
 # Behind the platform's proxy, set FORWARDED_ALLOW_IPS (read by uvicorn) to the proxy's
-# addresses, or "*" when only the proxy can reach the container: per-visitor limits such as the
-# showcase's five uploads an hour need the visitor's address, not the proxy's (T083).
+# addresses or networks, never "*": a proxy that appends to the caller's own X-Forwarded-For
+# leaves the leftmost entry to the caller, and "*" makes uvicorn read it. Per-visitor limits
+# such as the showcase's five uploads an hour need the visitor's address, not the proxy's (T083).
 FROM python:3.12-slim
 
 # ffmpeg turns WhatsApp voice notes (OGG/Opus) into 16 kHz mono WAV for Transcribe (T051, Q02).
