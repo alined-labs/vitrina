@@ -45,3 +45,7 @@ next-env.d.ts
 .open-next
 .wrangler
 .dev.vars
+
+# `next dev` writes its own agent notes here when a coding agent runs it; the repository's
+# AGENTS.md is the guide that counts, so the generated file stays out of git.
+/AGENTS.md
