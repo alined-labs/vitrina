@@ -4,7 +4,6 @@ from datetime import UTC, datetime, timedelta
 from uuid import UUID
 
 import pytest
-import sqlalchemy as sa
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from vitrina_core.events import emit
@@ -17,67 +16,10 @@ from vitrina_learning.api import (
     attribution_report,
     objection_report,
 )
+from vitrina_learning.testing import approved_ad, conversation
 
 SELLER = UUID("00000000-0000-7000-8000-00000000000a")
 OTHER = UUID("00000000-0000-7000-8000-00000000000b")
-
-
-async def approved_ad(session: AsyncSession, seller: UUID, number: str) -> UUID:
-    """A seller with one approved ad #A7 (angle price) over a passed creative (fixture rows)."""
-    product, job, creative, variant, ad = (new_id() for _ in range(5))
-    statements = [
-        (
-            "INSERT INTO sellers (id, business_name, owner_name, whatsapp_number, city,"
-            " consent_prompt_text) VALUES (:seller, 'Tienda', 'Ana', :number, 'Medellín', '¿Sí?')",
-            {"number": number},
-        ),
-        (
-            "INSERT INTO products (id, seller_id, name, price_cop)"
-            " VALUES (:product, :seller, 'Mochila azul', 85000)",
-            {},
-        ),
-        (
-            "INSERT INTO creative_jobs (id, seller_id, product_id, status, stage)"
-            " VALUES (:job, :seller, :product, 'succeeded', 'ready')",
-            {},
-        ),
-        (
-            "INSERT INTO creatives (id, job_id, seller_id, product_id, format, verification)"
-            " VALUES (:creative, :job, :seller, :product, 'catalog_1x1', '{\"status\": \"passed\"}')",
-            {},
-        ),
-        (
-            "INSERT INTO copy_variants (id, job_id, seller_id, hook, angle, text)"
-            " VALUES (:variant, :job, :seller, 'question', 'price', '¿Buscas una mochila?')",
-            {},
-        ),
-        (
-            "INSERT INTO ads (id, seller_id, product_id, creative_id, copy_variant_id, code,"
-            " angle, status) VALUES (:ad, :seller, :product, :creative, :variant, 'A7', 'price',"
-            " 'approved')",
-            {},
-        ),
-    ]
-    ids = {"seller": seller, "product": product, "job": job, "creative": creative}
-    ids |= {"variant": variant, "ad": ad}
-    for statement, extra in statements:
-        await session.execute(sa.text(statement), ids | extra)
-    return ad
-
-
-async def conversation(session: AsyncSession, seller: UUID) -> UUID:
-    contact, chat = new_id(), new_id()
-    await session.execute(
-        sa.text("INSERT INTO contacts (id, seller_id, wa_id_hash) VALUES (:id, :seller, :hash)"),
-        {"id": contact, "seller": seller, "hash": contact.bytes},
-    )
-    await session.execute(
-        sa.text(
-            "INSERT INTO conversations (id, seller_id, contact_id) VALUES (:id, :seller, :contact)"
-        ),
-        {"id": chat, "seller": seller, "contact": contact},
-    )
-    return chat
 
 
 @pytest.mark.db

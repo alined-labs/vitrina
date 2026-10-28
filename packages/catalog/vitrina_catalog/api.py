@@ -41,6 +41,7 @@ from vitrina_catalog.sellers import (
     SellerSettings,
     SellerStore,
 )
+from vitrina_catalog.voice import redact
 
 __all__ = [
     "RESERVATION_TTL",
@@ -68,4 +69,5 @@ __all__ = [
     "SellerStore",
     "StockLevel",
     "expire_reservations",
+    "redact",
 ]

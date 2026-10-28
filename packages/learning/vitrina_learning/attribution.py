@@ -258,6 +258,25 @@ async def attribution_report(
     )
 
 
+async def attributed_chats(
+    sessions: async_sessionmaker[AsyncSession], seller_id: UUID, period_from: date, period_to: date
+) -> int:
+    """Chats that came from an ad in the period: AS-5.1's threshold for a brief."""
+    start, end = period_bounds(period_from, period_to)
+    rows = attribution_events.c
+    async with sessions() as session:
+        counted = await session.scalar(
+            sa.select(sa.func.count()).where(
+                rows.seller_id == seller_id,
+                rows.kind == "chat_started",
+                rows.ad_id.is_not(None),
+                rows.occurred_at >= start,
+                rows.occurred_at < end,
+            )
+        )
+    return int(counted or 0)
+
+
 async def objection_report(
     sessions: async_sessionmaker[AsyncSession],
     seller_id: UUID,
