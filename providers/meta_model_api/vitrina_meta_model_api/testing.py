@@ -97,6 +97,28 @@ def images(*pictures: bytes, usage: dict[str, int] | None = None) -> httpx2.Resp
     return httpx2.Response(200, json=body)
 
 
+def sam(text: str) -> httpx2.Response:
+    """A completed ``/responses`` answer whose output text is SAM's segmentation line."""
+    message = {
+        "type": "message",
+        "id": "msg_1",
+        "role": "assistant",
+        "status": "completed",
+        "content": [{"type": "output_text", "text": text, "annotations": []}],
+    }
+    return httpx2.Response(
+        200,
+        json={
+            "id": "resp_1",
+            "object": "response",
+            "created_at": 1793116800,
+            "model": "served-sam",
+            "status": "completed",
+            "output": [message] if text else [],
+        },
+    )
+
+
 def error(status: int, message: str, **headers: str) -> httpx2.Response:
     return httpx2.Response(
         status, headers=headers, json={"error": {"message": message, "type": "invalid_request"}}

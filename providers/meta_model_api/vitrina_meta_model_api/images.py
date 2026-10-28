@@ -4,6 +4,10 @@ A request with references goes to ``/images/edits`` with each reference as a dat
 documented JSON body; one without goes to ``/images/generations``. ``size`` only sets the
 aspect ratio: the output resolution is the model's own (1600×1600 on the first live call).
 Images come back as base64 PNG, so the verifier reads them losslessly.
+
+Scenes take 9–18 s (research/findings/2026-10-28-muse-image-live.md), past the 20 s chat
+budget's margin, so image calls get their own timeout. They run in creative jobs on the worker,
+never inside a customer's turn (Art. VIII.1 bounds turns).
 """
 
 import base64
@@ -23,6 +27,7 @@ from vitrina_core.providers import (
 from vitrina_meta_model_api.client import call, tokens
 
 OUTPUT_FORMAT = "png"
+IMAGE_TIMEOUT_S = 120.0
 
 
 class MetaImageModel:
@@ -37,7 +42,9 @@ class MetaImageModel:
         body = _body(request)
         response, latency_ms = await call(
             self.provider,
-            lambda: self.client.post(path, body=body, cast_to=ImagesResponse),
+            lambda: self.client.post(
+                path, body=body, cast_to=ImagesResponse, options={"timeout": IMAGE_TIMEOUT_S}
+            ),
         )
         encoded = [item.b64_json for item in response.data or () if item.b64_json]
         if not encoded:
