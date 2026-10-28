@@ -121,19 +121,21 @@ def _prompt(request: SegmentRequest, size: tuple[int, int]) -> str:
 
 
 def _segment(record: SegmentationMaskRecord, size: tuple[int, int], label: str | None) -> Segment:
-    bounds = record.bounds
+    # The parser types bounds as numbers; for image masks they are whole pixels.
+    left, top = int(record.bounds.left), int(record.bounds.top)
+    right, bottom = int(record.bounds.right), int(record.bounds.bottom)
     crop = Image.frombytes(
         "L",
         (record.mask.width, record.mask.height),
         bytes(255 if bit else 0 for bit in decode_mask_to_raster(record.mask)),
     )
     full = Image.new("L", size, 0)
-    full.paste(crop, (bounds.left, bounds.top))
+    full.paste(crop, (left, top))
     buffer = BytesIO()
     full.save(buffer, format="PNG")
     return Segment(
         mask=Blob(data=buffer.getvalue(), mime_type="image/png"),
-        bbox=(bounds.left, bounds.top, bounds.right, bounds.bottom),
+        bbox=(left, top, right, bottom),
         score=record.confidence if record.confidence is not None else 0.0,
         label=label,
     )
