@@ -43,6 +43,8 @@ class Settings(BaseSettings):
     storage_bucket: str = "vitrina"
     signed_url_ttl_s: int = Field(default=900, gt=0)
     public_api_url: str = "http://localhost:8000"
+    # The dashboard's public address, for share links and sign-up links (T083).
+    public_web_url: str = "http://localhost:3000"
 
     # Meta Model API, OpenAI-compatible (plan.md §1, ADR-0003).
     meta_api_base_url: str = "https://api.meta.ai/v1"
@@ -79,6 +81,9 @@ class Settings(BaseSettings):
     outbound_spacing_s: float = 6.0  # R12, Art. VIII.2
     provider_attempts: int = 3  # R12
     provider_timeout_s: float = 20.0  # Art. VIII.1
+    # Chat calls in background jobs: a live copy grid took 31 s (MX1, 2026-10-28). Turns keep
+    # provider_timeout_s inside their own budget.
+    provider_job_timeout_s: float = 90.0
     agent_max_tool_rounds: int = 4  # plan.md §4.1
     agent_turn_budget_s: float = 20.0  # plan.md §4.1
     retrieval_top_k: int = 5  # plan.md §4.1

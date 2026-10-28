@@ -10,11 +10,16 @@ from vitrina_meta_model_api.segmentation import MetaSegmenter
 from vitrina_meta_model_api.transcription import MetaTranscriber
 
 
-def live_providers(settings: Settings) -> LiveProviders:
-    """Needs META_API_KEY; every role the Meta Model API serves."""
+def live_providers(settings: Settings, *, chat_timeout_s: float | None = None) -> LiveProviders:
+    """Needs META_API_KEY; every role the Meta Model API serves.
+
+    ``chat_timeout_s`` replaces PROVIDER_TIMEOUT_S for chat calls only: the worker passes
+    PROVIDER_JOB_TIMEOUT_S, since its copy, judge and brief calls are background jobs.
+    """
     client = meta_client(settings)
+    chat = client if chat_timeout_s is None else client.with_options(timeout=chat_timeout_s)
     return LiveProviders(
-        chat=MetaChatModel(client),
+        chat=MetaChatModel(chat),
         embedder=MetaEmbedder(client),
         image=MetaImageModel(client),
         segmenter=MetaSegmenter(client),
