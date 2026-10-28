@@ -58,7 +58,7 @@ class LedgerEntry:
     created_at: datetime = field(default_factory=lambda: datetime.now(UTC))
 
     @classmethod
-    def from_meta(cls, meta: CallMeta) -> "LedgerEntry":
+    def from_meta(cls, meta: CallMeta) -> LedgerEntry:
         return cls(
             provider=meta.provider,
             model=meta.model,

@@ -7,7 +7,7 @@
 # addresses or networks, never "*": a proxy that appends to the caller's own X-Forwarded-For
 # leaves the leftmost entry to the caller, and "*" makes uvicorn read it. Per-visitor limits
 # such as the showcase's five uploads an hour need the visitor's address, not the proxy's (T083).
-FROM python:3.12-slim
+FROM python:3.14-slim
 
 # ffmpeg turns WhatsApp voice notes (OGG/Opus) into 16 kHz mono WAV for Transcribe (T051, Q02).
 RUN apt-get update \

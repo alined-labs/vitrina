@@ -85,7 +85,7 @@ class Thresholds(BaseModel):
     color_delta_max: float = 0.25
 
     @classmethod
-    def from_settings(cls, settings: Settings) -> "Thresholds":
+    def from_settings(cls, settings: Settings) -> Thresholds:
         return cls(mask_iou_min=settings.mask_iou_min, color_delta_max=settings.color_delta_max)
 
 
@@ -121,7 +121,7 @@ class VerifierModels:
     review: str
 
     @classmethod
-    def from_settings(cls, settings: Settings) -> "VerifierModels":
+    def from_settings(cls, settings: Settings) -> VerifierModels:
         return cls(segment=settings.model_id("segment"), review=settings.model_id("agent"))
 
 

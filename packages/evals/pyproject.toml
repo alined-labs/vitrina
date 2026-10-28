@@ -2,7 +2,7 @@
 name = "vitrina-evals"
 version = "0.1.0"
 description = "Evaluation suites, fixtures, replay and metrics."
-requires-python = ">=3.12,<3.13"
+requires-python = ">=3.14,<3.15"
 dependencies = [
     "vitrina-core",
     "vitrina-catalog",

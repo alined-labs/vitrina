@@ -7,7 +7,7 @@ name = "vitrina"
 version = "0.1.0"
 description = "Closed-loop AI storefront for WhatsApp sellers in Colombia (workspace root)."
 readme = "README.md"
-requires-python = ">=3.12,<3.13"
+requires-python = ">=3.14,<3.15"
 dependencies = ["vitrina-api", "vitrina-worker"]
 
 [dependency-groups]
@@ -38,7 +38,7 @@ vitrina-worker = { workspace = true }
 # ── ruff ──────────────────────────────────────────────────────────────────────
 [tool.ruff]
 line-length = 100
-target-version = "py312"
+target-version = "py314"
 
 [tool.ruff.lint]
 select = [
@@ -58,7 +58,7 @@ known-first-party = ["vitrina_*"]
 
 # ── mypy ──────────────────────────────────────────────────────────────────────
 [tool.mypy]
-python_version = "3.12"
+python_version = "3.14"
 files = [
     "apps/api/vitrina_api",
     "apps/worker/vitrina_worker",

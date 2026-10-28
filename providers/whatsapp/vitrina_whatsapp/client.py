@@ -325,7 +325,7 @@ def _accepted(response: httpx2.Response, attempt: int) -> SendResult:
     return SendResult(message_id=body.messages[0].id, status="sent")
 
 
-def _media_info(response: httpx2.Response, attempt: int) -> "_MediaInfo":
+def _media_info(response: httpx2.Response, attempt: int) -> _MediaInfo:
     try:
         return _MediaInfo.model_validate_json(response.content)
     except ValidationError as exc:

@@ -97,6 +97,6 @@ def current_git_sha() -> str | None:
             timeout=5,
             check=True,
         )
-    except (OSError, subprocess.SubprocessError):
+    except OSError, subprocess.SubprocessError:
         return None
     return completed.stdout.strip() or None

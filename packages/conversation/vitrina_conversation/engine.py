@@ -199,7 +199,7 @@ def parse_output(content: str | None) -> AgentTurnOutput | None:
         if not isinstance(data, dict):
             return None
         return AgentTurnOutput.model_validate({k: v for k, v in data.items() if k in _FIELDS})
-    except (ValueError, ValidationError):
+    except ValueError, ValidationError:
         return None
 
 

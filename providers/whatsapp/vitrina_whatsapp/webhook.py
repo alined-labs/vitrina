@@ -150,7 +150,7 @@ def merge_delivery_status(
 
 
 def _inbound(
-    message: "_Message", metadata: "_Metadata", names: Mapping[str, str | None]
+    message: _Message, metadata: _Metadata, names: Mapping[str, str | None]
 ) -> InboundMessage:
     media = {
         "image": message.image,
@@ -194,7 +194,7 @@ def _inbound(
     )
 
 
-def _status(status: "_Status", metadata: "_Metadata") -> StatusUpdate:
+def _status(status: _Status, metadata: _Metadata) -> StatusUpdate:
     return StatusUpdate(
         message_id=status.id,
         phone_number_id=metadata.phone_number_id,

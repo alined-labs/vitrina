@@ -2,7 +2,7 @@
 name = "vitrina-modal-glimmer"
 version = "0.1.0"
 description = "Muse Glimmer on Modal: brand-voice judge and PII guardian."
-requires-python = ">=3.12,<3.13"
+requires-python = ">=3.14,<3.15"
 dependencies = [
     "vitrina-core",
 ]

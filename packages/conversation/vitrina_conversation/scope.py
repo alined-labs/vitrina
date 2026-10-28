@@ -180,7 +180,7 @@ def _parse(content: str | None) -> _Answer | None:
         return None
     try:
         return _Answer.model_validate(json.loads(content[start : end + 1]))
-    except (ValueError, ValidationError):
+    except ValueError, ValidationError:
         return None
 
 
