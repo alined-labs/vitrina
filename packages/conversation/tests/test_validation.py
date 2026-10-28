@@ -250,7 +250,7 @@ def test_as_3_3_confidence_exactly_at_the_threshold_passes() -> None:
     assert review(output, [BAG], owner_name=OWNER).outcome == "accept"
 
 
-# ── R3: a reply without citations may greet, thank or ask, never state (MX1 review) ──
+# ── R3: a reply without citations may greet, thank or ask, never state ──
 
 
 @pytest.mark.parametrize(
@@ -332,7 +332,7 @@ def test_r3_one_unknown_id_among_valid_ones_still_counts_as_confidence_zero() ->
     assert len(result.groundedness.uncited_claims) == 1
 
 
-# ── R3 follow-up (MX1 review of #51): claims inside questions, a bare yes, "te saluda" ──
+# ── R3 follow-up (review of #51): claims inside questions, a bare yes, "te saluda" ──
 
 
 @pytest.mark.parametrize(

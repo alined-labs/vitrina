@@ -1,4 +1,4 @@
-"""The conversation module's part of an erasure (T062 with MX0; AS-6.6, FR-065; Art. II.3).
+"""The conversation module's part of an erasure (T062; AS-6.6, FR-065; Art. II.3).
 
 For the ``vitrina.erasure`` entry point: the compliance erasure job calls ``erase`` for the
 contact before it erases the number and the name itself. Every message of the contact's

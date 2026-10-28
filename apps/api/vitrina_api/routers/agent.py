@@ -1,4 +1,4 @@
-"""Agent router. Owner: MX2 (plan.md §3).
+"""Agent router.
 
 Contract paths: /agent/turns.
 """

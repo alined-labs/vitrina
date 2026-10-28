@@ -1,4 +1,4 @@
-"""Evals & Metrics router. Owner: MX0 (plan.md §3).
+"""Evals & Metrics router.
 
 Contract paths: /evals/runs, /evals/runs/{run_id}, /metrics/summary, /metrics/costs.
 """

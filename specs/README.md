@@ -17,7 +17,7 @@ specs/001-vitrina-api/
 ## How to work with it
 
 1. **Read in order:** constitution → spec → plan. Tasks and contracts are the working surfaces.
-2. **Freeze the contracts** (`git tag contracts-v0.1.0`) before machines MX0, MX1 and MX2 start on their modules (MX3 is reserved; see `plan.md` §3 for the split and the resource rules for the 8 GB machines). CI's drift check fails any PR whose generated OpenAPI differs from `contracts/openapi.yaml`.
+2. **Freeze the contracts** (`git tag contracts-v0.1.0`) before work on the modules starts (`plan.md` §3 has the split). CI's drift check fails any PR whose generated OpenAPI differs from `contracts/openapi.yaml`.
 3. **Every PR references task IDs and scenario IDs** (`T025 · AS-3.3, AS-3.4`). Tests are named after scenarios (`test_as_3_4_price_validator_rejects_uncited_amount`).
 4. **Changing behaviour = amending the spec first**, then regenerating the contract, then implementing. Unilateral contract edits are a constitution violation (Art. VI).
 5. **Open questions** are listed in `spec.md §8` with defaults; resolve them on Day 1–2 and record findings in `specs/001-vitrina-api/research.md`.

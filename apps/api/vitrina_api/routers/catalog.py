@@ -1,4 +1,4 @@
-"""Catalog router. Owner: MX0 (plan.md §3).
+"""Catalog router.
 
 Contract paths: /products, /products/import, /products/{product_id}, /facts, /facts/{fact_id}.
 """

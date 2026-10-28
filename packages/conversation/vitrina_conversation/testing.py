@@ -2,7 +2,7 @@
 
 ``ScriptedChat`` stands in for Muse Spark: it answers from a script (a final JSON answer, a
 tool call, or a provider failure) and records every request, so tests can assert what the
-engine sent. MX0's eval tests can use it too. Scope classifier calls (purpose ``classify``,
+engine sent. The eval tests can use it too. Scope classifier calls (purpose ``classify``,
 T054) have their own script and record, and answer "in scope" when it runs out. ``AdGallery`` stands in for the creative
 module's approved ads (I-10).
 """

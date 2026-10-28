@@ -1,7 +1,7 @@
 """A fake Meta Model API for tests: an httpx2 mock transport behind the real SDK client.
 
 Answers follow the OpenAI chat-completions and embeddings formats; the first live call
-re-checks them (research/OPEN.md Q01).
+re-checks them (Q01).
 """
 
 import base64

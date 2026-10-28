@@ -1,6 +1,6 @@
-# main is protected: every change arrives through a pull request, and only MX1 merges.
-# All machines commit with the same GitHub account, so the rule is enforced by the
-# workflow in AGENTS.md, not by GitHub reviews.
+# main is protected: every change arrives through a pull request, and only the maintainer
+# merges. Every session commits with the same GitHub account, so the rule is enforced by
+# the workflow in AGENTS.md, not by GitHub reviews.
 *                                   @alinedmooner
 /constitution.md                    @alinedmooner
 /specs/                             @alinedmooner

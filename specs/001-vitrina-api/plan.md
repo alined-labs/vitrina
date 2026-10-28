@@ -45,23 +45,21 @@ vitrina/
 
 Rule: `apps/*` depends on `packages/*`; packages depend only on `core` and on each other's **public** interfaces (`packages/<name>/api.py`), never on tables (constitution Art. VI.3).
 
-## 3. Module ownership across the machines
+## 3. Module ownership
 
-Available hardware: **MX0** (4 cores, 8 GB), **MX2** (4 cores, 8 GB), **MX1** (4 cores, 16 GB). **MX3** (12 cores, 16 GB) is reserved and out of scope for this plan; it can be pulled in later for evals at scale, video rendering or a fifth lane without changing any ownership below.
+The work is split into three packages of modules, each with one owner at a time; integration goes through pull requests into a protected `main`. Contracts are frozen at the end of Day 1. The foundation work is front-loaded (Days 1–2) and the compliance/learning work is back-loaded (Days 6–7), so one package carries both.
 
-Each machine runs its own coding-agent sessions on a branch; integration goes through a merge queue. Contracts are frozen at the end of Day 1 (tonight). Four modules map onto three machines by exploiting the phase order: the foundation work is front-loaded (Days 1–2) and the compliance/learning work is back-loaded (Days 6–7), so the same machine carries both.
-
-| Machine | Owns | Exposes to others | Depends on |
+| Work package | Owns | Exposes to others | Depends on |
 | --- | --- | --- | --- |
-| **MX0 · Core, Catalog, Evals, Infra → then Compliance + Learning** (4c/8 GB) | Days 1–2: `packages/core`, `packages/catalog`, `packages/evals`, routers `sellers, catalog, evals, replay, jobs, health`, CI, deploy. Day 4 onward: `packages/compliance`, `packages/learning`, routers `contacts, analytics, briefs, reactivation` | `core` (auth, db, jobs, problem+json, ledger), `catalog.api`, `evals.api`, replay harness; later `compliance.api` (eligibility, ledger, calendar) and `learning.api` (`generate_brief`, `apply_brief`) | — (foundation ships first); later `conversation` tables via **events only** (`ad.*`, `objection.recorded`), `creative.api.start_job` |
-| **MX2 · Conversation** (4c/8 GB) | `packages/conversation`, `providers/whatsapp`, routers `webhooks, conversations, agent`; runs the Cloudflare Tunnel for the webhook | `conversation.api`: `process_inbound(payload)`, `run_turn(req)`, `send_outbound(msg)` | `catalog.api.search`, `catalog.api.get_product/check_stock/reserve`, `compliance.api.record_consent/opt_out/is_opted_out`, `core` |
-| **MX1 · Creative + Dashboard** (4c/16 GB) | `packages/creative`, `providers/meta_model_api` (image + SAM), routers `assets, creative, ads, public`; `apps/dashboard` (Next.js) | `creative.api`: `start_job`, `approve_ad`, `get_approved_asset(product_id, variant)`; the generated TS client | `catalog.api.get_product`, `core`, Glimmer judge via `providers/modal_glimmer` |
+| **Core, Catalog, Evals, Infra → then Compliance + Learning** | Days 1–2: `packages/core`, `packages/catalog`, `packages/evals`, routers `sellers, catalog, evals, replay, jobs, health`, CI, deploy. Day 4 onward: `packages/compliance`, `packages/learning`, routers `contacts, analytics, briefs, reactivation` | `core` (auth, db, jobs, problem+json, ledger), `catalog.api`, `evals.api`, replay harness; later `compliance.api` (eligibility, ledger, calendar) and `learning.api` (`generate_brief`, `apply_brief`) | — (foundation ships first); later `conversation` tables via **events only** (`ad.*`, `objection.recorded`), `creative.api.start_job` |
+| **Conversation** | `packages/conversation`, `providers/whatsapp`, routers `webhooks, conversations, agent`; the webhook endpoint | `conversation.api`: `process_inbound(payload)`, `run_turn(req)`, `send_outbound(msg)` | `catalog.api.search`, `catalog.api.get_product/check_stock/reserve`, `compliance.api.record_consent/opt_out/is_opted_out`, `core` |
+| **Creative + Dashboard** | `packages/creative`, `providers/meta_model_api` (image + SAM), routers `assets, creative, ads, public`; `apps/dashboard` (Next.js) | `creative.api`: `start_job`, `approve_ad`, `get_approved_asset(product_id, variant)`; the generated TS client | `catalog.api.get_product`, `core`, Glimmer judge via `providers/modal_glimmer` |
 
-Why this split: MX1 has the only 16 GB, so it takes the two memory-hungry local workloads (Pillow/numpy mask and histogram work, ffmpeg, and the Next.js dev server). MX2 is dedicated to the single most latency-sensitive path (webhook → agent → send) and hosts the tunnel so the WhatsApp number always points at one machine. MX0 owns everything deterministic and test-heavy (core, catalog, evals, then compliance and learning, which are mostly pure functions).
+Why this split: creative and dashboard work is the most memory-hungry locally (Pillow/numpy mask and histogram work, ffmpeg, the Next.js dev server); conversation is the single most latency-sensitive path (webhook → agent → send) and owns the webhook, so the WhatsApp number always points at one deployment; everything deterministic and test-heavy (core, catalog, evals, then compliance and learning, which are mostly pure functions) sits together.
 
-Resource rules for the 8 GB machines: no local Postgres — every machine uses the hosted Supabase project (a `dev` schema per machine to avoid collisions); run at most one long-lived dev process (API **or** worker) per machine while agent sessions are active; at most 2 concurrent coding-agent sessions on MX0/MX2 and 3 on MX1; `pytest -n 2`, never `-n auto`; cassette-based evals run on MX0 only. Anything heavier (full 60-case live eval, Reel rendering, video editing) is a candidate for MX3 if it is released later.
+Development resource rules: no local Postgres; development uses the hosted Supabase project with a `dev` schema per environment to avoid collisions; at most one long-lived dev process (API **or** worker) per environment while agent sessions are active; `pytest -n 2`, never `-n auto`. Heavier jobs (full 60-case live eval, Reel rendering, video editing) run where the most memory is.
 
-Integration order: MX0 `core` + `catalog` stubs land by end of Day 1 → MX2/MX1 build against stubs on Day 2 → first end-to-end (text question → cited reply) target end of Day 2 → MX0 switches to compliance/learning once catalog and evals scaffold are green (Day 4).
+Integration order: `core` + `catalog` stubs land by end of Day 1 → conversation and creative build against stubs on Day 2 → first end-to-end (text question → cited reply) target end of Day 2 → compliance/learning start once catalog and the evals scaffold are green (Day 4).
 
 Cross-module events (Postgres `events` table + `LISTEN/NOTIFY`): `ad.chat_started`, `ad.reservation`, `ad.booking`, `ad.handoff`, `ad.objection`, `objection.recorded`, `consent.recorded`, `consent.revoked`, `creative.verified`, `campaign.decision`. Payloads are defined in `data-model.md §4`.
 
@@ -131,8 +129,8 @@ Local WhatsApp mock (`providers/whatsapp/mock.py`) served at `/mock/whatsapp` wi
 
 | Risk | Mitigation |
 | --- | --- |
-| 8 GB machines swap under API + worker + agent sessions | Hosted DB only; one dev process per machine; session caps in §3; heavy jobs queued to MX1 or deferred to MX3 if released |
-| MX0 is a single point of failure for both the foundation and compliance/learning | Foundation lands Day 1–2 before compliance starts; compliance/learning are pure-function modules that MX1 or MX2 can absorb on Day 6 if MX0 is behind |
+| 8 GB development machines swap under API + worker + agent sessions | Hosted DB only; one dev process per environment (§3); heavy jobs run where the most memory is |
+| One work package carries both the foundation and compliance/learning | Foundation lands Day 1–2 before compliance starts; compliance/learning are pure-function modules the other packages can absorb on Day 6 if needed |
 | Spark tool calling / JSON mode differs from OpenAI semantics | Day 1 spike; `providers/meta_model_api` hides differences; prompt-constrained JSON + repair fallback |
 | Voice Transcribe lacks Spanish or rejects OGG | ffmpeg transcode; fallback to Spark audio input if supported; otherwise voice turns become P2 |
 | WhatsApp template approval slow | Submit Day 1; reactivation demo runs in preview + mock sender until approved |

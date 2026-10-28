@@ -54,7 +54,7 @@ async def test_a_local_supabase_url_becomes_the_issuer() -> None:
         "https://abcdefghijklmnop.supabase.co",
         "https://abcdefghijklmnop.supabase.co/",
         "HTTPS://ABCDEFGHIJKLMNOP.SUPABASE.CO:443",
-        # Pasted without a scheme, and as a fully qualified name: the slips MX1 found.
+        # Pasted without a scheme, and as a fully qualified name: the slips found in review.
         "abcdefghijklmnop.supabase.co",
         "https://abcdefghijklmnop.supabase.co.",
     ],

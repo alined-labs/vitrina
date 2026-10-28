@@ -18,7 +18,7 @@ from vitrina_meta_model_api.client import call, tokens
 
 class MetaEmbedder:
     """``Embedder`` on an OpenAI-compatible ``/embeddings``. Which model, and whether images
-    embed at all, is research/OPEN.md Q06: image requests fail until it is answered.
+    embed at all, is open question Q06: image requests fail until it is answered.
     """
 
     def __init__(self, client: AsyncOpenAI, *, provider: ProviderName = "meta_model_api") -> None:
@@ -28,7 +28,7 @@ class MetaEmbedder:
     async def embed(self, request: EmbeddingRequest) -> EmbeddingResponse:
         if request.kind == "image":
             raise ProviderError(
-                f"{self.provider} has no image embedding endpoint yet (research/OPEN.md Q06)",
+                f"{self.provider} has no image embedding endpoint yet (open question Q06)",
                 provider=self.provider,
             )
         # Plain floats: compatible endpoints need not support base64 vectors.

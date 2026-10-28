@@ -1,7 +1,7 @@
 # Eligibility cases for compliance.evaluate (T063, ADR-0008; AS-6.2, AS-6.3, AS-6.4).
 # Times carry their offset; America/Bogota is -05:00 all year. The contact defaults to
 # marketing consent granted, not opted out, no marketing yet and a matching approved ad.
-# Holidays follow the pinned `holidays` library (CO, Emiliani rule; research/OPEN.md Q08).
+# Holidays follow the pinned `holidays` library (CO, Emiliani rule; Q08).
 
 # ── legal hours: allowed ──
 - id: k01-wednesday-morning

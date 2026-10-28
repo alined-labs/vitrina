@@ -1,4 +1,4 @@
-"""Public router. Owner: MX1 (plan.md §3).
+"""Public router.
 
 Contract paths: /public/showcases, /public/showcases/{slug} (T083, P2; AS-8.2, FR-072). No sign-in:
 the visitor's address, hashed with a key and the hour, limits uploads to five an hour.

@@ -1,13 +1,13 @@
 """How the inbound pipeline is put together in the API and in the worker (T027).
 
-With a database (MX2's dev API, the deployed API and its worker): Postgres stores, the job queue
+With a database (a development API, the deployed API and its worker): Postgres stores, the job queue
 keyed by WhatsApp message id, the creative module's ad codes and approved ads (with the
 worker's blob store, the images ``send_ad_asset`` sends), the compliance module's erasure job
 and, with the Cloud API and ``MODEL_TRANSCRIBE``, voice notes heard through Transcribe; the
 API queues and the worker answers. Without one (CI's check job, a laptop
 demo): the API's in-memory stores, no ad codes, and the answer computed in a background task
 right after the ack. The messenger is the local mock unless ``WHATSAPP_MOCK=false`` (ADR-0011:
-the live number points at MX2 only).
+the live number points at one deployment only).
 """
 
 import logging

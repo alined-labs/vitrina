@@ -1,4 +1,4 @@
-"""Health router. Owner: MX0 (plan.md §3).
+"""Health router.
 
 Contract paths: /health, /health/providers.
 """

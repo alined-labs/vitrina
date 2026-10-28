@@ -1,4 +1,4 @@
-"""Replay router. Owner: MX2 (T080; Daniel moved it from MX0, plan.md §3, on 2026-10-27).
+"""Replay router (T080).
 
 Contract paths: /replay/fixtures, /replay/sessions. A session is a ``replay`` job that plays a
 recorded conversation through the normal pipeline with ``is_replay`` and the local mock

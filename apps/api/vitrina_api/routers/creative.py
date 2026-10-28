@@ -1,4 +1,4 @@
-"""Creative router. Owner: MX1 (plan.md §3).
+"""Creative router.
 
 Contract paths: /creative/jobs, /creative/jobs/{job_id}, /creatives/{creative_id} (T034);
 /creative/reels arrives with T083 (P2). Starting a job is ``creative.api.start_job``, which

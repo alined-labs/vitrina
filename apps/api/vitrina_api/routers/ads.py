@@ -1,4 +1,4 @@
-"""Ads router. Owner: MX1 (plan.md §3).
+"""Ads router.
 
 Contract paths: /ads, /ads/{ad_id}, /ads/{ad_id}/approve, /ads/{ad_id}/export, /ads/by-code/{code}
 (T042; AS-2.3, AS-2.5; FR-013..015). Ads live in the database with their creatives, so every

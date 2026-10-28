@@ -1,4 +1,4 @@
-"""Assets router. Owner: MX1 (plan.md §3).
+"""Assets router.
 
 Contract paths: /assets, /assets/{asset_id} (T030, FR-010). Files go to the blob store (I-15);
 answers carry a signed, short-lived link. The asset store hangs off ``app.state`` lazily

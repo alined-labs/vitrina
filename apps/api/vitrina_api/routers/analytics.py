@@ -1,4 +1,4 @@
-"""Analytics router. Owner: MX0 (plan.md §3).
+"""Analytics router.
 
 Contract paths: /analytics/attribution, /analytics/objections.
 """

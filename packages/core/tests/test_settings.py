@@ -22,7 +22,7 @@ def test_defaults_are_safe_without_any_environment() -> None:
     assert settings.provider_attempts == 3
     assert settings.public_web_url == "http://localhost:3000"
     assert (settings.agent_reasoning_effort, settings.scope_reasoning_effort) == ("low", "minimal")
-    # Background jobs wait longer for a chat answer than a customer's turn (MX1, T034).
+    # Background jobs wait longer for a chat answer than a customer's turn (T034).
     assert (settings.provider_timeout_s, settings.provider_job_timeout_s) == (20.0, 90.0)
 
 

@@ -1,6 +1,6 @@
 """Copywrite stage (T040): one Spark call writes the hook × angle copy grid for a product.
 
-AS-2.4, plan.md §4.2 step 4, brain ``prompts/copywriter.md``. The engine plans the grid (every
+AS-2.4, plan.md §4.2 step 4. The engine plans the grid (every
 angle at least once, no hook and angle pair twice before all are used) and Spark writes one text
 per cell. Each text is checked outside the model: at most 300 characters, the ``{wa_link}``
 placeholder exactly once, no amount other than the product price or one in the seller's facts

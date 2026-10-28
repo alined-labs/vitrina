@@ -83,7 +83,7 @@ class Settings(BaseSettings):
     outbound_spacing_s: float = 6.0  # R12, Art. VIII.2
     provider_attempts: int = 3  # R12
     provider_timeout_s: float = 20.0  # Art. VIII.1
-    # Chat calls in background jobs: a live copy grid took 31 s (MX1, 2026-10-28). Turns keep
+    # Chat calls in background jobs: a live copy grid took 31 s (2026-10-28). Turns keep
     # provider_timeout_s inside their own budget.
     provider_job_timeout_s: float = 90.0
     # GET /health/providers: each check's limit, and how long a report is reused.
@@ -92,7 +92,7 @@ class Settings(BaseSettings):
     agent_max_tool_rounds: int = 4  # plan.md §4.1
     agent_turn_budget_s: float = 20.0  # plan.md §4.1
     # Spark's hidden reasoning is most of a turn's time: "low" kept the cited answers at about
-    # 8.8 s p50 live, and the three-key scope check needs the least (MX2, 2026-10-28).
+    # 8.8 s p50 live, and the three-key scope check needs the least (2026-10-28).
     agent_reasoning_effort: ReasoningEffort = "low"
     scope_reasoning_effort: ReasoningEffort = "minimal"
     retrieval_top_k: int = 5  # plan.md §4.1

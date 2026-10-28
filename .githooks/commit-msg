@@ -6,7 +6,7 @@
 #   body     one "- " bullet per change, then `Tasks: T### · Scenarios: AS-x.y` (— when none)
 #   never    AI attribution: Co-Authored-By trailers, "Generated with" lines, tool links
 #
-# GitHub squash merges do not run hooks; MX1 merges with the commit's own message.
+# GitHub squash merges do not run hooks; the maintainer merges with the commit's own message.
 
 msg=$(grep -v '^#' "$1")
 subject=$(printf '%s\n' "$msg" | sed -n '1p')

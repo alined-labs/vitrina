@@ -46,7 +46,7 @@ def test_as_6_1_affirmative_replies_follow_the_r8_lexicon(text: str) -> None:
     "text",
     ["no", "No gracias", "si no es molestia", "claro que no", "mmm", "", "¿cuánto vale?",
      "tal vez", "ok no",
-     # C10 (MX1): a lexicon word at the start is not enough; the whole reply must be consent.
+     # C10: a lexicon word at the start is not enough; the whole reply must be consent.
      "si me mandas fotos del bolso", "si quieres", "si, pero solo los martes",
      "listo, cuánto vale?", "ok gracias", "Claro que sí", "sí quiero"],
 )  # fmt: skip
@@ -56,6 +56,6 @@ def test_anything_else_is_not_consent(text: str) -> None:
 
 
 def test_a_reply_of_a_thousand_words_is_not_consent_and_does_not_crash() -> None:
-    # MX1: a customer can send "si si si …" × 1000 inside one WhatsApp message (4,096 chars).
+    # A customer can send "si si si …" × 1000 inside one WhatsApp message (4,096 chars).
     assert not is_affirmative(" ".join(["si"] * 1000))
     assert not is_affirmative("sí " * 2000)

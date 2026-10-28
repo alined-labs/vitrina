@@ -1,5 +1,5 @@
 """Local mocks for zero-network runs: the WhatsApp messenger with an HTML phone view
-(plan.md §4.6, constitution Art. VIII.3; T010). Owner: MX0.
+(plan.md §4.6, constitution Art. VIII.3; T010).
 """
 
 from vitrina_local_mock.messenger import LocalMockMessenger, MockEntry, MockOutbox
