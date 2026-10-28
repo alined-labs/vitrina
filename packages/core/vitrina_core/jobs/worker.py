@@ -116,6 +116,11 @@ def backoff(attempt: int) -> timedelta:
     return timedelta(seconds=min(5 * 2 ** (attempt - 1), 300))
 
 
+# A running job without a heartbeat for this long is requeued; health uses it for the
+# longest a due job may wait (GET /health/providers).
+STALLED_AFTER_S = 90.0
+
+
 class Worker:
     def __init__(
         self,
@@ -129,7 +134,7 @@ class Worker:
         worker_id: str | None = None,
         poll_interval_s: float = 0.5,
         heartbeat_s: float = 15.0,
-        stalled_after_s: float = 90.0,
+        stalled_after_s: float = STALLED_AFTER_S,
         clock: Callable[[], datetime] = lambda: datetime.now(UTC),
     ) -> None:
         self.queue = queue

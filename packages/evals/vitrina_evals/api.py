@@ -7,6 +7,7 @@ conversations_es suite evaluates any ``Agent``: the conversation engine once it 
 """
 
 from vitrina_evals.cases import ConversationCase, Expected, Scene, build_scene, load_cases
+from vitrina_evals.live import METRICS_ENTRY_POINT, Counters, live_counters, load_counters
 from vitrina_evals.runner import Agent, AgentTurn, Exchange, SuiteResult, run_conversations
 from vitrina_evals.schemas import (
     EvalCaseResult,
@@ -25,9 +26,11 @@ from vitrina_evals.tasks import EVAL_TASK
 
 __all__ = [
     "EVAL_TASK",
+    "METRICS_ENTRY_POINT",
     "Agent",
     "AgentTurn",
     "ConversationCase",
+    "Counters",
     "EvalCaseResult",
     "EvalMetrics",
     "EvalRun",
@@ -46,6 +49,8 @@ __all__ = [
     "TurnOutcome",
     "build_scene",
     "execute",
+    "live_counters",
     "load_cases",
+    "load_counters",
     "run_conversations",
 ]

@@ -11,6 +11,7 @@ from vitrina_core.jobs.model import (
 )
 from vitrina_core.jobs.queue import ClaimedJob, JobQueue, JobReader, PostgresJobQueue
 from vitrina_core.jobs.worker import (
+    STALLED_AFTER_S,
     TASKS_ENTRY_POINT,
     Handler,
     JobContext,
@@ -24,6 +25,7 @@ from vitrina_core.jobs.worker import (
 
 __all__ = [
     "API_KINDS",
+    "STALLED_AFTER_S",
     "TASKS_ENTRY_POINT",
     "ClaimedJob",
     "Handler",

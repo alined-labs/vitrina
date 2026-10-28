@@ -3,7 +3,7 @@
 Contract paths: /evals/runs, /evals/runs/{run_id}, /metrics/summary, /metrics/costs.
 """
 
-from datetime import date
+from datetime import UTC, date, datetime
 from typing import Annotated
 from uuid import UUID
 
@@ -28,8 +28,8 @@ from vitrina_evals.api import (
     EvalRunStore,
     EvalSuite,
     LatestEval,
-    LiveCounters,
     MetricsSummary,
+    live_counters,
 )
 
 router = APIRouter(tags=["Evals & Metrics"])
@@ -108,15 +108,19 @@ async def get_eval_run(_seller: SellerId, runs: Runs, run_id: UUID) -> EvalRun:
     summary="Latest eval metrics plus live counters for the dashboard metrics page",
     response_description="Summary",
 )
-async def get_metrics_summary(_seller: SellerId, runs: Runs) -> MetricsSummary:
+async def get_metrics_summary(seller_id: SellerId, runs: Runs, request: Request) -> MetricsSummary:
+    state = request.app.state
+    live = await live_counters(
+        state.live_counters, state.sessions, seller_id, now=datetime.now(UTC)
+    )
     latest = await runs.latest()
     if latest is None or latest.finished_at is None:
-        return MetricsSummary(latest_eval=LatestEval(), live=LiveCounters())
+        return MetricsSummary(latest_eval=LatestEval(), live=live)
     return MetricsSummary(
         latest_eval=LatestEval(
             run_id=latest.id, finished_at=latest.finished_at, metrics=latest.metrics
         ),
-        live=LiveCounters(),
+        live=live,
     )
 
 

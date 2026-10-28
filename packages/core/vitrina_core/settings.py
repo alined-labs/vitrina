@@ -84,6 +84,9 @@ class Settings(BaseSettings):
     # Chat calls in background jobs: a live copy grid took 31 s (MX1, 2026-10-28). Turns keep
     # provider_timeout_s inside their own budget.
     provider_job_timeout_s: float = 90.0
+    # GET /health/providers: each check's limit, and how long a report is reused.
+    health_check_timeout_s: float = 5.0
+    health_cache_s: float = 30.0
     agent_max_tool_rounds: int = 4  # plan.md §4.1
     agent_turn_budget_s: float = 20.0  # plan.md §4.1
     retrieval_top_k: int = 5  # plan.md §4.1
