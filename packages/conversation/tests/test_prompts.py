@@ -208,3 +208,12 @@ def test_as_3_3_a_list_of_days_answers_for_the_days_it_leaves_out(shop: Shop) ->
         "lo sabes: ofrece preguntárselo a Ana, sin pasarle la conversación." in prompt
     )
     assert "di que el sábado no, citando" not in prompt
+
+
+def test_fr_024_replies_keep_spanish_accents_and_opening_marks(shop: Shop) -> None:
+    prompt = render_system_prompt(shop.seller, [], NOW)
+
+    assert (
+        "- Escribe siempre con tildes, aunque el cliente escriba sin ellas, y abre cada pregunta "
+        "con ¿." in prompt
+    )

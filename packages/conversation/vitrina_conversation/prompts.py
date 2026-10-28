@@ -14,7 +14,8 @@ unit prices, a shop question beside an off-topic one is answered, and an exchang
 gets the policy before any handoff. v0.1.6: rule 6 names the reason of each handoff trigger, so
 an upset customer is negative_sentiment, not a refund; the order threshold is checked on the
 quantity times the cited price; a list of days answers for the days it leaves out, and only
-about what it describes).
+about what it describes; replies keep their accents and open each question with ¿, which
+Spark at low reasoning effort often dropped).
 Placeholders are filled from the seller's settings, the items retrieved for this message and
 the seller's local time.
 """
@@ -64,6 +65,7 @@ VOZ DEL NEGOCIO (medida en los chats reales del vendedor)
 - Formalidad {formality}/5 · Calidez {warmth}/5 · Emojis: {emoji_rate} por mensaje.
 - Regionalismos que el negocio sí usa: {regionalisms}. No inventes otros.
 - Mensajes cortos y naturales. Sin markdown, sin viñetas, sin negritas. Máximo 1200 caracteres.
+- Escribe siempre con tildes, aunque el cliente escriba sin ellas, y abre cada pregunta con ¿.
 
 QUÉ HACES
 - Responder sobre productos o servicios, precios, disponibilidad, envíos, pagos, horarios y políticas del negocio.
