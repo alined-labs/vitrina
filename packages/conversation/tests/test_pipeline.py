@@ -249,6 +249,50 @@ async def test_as_3_2_an_ad_code_attributes_the_chat_and_starts_it(world: World)
     assert payload["conversation_id"] == str(conversation.id)
 
 
+async def test_as_3_2_a_chat_without_an_ad_still_counts_as_started(world: World) -> None:
+    world.script(final_answer(GREETING, confidence=0.95))
+
+    outcome = await world.say("Hola, ¿tienen mochilas?")
+
+    conversation = world.conversation(outcome)
+    assert conversation.attribution.status == "none"
+    ((seller_id, kind, payload),) = world.store.events
+    assert (seller_id, kind) == (world.seller_id, "ad.chat_started")
+    assert payload["ad_id"] is None  # data-model.md §4: null when unattributed
+    assert payload["contact_id"] == str(await world.contact_id())
+    assert payload["conversation_id"] == str(conversation.id)
+
+
+async def test_as_3_2_a_chat_starts_once(world: World) -> None:
+    world.script(final_answer(GREETING, confidence=0.95), final_answer(GREETING, confidence=0.95))
+
+    await world.say("Hola")
+    await world.say("¿Tienen mochilas?")
+
+    assert [kind for _, kind, _ in world.store.events] == ["ad.chat_started"]
+
+
+async def test_as_3_2_an_unknown_code_starts_an_unattributed_chat(world: World) -> None:
+    world.script(final_answer(GREETING, confidence=0.95))
+
+    outcome = await world.say("Hola, vi el anuncio #A9")
+
+    assert world.conversation(outcome).attribution.status == "unknown_code"
+    ((_, kind, payload),) = world.store.events
+    assert (kind, payload["ad_id"]) == ("ad.chat_started", None)
+
+
+async def test_as_3_2_a_code_named_later_attributes_the_started_chat(world: World) -> None:
+    world.script(final_answer(GREETING, confidence=0.95), final_answer(GREETING, confidence=0.95))
+
+    await world.say("Hola")
+    outcome = await world.say("Vi el anuncio #A7")
+
+    started = [payload["ad_id"] for _, kind, payload in world.store.events]
+    assert started == [None, str(AD_A7)]  # first touch: the ad's event follows the null one
+    assert world.conversation(outcome).attribution.ad_id == AD_A7
+
+
 async def test_as_3_2_every_turn_of_an_attributed_chat_knows_the_ads_product(
     world: World,
 ) -> None:

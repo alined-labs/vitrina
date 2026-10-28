@@ -211,6 +211,13 @@ class _Inbound:
                     ),
                 )
             )
+        elif not recent:  # a new chat without an ad still starts once, with ad_id null
+            events.append(
+                (
+                    "ad.chat_started",
+                    chat_started_payload(None, conversation.id, contact.id, deps.clock()),
+                )
+            )
         await deps.store.update_conversation(
             self.seller_id,
             conversation.id,
