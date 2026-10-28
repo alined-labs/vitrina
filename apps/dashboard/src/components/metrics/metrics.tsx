@@ -193,6 +193,15 @@ const PROVIDER_STATUS: Record<ProviderState, [Status, string]> = {
   mocked: ["neutral", "Simulado (modo demo)"],
 };
 
+// Row keys from GET /health/providers are stable ids; unknown ones show as sent.
+const PROVIDER_NAME: Record<string, string> = {
+  meta_model_api: "Modelos de Meta",
+  whatsapp: "WhatsApp",
+  modal: "Muse Glimmer (Modal)",
+  database: "Base de datos",
+  queue: "Cola de trabajos",
+};
+
 function ProviderHealth({ providers }: { providers: Providers | "missing" | null }) {
   return (
     <section className="space-y-3">
@@ -207,7 +216,12 @@ function ProviderHealth({ providers }: { providers: Providers | "missing" | null
             const [status, label] = PROVIDER_STATUS[health.status];
             return (
               <li key={name} className="flex flex-wrap items-center justify-between gap-2 px-4 py-3 text-sm">
-                <span className="font-medium">{name}</span>
+                <span>
+                  <span className="font-medium">{PROVIDER_NAME[name] ?? name}</span>
+                  {(health.status === "down" || health.status === "degraded") && health.detail && (
+                    <span className="block text-xs text-zinc-500">{health.detail}</span>
+                  )}
+                </span>
                 <span className="flex items-center gap-3">
                   {health.latency_ms != null && <span className="text-zinc-500 tabular-nums">{formatLatency(health.latency_ms)}</span>}
                   <StatusLabel status={status}>{label}</StatusLabel>
