@@ -95,7 +95,7 @@ after `git checkout <older commit>`.
 
 ## Front end: Cloudflare Workers
 
-The dashboard (`apps/dashboard`, Next.js 15) runs as one Worker built with the OpenNext adapter (`@opennextjs/cloudflare`). `apps/dashboard/wrangler.jsonc` names it `vitrina-dashboard` and attaches the custom domain `vitrina.alinedlabs.co`; Wrangler creates the DNS record and the certificate on deploy.
+The dashboard (`apps/dashboard`, Next.js 16) runs as one Worker built with the OpenNext adapter (`@opennextjs/cloudflare`). `apps/dashboard/wrangler.jsonc` names it `vitrina-dashboard` and attaches the custom domain `vitrina.alinedlabs.co`; Wrangler creates the DNS record and the certificate on deploy.
 
 ### What you need
 
@@ -137,5 +137,5 @@ pnpm exec wrangler tail               # live logs
 ### Notes
 
 - **Visitor address.** The proxy does not forward `X-Forwarded-For` or `CF-Connecting-IP` to the API, so the middleware sends the visitor's address as `X-Vitrina-Visitor`, always overwriting any value the browser sent. The public showcase's five-an-hour limit reads it; a call made straight to the API is limited by its own address.
-- **Versions.** Next.js 15.5.28 with `@opennextjs/cloudflare` 1.20.13: 1.20.11 refused Next.js 15 and failed at run time with Next.js 16.4, and Next.js 16.0–16.4.0 carries critical advisories. CI builds the Worker bundle on every pull request (`pnpm run cf:build`).
+- **Versions.** Next.js 16.4.3 with `@opennextjs/cloudflare` 1.20.14 and Wrangler 4.154.0. Earlier adapters refused or broke Next.js 16.4, and 1.20.14 fixes truncated responses under concurrent requests. The dashboard keeps `middleware.ts`: Next.js 16 renames it to `proxy.ts`, which runs only on Node.js, and the adapter does not support Node middleware yet. CI builds the Worker bundle on every pull request (`pnpm run cf:build`).
 - **Outbound fetches.** `global_fetch_strictly_public` keeps the Worker from fetching private addresses; the API address must be public, as Container Apps' external ingress is.

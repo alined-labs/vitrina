@@ -14,7 +14,7 @@
 | Models | Meta Model API via OpenAI-compatible SDK (`base_url=https://api.meta.ai/v1`); model IDs from env `MODEL_AGENT`, `MODEL_STRATEGIST`, `MODEL_IMAGE`, `MODEL_SEGMENT`, `MODEL_TRANSCRIBE`; Muse Glimmer on Modal (OpenAI-compatible endpoint); Baseten `meta-models/muse-spark-open-1026` as open-weights fallback |
 | Messaging | WhatsApp Cloud API v21+ (test number for hackathon), Cloudflare Tunnel for the webhook in dev |
 | Media | ffmpeg (OGG/Opus → WAV 16 kHz; Reel assembly), Pillow + numpy (masks, histograms, watermark) |
-| Frontend (separate repo dir) | Next.js 15 dashboard consuming this contract via a generated TypeScript client |
+| Frontend (separate repo dir) | Next.js 16 dashboard consuming this contract via a generated TypeScript client |
 | Testing | pytest + pytest-asyncio, Hypothesis for the price validator, schemathesis against `openapi.yaml`, recorded provider fakes (`vcr`-style JSON cassettes) |
 | CI | GitHub Actions: lint (ruff), type-check (mypy strict on `core`), contract drift check, unit + replay evals; `invented_price_rate == 0` gate |
 | Deploy | Fly.io or Railway for API + worker; Supabase managed DB; Modal for Glimmer; public URL from Day 3 |
