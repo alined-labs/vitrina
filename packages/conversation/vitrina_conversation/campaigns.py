@@ -209,6 +209,7 @@ async def campaign_send_job(
         messenger=messenger,
         outbox=outbox(store),
         pace=paced(pacer),
+        clock=lambda: datetime.now(UTC),  # each contact is checked at its own send time
     )
     try:
         run = await run_send(

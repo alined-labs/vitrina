@@ -194,6 +194,9 @@ class CampaignDeps:
     messenger: Messenger | None = None
     outbox: Outbox | None = None
     pace: Callable[[str], Awaitable[None]] | None = None
+    # A send pass reads it for every contact, and again after the pacing wait, so a pass that
+    # runs past 19:00 defers the rest (Ley 2300). None checks the whole pass at its ``now``.
+    clock: Callable[[], datetime] | None = None
 
 
 @dataclass(frozen=True)
@@ -304,10 +307,11 @@ async def run_send(
     for contact_id in waiting:
         candidate = by_contact.get(contact_id, Candidate(contact_id))
         state, ad = await _state(deps, seller_id, candidate, row.ad_id)
-        decision = _for(evaluate(state, now), campaign_id)
+        at = deps.clock() if deps.clock is not None else now
+        decision = _for(evaluate(state, at), campaign_id)
         if decision.decision == "allowed" and ad is not None:
-            decision = await _send(deps, row, candidate, ad, decision, business_name, now)
-        elif decision.decision == "deferred" and decision.next_allowed_at is not None:
+            decision = await _send(deps, row, candidate, ad, state, decision, business_name, at)
+        if decision.decision == "deferred" and decision.next_allowed_at is not None:
             next_at = min(next_at or decision.next_allowed_at, decision.next_allowed_at)
         await deps.store.add_decisions(campaign_id, [decision])
     if next_at is None:
@@ -322,6 +326,7 @@ async def _send(
     row: CampaignRow,
     candidate: Candidate,
     ad: AdRef,
+    state: ContactState,
     decision: SendDecision,
     business_name: str,
     now: datetime,
@@ -331,6 +336,11 @@ async def _send(
         return _failed(decision)
     if deps.pace is not None:
         await deps.pace(number)
+    if deps.clock is not None:  # the wait may have run past the window
+        now = deps.clock()
+        again = _for(evaluate(state, now), row.id)
+        if again.decision != "allowed":
+            return again
     components, text = render_template(
         business_name, candidate.product_name, candidate.objection_tag, ad.code
     )
