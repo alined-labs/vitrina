@@ -1,14 +1,22 @@
 import asyncio
 import hashlib
 import math
+from datetime import UTC, datetime, timedelta
 from uuid import UUID
 
 import pytest
 import sqlalchemy as sa
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
-from vitrina_catalog.api import FactCreate, ProductCreate, ProductNotFoundError, ProductUpdate
+from vitrina_catalog.api import (
+    FactCreate,
+    ProductCreate,
+    ProductNotFoundError,
+    ProductUpdate,
+    expire_reservations,
+)
 from vitrina_catalog.postgres import PostgresCatalog
+from vitrina_catalog.tables import reservations
 from vitrina_catalog.text import tokens
 from vitrina_core.db.tables import sellers
 from vitrina_core.ids import new_id
@@ -184,3 +192,30 @@ async def test_db_products_page_filter_update_and_archive(
     assert all(
         result.id != created[0].id for result in await catalog.search(SELLER, "bolso tejido")
     )
+
+
+@pytest.mark.db
+async def test_db_as_3_7_reservations_past_their_expiry_are_marked_expired(
+    db_sessions: async_sessionmaker[AsyncSession],
+) -> None:
+    conversation = await setup(db_sessions)
+    catalog = PostgresCatalog(db_sessions)
+    bag = await catalog.create_product(
+        SELLER, ProductCreate(name="Bolso tejido", price_cop=85000, stock=3)
+    )
+    old = await catalog.reserve(SELLER, conversation, bag.id, 1)
+    fresh = await catalog.reserve(SELLER, conversation, bag.id, 1)
+    async with db_sessions() as session, session.begin():
+        await session.execute(
+            sa.update(reservations)
+            .where(reservations.c.id == old.reservation_id)
+            .values(expires_at=sa.func.now() - timedelta(hours=1))
+        )
+
+    assert await expire_reservations(db_sessions, datetime.now(UTC)) == 1
+    assert await expire_reservations(db_sessions, datetime.now(UTC)) == 0
+
+    async with db_sessions() as session:
+        rows = (await session.execute(sa.select(reservations.c.id, reservations.c.status))).all()
+    assert dict(rows) == {old.reservation_id: "expired", fresh.reservation_id: "reserved"}
+    assert (await catalog.check_stock(SELLER, bag.id)).available == 2

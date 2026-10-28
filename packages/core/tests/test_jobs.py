@@ -233,3 +233,65 @@ async def test_a_handler_reaches_the_workers_blob_store(tmp_path: Path) -> None:
     await Worker(FakeQueue([claimed()]), registry, storage=storage).run_once()
 
     assert seen == [storage]
+
+
+SESSIONS: Any = object()
+
+
+async def test_the_worker_runs_each_sweep_once_per_interval() -> None:
+    calls: list[datetime] = []
+
+    async def sweep(_sessions: Any, now: datetime) -> int:
+        calls.append(now)
+        return 1
+
+    registry = TaskRegistry()
+    registry.every("catalog.expire_reservations", every_s=60, sweep=sweep)
+    clock = [1000.0]
+    worker = Worker(
+        FakeQueue(), registry, sessions=SESSIONS, clock=lambda: NOW, monotonic=lambda: clock[0]
+    )
+
+    await worker.run_sweeps()
+    await worker.run_sweeps()
+    clock[0] += 61
+    await worker.run_sweeps()
+
+    assert calls == [NOW, NOW]
+
+
+async def test_a_failing_sweep_waits_for_its_next_interval() -> None:
+    calls: list[int] = []
+
+    async def broken(_sessions: Any, _now: datetime) -> int:
+        calls.append(1)
+        raise RuntimeError("database gone")
+
+    registry = TaskRegistry()
+    registry.every("broken", every_s=60, sweep=broken)
+    worker = Worker(FakeQueue(), registry, sessions=SESSIONS, monotonic=lambda: 5.0)
+
+    await worker.run_sweeps()
+    await worker.run_sweeps()
+
+    assert calls == [1]
+
+
+async def test_sweeps_need_a_database() -> None:
+    async def sweep(_sessions: Any, _now: datetime) -> int:
+        raise AssertionError("must not run without a database")
+
+    registry = TaskRegistry()
+    registry.every("sweep", every_s=60, sweep=sweep)
+
+    await Worker(FakeQueue(), registry).run_sweeps()
+
+
+def test_sweep_names_are_unique() -> None:
+    async def sweep(_sessions: Any, _now: datetime) -> int:
+        return 0
+
+    registry = TaskRegistry()
+    registry.every("sweep", every_s=60, sweep=sweep)
+    with pytest.raises(ValueError, match="already registered"):
+        registry.every("sweep", every_s=60, sweep=sweep)

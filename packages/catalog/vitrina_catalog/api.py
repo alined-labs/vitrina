@@ -25,6 +25,7 @@ from vitrina_catalog.domain import (
     StockLevel,
 )
 from vitrina_catalog.memory import InMemoryCatalog
+from vitrina_catalog.reservations import expire_reservations
 from vitrina_catalog.schemas import (
     CatalogStore,
     Fact,
@@ -66,4 +67,5 @@ __all__ = [
     "SellerSettings",
     "SellerStore",
     "StockLevel",
+    "expire_reservations",
 ]
