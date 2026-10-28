@@ -56,6 +56,10 @@ OPT_OUT_REPLY = (
     "escríbenos."
 )
 ERASURE_REPLY = "Recibimos tu solicitud. Borraremos tus datos en las próximas 24 horas."
+CONSENT_REPLY = (
+    "Listo, te avisaremos de novedades y promociones. Si en algún momento no quieres más "
+    "mensajes, responde BAJA."
+)
 TEXT_ONLY_REPLY = "Por ahora solo puedo leer mensajes de texto. ¿Me escribes tu pregunta?"
 VOICE_NOT_HEARD_REPLY = "No pude escuchar bien tu nota de voz. ¿Me escribes tu pregunta?"
 PHOTO_NOT_SEEN_REPLY = "No logré ver un producto en la foto. ¿Me cuentas qué estás buscando?"
@@ -232,9 +236,14 @@ class _Inbound:
         if inbound.wa_type == "reaction":
             return InboundOutcome("stored", conversation.id)
 
-        consent_recorded = False
-        if normalized.consent_affirmative and pending_prompt is not None:  # R8
-            consent_recorded = await self._record_consent(pending_prompt, text)
+        # R8. The yes is all the message holds (its lexicon): the agent could only restate
+        # the subscription, uncited, which R3 would turn into the fallback.
+        if (
+            normalized.consent_affirmative
+            and pending_prompt is not None
+            and await self._record_consent(pending_prompt, text)
+        ):
+            return await self._reply(CONSENT_REPLY, "replied")
 
         question = normalized.text if isinstance(normalized.text, str) else ""
         if unheard:
@@ -264,7 +273,7 @@ class _Inbound:
             history=_exchanges(recent),
             dry_run=False,
             low_confidence_streak=conversation.low_confidence_streak,
-            pending_consent_prompt=None if consent_recorded else pending_prompt,
+            pending_consent_prompt=pending_prompt,
             ad=await self._ad(),
         )
         try:

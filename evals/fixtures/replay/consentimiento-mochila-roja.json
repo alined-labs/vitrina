@@ -1,0 +1,123 @@
+{
+  "name": "Consentimiento para avisos",
+  "description": "Una clienta pregunta por la mochila roja, que est\u00e1 agotada, y acepta que le avisen cuando llegue (Ley 1581).",
+  "webhooks": [
+    {
+      "object": "whatsapp_business_account",
+      "entry": [
+        {
+          "id": "100000000000002",
+          "changes": [
+            {
+              "value": {
+                "messaging_product": "whatsapp",
+                "metadata": {
+                  "display_phone_number": "573000000000",
+                  "phone_number_id": "100000000000001"
+                },
+                "contacts": [
+                  {
+                    "profile": {
+                      "name": "Laura Prueba"
+                    },
+                    "wa_id": "573000000014"
+                  }
+                ],
+                "messages": [
+                  {
+                    "from": "573000000014",
+                    "id": "wamid.VITRINA-REPLAY-04-01",
+                    "timestamp": "1793127600",
+                    "type": "text",
+                    "text": {
+                      "body": "Hola, \u00bftienen la mochila roja?"
+                    }
+                  }
+                ]
+              },
+              "field": "messages"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "object": "whatsapp_business_account",
+      "entry": [
+        {
+          "id": "100000000000002",
+          "changes": [
+            {
+              "value": {
+                "messaging_product": "whatsapp",
+                "metadata": {
+                  "display_phone_number": "573000000000",
+                  "phone_number_id": "100000000000001"
+                },
+                "contacts": [
+                  {
+                    "profile": {
+                      "name": "Laura Prueba"
+                    },
+                    "wa_id": "573000000014"
+                  }
+                ],
+                "messages": [
+                  {
+                    "from": "573000000014",
+                    "id": "wamid.VITRINA-REPLAY-04-02",
+                    "timestamp": "1793127620",
+                    "type": "text",
+                    "text": {
+                      "body": "S\u00cd"
+                    }
+                  }
+                ]
+              },
+              "field": "messages"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "object": "whatsapp_business_account",
+      "entry": [
+        {
+          "id": "100000000000002",
+          "changes": [
+            {
+              "value": {
+                "messaging_product": "whatsapp",
+                "metadata": {
+                  "display_phone_number": "573000000000",
+                  "phone_number_id": "100000000000001"
+                },
+                "contacts": [
+                  {
+                    "profile": {
+                      "name": "Laura Prueba"
+                    },
+                    "wa_id": "573000000014"
+                  }
+                ],
+                "messages": [
+                  {
+                    "from": "573000000014",
+                    "id": "wamid.VITRINA-REPLAY-04-03",
+                    "timestamp": "1793127640",
+                    "type": "text",
+                    "text": {
+                      "body": "Gracias"
+                    }
+                  }
+                ]
+              },
+              "field": "messages"
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}
