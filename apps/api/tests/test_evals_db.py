@@ -44,7 +44,7 @@ async def test_db_as_7_1_a_worker_runs_the_suite_and_the_metrics_page_shows_it(
         supabase_jwt_secret=SECRET,
         service_token="svc-token",
     )  # type: ignore[call-arg]
-    monkeypatch.setattr(suites, "conversation_agent", TruthfulAgent)
+    monkeypatch.setattr(suites, "conversation_agent", lambda _settings: TruthfulAgent())
     with TestClient(create_app(settings)) as client:
         started = client.post(
             "/v1/evals/runs", json={"suite": "conversations_es", "sample": 1}, headers=SERVICE
