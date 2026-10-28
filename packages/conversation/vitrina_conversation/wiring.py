@@ -36,7 +36,7 @@ from vitrina_conversation.tools import AdAssets, ApprovedAds
 from vitrina_conversation.voice import VoiceNotes, ffmpeg_on_path
 from vitrina_core.db.tables import sellers
 from vitrina_core.jobs import PostgresJobQueue
-from vitrina_core.providers import ChatModel, Messenger, ReasoningEffort
+from vitrina_core.providers import ChatModel, Messenger
 from vitrina_core.providers.compose import Providers
 from vitrina_core.settings import Settings
 from vitrina_core.storage import BlobStore
@@ -65,14 +65,6 @@ def messenger_for(settings: Settings) -> Messenger:
     )
 
 
-# Spark's hidden reasoning is most of a turn's time (finding 2026-10-28-live-agent-turns-on-spark).
-# Measured live on 20 turns each: no setting, median 11.8 s and up to 38.9 s; "low" ≈ 8.8 s and
-# at most 13.2 s, with the same cited answers; "minimal" ≈ 6.4 s but sloppier Spanish. The
-# scope check returns three keys and runs beside the agent, so it takes the least (NFR-01).
-AGENT_REASONING_EFFORT: ReasoningEffort = "low"
-SCOPE_REASONING_EFFORT: ReasoningEffort = "minimal"
-
-
 def agent_deps(
     settings: Settings,
     chat: ChatModel,
@@ -93,8 +85,11 @@ def agent_deps(
         approved_ads=approved_ads,
         ad_assets=ad_assets,
         bookings=bookings,
-        reasoning_effort=AGENT_REASONING_EFFORT,
-        scope_reasoning_effort=SCOPE_REASONING_EFFORT,
+        # Measured live on 20 turns each: no setting, median 11.8 s and up to 38.9 s; "low",
+        # about 8.8 s and at most 13.2 s with the same cited answers; "minimal" is faster but
+        # drops accents. The scope check returns three keys beside the agent: the least (NFR-01).
+        reasoning_effort=settings.agent_reasoning_effort,
+        scope_reasoning_effort=settings.scope_reasoning_effort,
     )
 
 
