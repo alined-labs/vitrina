@@ -34,7 +34,10 @@ declare -A SECRET_OF=(
   [BASETEN_API_KEY]=baseten-api-key
   [CONTACT_HASH_PEPPER]=contact-pepper
   [CONTACT_ENCRYPTION_KEY]=contact-key
+  [VISITOR_PROXY_SECRET]=visitor-proxy
 )
+# Secrets only the API reads; the worker never receives them.
+API_ONLY=(VISITOR_PROXY_SECRET)
 # .env values that are configuration, passed as they are.
 PLAIN_FROM_ENV=(
   SUPABASE_URL META_API_BASE_URL MODEL_AGENT MODEL_STRATEGIST MODEL_IMAGE MODEL_SEGMENT
@@ -52,17 +55,25 @@ while IFS= read -r line || [[ -n $line ]]; do
   values[$name]=$value
 done < "$secrets_file"
 
-secret_args=() env_args=() masked=(registry-password)
+secret_args=() env_args=() api_only_secrets=() api_only_env=() masked=(registry-password)
 for name in $(printf '%s\n' "${!SECRET_OF[@]}" | sort); do
   [[ -n ${values[$name]-} ]] || continue
-  secret_args+=("${SECRET_OF[$name]}=${values[$name]}")
-  env_args+=("$name=secretref:${SECRET_OF[$name]}")
+  if [[ " ${API_ONLY[*]} " == *" $name "* ]]; then
+    api_only_secrets+=("${SECRET_OF[$name]}=${values[$name]}")
+    api_only_env+=("$name=secretref:${SECRET_OF[$name]}")
+  else
+    secret_args+=("${SECRET_OF[$name]}=${values[$name]}")
+    env_args+=("$name=secretref:${SECRET_OF[$name]}")
+  fi
   masked+=("${SECRET_OF[$name]}")
 done
 for name in "${PLAIN_FROM_ENV[@]}"; do
   [[ -n ${values[$name]-} ]] && env_args+=("$name=${values[$name]}")
 done
 env_args+=("DB_SCHEMA=$DB_SCHEMA" "${SETTINGS[@]}")
+# The API gets what the worker gets, plus its own secrets.
+api_secret_args=("${secret_args[@]}" "${api_only_secrets[@]}")
+api_env_args=("${env_args[@]}" "${api_only_env[@]}")
 
 step() { printf '\n== %s\n' "$*"; }
 
@@ -128,31 +139,34 @@ else
   registry_password=$(az acr credential show --name "$AZURE_ACR" --query 'passwords[0].value' --output tsv)
 fi
 
-# deploy_app <name> <cpu> <memory> [create-only flags...]
+# deploy_app <name> <cpu> <memory> <secrets array> <env array> [create-only flags...]
 deploy_app() {
   local app=$1 cpu=$2 memory=$3
-  shift 3
+  local -n app_secrets=$4 app_env=$5
+  shift 5
   if exists containerapp show --name "$app" --resource-group "$AZURE_RESOURCE_GROUP"; then
     run containerapp secret set --name "$app" --resource-group "$AZURE_RESOURCE_GROUP" \
-      --secrets "${secret_args[@]}" --output none
+      --secrets "${app_secrets[@]}" --output none
     run containerapp update --name "$app" --resource-group "$AZURE_RESOURCE_GROUP" \
       --image "$image" --cpu "$cpu" --memory "$memory" --min-replicas 1 --max-replicas 1 \
-      --set-env-vars "${env_args[@]}" --output none
+      --set-env-vars "${app_env[@]}" --output none
   else
     run containerapp create --name "$app" --resource-group "$AZURE_RESOURCE_GROUP" \
       --environment "$AZURE_ENVIRONMENT" --image "$image" \
       --registry-server "$AZURE_ACR.azurecr.io" --registry-username "$registry_user" \
       --registry-password "$registry_password" \
       --cpu "$cpu" --memory "$memory" --min-replicas 1 --max-replicas 1 "$@" \
-      --secrets "${secret_args[@]}" --env-vars "${env_args[@]}" --output none
+      --secrets "${app_secrets[@]}" --env-vars "${app_env[@]}" --output none
   fi
 }
 
 step "API $API_APP: public ingress on 8080"
-deploy_app "$API_APP" "$API_CPU" "$API_MEMORY" --ingress external --target-port 8080
+deploy_app "$API_APP" "$API_CPU" "$API_MEMORY" api_secret_args api_env_args \
+  --ingress external --target-port 8080
 
 step "worker $WORKER_APP: no ingress, one replica takes the jobs"
-deploy_app "$WORKER_APP" "$WORKER_CPU" "$WORKER_MEMORY" --command vitrina-worker
+deploy_app "$WORKER_APP" "$WORKER_CPU" "$WORKER_MEMORY" secret_args env_args \
+  --command vitrina-worker
 
 step "check"
 if [[ $dry == 1 ]]; then

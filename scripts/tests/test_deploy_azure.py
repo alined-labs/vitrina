@@ -136,6 +136,30 @@ def test_a_second_deploy_updates_the_apps_to_the_new_image(tmp_path: Path) -> No
     assert not any(value in out for value in values.values() if value.startswith("fake-"))
 
 
+def by_app(out: str, command: str) -> dict[str, list[str]]:
+    """The dry run's `az containerapp <command>` calls, as arguments, by the app they name."""
+    calls = {}
+    for line in out.splitlines():
+        if line.startswith(f"az containerapp {command} "):
+            args = shlex.split(line)
+            calls[args[args.index("--name") + 1]] = args
+    return calls
+
+
+def test_as_8_2_only_the_api_gets_the_visitor_proxy_secret(tmp_path: Path) -> None:
+    created = by_app(dry_run(tmp_path)[0], "create")
+    second = dry_run(tmp_path, exists=True)[0]
+
+    assert {"VISITOR_PROXY_SECRET=secretref:visitor-proxy", "visitor-proxy=***"} <= set(
+        created["vitrina-api"]
+    )
+    assert not any("visitor-proxy" in arg for arg in created["vitrina-worker"])
+    for command in ("secret set", "update"):
+        calls = by_app(second, command)
+        assert any("visitor-proxy" in arg for arg in calls["vitrina-api"])
+        assert not any("visitor-proxy" in arg for arg in calls["vitrina-worker"])
+
+
 # The Container Apps ingress appends the caller's address to any X-Forwarded-For the caller
 # sent, so the rightmost entry is the only one Azure vouches for. The ingress's own address
 # is not documented: one peer per trusted range.

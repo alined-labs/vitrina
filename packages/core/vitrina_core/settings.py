@@ -5,11 +5,12 @@ unset until they are confirmed against the Meta Model API (spec.md §8); ``model
 fails loudly instead of guessing one.
 """
 
+import hmac
 from functools import lru_cache
 from pathlib import Path
 from typing import Literal
 
-from pydantic import Field, SecretStr
+from pydantic import Field, SecretStr, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 REPO_ROOT = Path(__file__).resolve().parents[3]
@@ -50,6 +51,9 @@ class Settings(BaseSettings):
     # Browser origins allowed to call the API directly, comma-separated (the deployed dashboard).
     # Unset: no cross-origin headers; a same-origin proxy needs none.
     cors_origins: str | None = None
+    # Shared with the dashboard's API proxy, which sends it next to the visitor's address
+    # (X-Vitrina-Visitor, T083). Unset or blank: no request can vouch for a visitor.
+    visitor_proxy_secret: SecretStr | None = None
 
     # Meta Model API, OpenAI-compatible (plan.md §1, ADR-0003).
     meta_api_base_url: str = "https://api.meta.ai/v1"
@@ -100,6 +104,19 @@ class Settings(BaseSettings):
     scope_reasoning_effort: ReasoningEffort = "minimal"
     retrieval_top_k: int = 5  # plan.md §4.1
     idempotency_ttl_hours: int = 24  # data-model.md idempotency_keys
+
+    @field_validator("visitor_proxy_secret", mode="before")
+    @classmethod
+    def _blank_secret_is_unset(cls, value: object) -> object:
+        # `VISITOR_PROXY_SECRET=` in .env must not become a secret that an empty header matches.
+        return None if isinstance(value, str) and not value.strip() else value
+
+    def visitor_proxy_matches(self, presented: str | None) -> bool:
+        """Whether a request carries the dashboard proxy's secret; never while it is unset."""
+        if self.visitor_proxy_secret is None or not presented:
+            return False
+        expected = self.visitor_proxy_secret.get_secret_value()
+        return hmac.compare_digest(presented.encode(), expected.encode())
 
     def model_id(self, role: ModelRole) -> str:
         value: str | None = getattr(self, f"model_{role}")

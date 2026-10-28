@@ -27,7 +27,8 @@ WhatsApp Cloud API ────────────────────�
   JWT secret), `META_API_KEY`, the `MODEL_*` IDs, the four `WHATSAPP_*` values, a fresh
   `SERVICE_TOKEN`, and the production `CONTACT_HASH_PEPPER` and `CONTACT_ENCRYPTION_KEY`.
   Set the contact pepper and key once and keep them: contacts stored with one pair cannot be
-  read with another.
+  read with another. Add a random `VISITOR_PROXY_SECRET` (`openssl rand -hex 32`), which the
+  dashboard Worker gets too; without it the API never trusts the dashboard's visitor header.
 - `deploy/azure.env`, copied from `deploy/azure.env.example`: resource names, region, sizes,
   the production schema and the settings both apps run with (`REPLAY=false`,
   `WHATSAPP_MOCK=false`, `STORAGE_BACKEND=supabase`, the public addresses).
@@ -53,7 +54,8 @@ The script is idempotent. In order, it:
 6. waits for `GET /v1/health` and prints the API address and the WhatsApp webhook URL.
 
 Every secret becomes a Container Apps secret and reaches the apps as a `secretref`. Values are
-read from `.env` and passed straight to `az`, never echoed.
+read from `.env` and passed straight to `az`, never echoed. `VISITOR_PROXY_SECRET` goes to the
+API only; the worker never needs it.
 
 ### After the first deploy
 
