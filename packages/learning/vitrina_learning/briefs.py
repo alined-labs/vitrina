@@ -12,7 +12,7 @@ model gives ``{metric, value}`` pairs and the brief stores them as ``{metric: va
 """
 
 import hashlib
-from collections.abc import Sequence
+from collections.abc import Awaitable, Callable, Sequence
 from datetime import date, datetime
 from functools import partial
 from typing import Annotated, Any, Literal
@@ -25,6 +25,7 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 from vitrina_catalog.api import CatalogStore, redact
 from vitrina_catalog.postgres import PostgresCatalog
 from vitrina_catalog.sellers import PostgresSellerStore, SellerStore
+from vitrina_compliance.api import TEMPLATE_NAME, ReactivationCampaignCreate, Segment
 from vitrina_core.http import keyset_page, next_cursor
 from vitrina_core.ids import new_id
 from vitrina_core.jobs import JobContext, JobFailedError
@@ -36,7 +37,7 @@ from vitrina_core.providers import (
     ResponseFormat,
     with_backoff,
 )
-from vitrina_creative.api import AdStore
+from vitrina_creative.api import AdStore, CreativeJobCreate
 from vitrina_learning.attribution import (
     AdDirectory,
     CreativeAds,
@@ -360,6 +361,9 @@ class ModelCallMeta(BaseModel):
     replayed: bool | MISSING = MISSING
 
 
+BriefStatus = Literal["ready", "applied", "failed"]
+
+
 class Brief(BriefContent):
     """Muse Wonder output, validated against BriefSchema (FR-050)"""
 
@@ -367,7 +371,7 @@ class Brief(BriefContent):
     seller_id: UUID
     period_from: date
     period_to: date
-    status: Literal["ready", "applied", "failed"]
+    status: BriefStatus
     model_calls: list[ModelCallMeta] | MISSING = MISSING
     created_at: datetime
 
@@ -598,6 +602,76 @@ class PostgresBriefs:
             )
         items, next_page = next_cursor(rows, limit=limit)
         return [_brief_view(row) for row in items], next_page
+
+    async def move(
+        self, seller_id: UUID, brief_id: UUID, *, to: BriefStatus, expect: BriefStatus
+    ) -> bool:
+        """Moves the brief only from ``expect``: two applies cannot both win (False)."""
+        async with self.sessions() as session, session.begin():
+            moved = await session.execute(
+                sa.update(briefs)
+                .where(
+                    briefs.c.seller_id == seller_id,
+                    briefs.c.id == brief_id,
+                    briefs.c.status == expect,
+                )
+                .values(status=to)
+                .returning(briefs.c.id)
+            )
+            return moved.first() is not None
+
+
+# ── applying a brief (T071; AS-5.2, FR-051) ──
+
+
+class AppliedBrief(BaseModel):
+    creative_job_ids: list[UUID] | MISSING = MISSING
+    reactivation_campaign_id: UUID | None = None
+
+
+async def apply_brief(
+    brief: Brief,
+    *,
+    check: Callable[[CreativeJobCreate], Awaitable[object]],
+    start: Callable[[CreativeJobCreate], Awaitable[UUID]],
+    preview: Callable[[ReactivationCampaignCreate], Awaitable[UUID]],
+) -> AppliedBrief:
+    """One creative job per directive, with its angle and scene brief and the brief's id, and
+    one reactivation campaign preview for its segments. Nothing is published or sent: jobs
+    give drafts the seller approves, and the campaign stays a preview until the seller sends it.
+
+    ``check`` dry-runs every directive (creative's ``job_payload``) before any job is queued,
+    so one product without a photo stops the whole apply. A directive's hook cannot reach the
+    copy grid: ``CreativeJobCreate`` has no hooks (A-008).
+    """
+    jobs = [
+        CreativeJobCreate(
+            product_id=directive.product_id,
+            angles=[directive.angle],
+            scene_brief=directive.scene_brief,
+            brief_id=brief.id,
+        )
+        for directive in brief.creative_directives
+    ]
+    for params in jobs:
+        await check(params)
+    job_ids = [await start(params) for params in jobs]
+    campaign_id: UUID | None = None
+    if brief.reactivation_segments:
+        suggested = (segment.suggested_ad_id for segment in brief.reactivation_segments)
+        campaign_id = await preview(
+            ReactivationCampaignCreate(
+                brief_id=brief.id,
+                template_name=TEMPLATE_NAME,
+                segment=Segment(
+                    objection_tags=sorted(
+                        {segment.objection_tag for segment in brief.reactivation_segments}
+                    )
+                ),
+                ad_id=next((ad_id for ad_id in suggested if ad_id is not None), None),
+            )
+        )
+    return AppliedBrief(creative_job_ids=job_ids, reactivation_campaign_id=campaign_id)
 
 
 # ── the job ──

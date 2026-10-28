@@ -3,13 +3,15 @@
 Contract paths: /briefs, /briefs/generate, /briefs/{brief_id}, /briefs/{brief_id}/apply.
 """
 
-from datetime import date
+from datetime import UTC, date, datetime
 from typing import Annotated
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, Request
 from pydantic import BaseModel, Field
 
+from vitrina_compliance.api import ReactivationCampaignCreate, preview_campaign
+from vitrina_conversation.api import campaign_deps
 from vitrina_core.auth import SellerId
 from vitrina_core.http import (
     FieldError,
@@ -21,7 +23,15 @@ from vitrina_core.http import (
     problem_responses,
 )
 from vitrina_core.jobs import Job, PostgresJobQueue
-from vitrina_learning.api import GENERATE_TASK, Brief, PostgresBriefs, attributed_chats
+from vitrina_creative.api import CreativeJobCreate, assets_from_state, job_payload, start_job
+from vitrina_learning.api import (
+    GENERATE_TASK,
+    AppliedBrief,
+    Brief,
+    PostgresBriefs,
+    apply_brief,
+    attributed_chats,
+)
 
 router = APIRouter(tags=["Briefs"])
 
@@ -106,3 +116,58 @@ async def get_brief(seller_id: SellerId, request: Request, brief_id: UUID) -> Br
     if brief is None:
         raise ProblemError(ProblemCode.NOT_FOUND, detail=f"no brief {brief_id}")
     return brief
+
+
+@router.post(
+    "/briefs/{brief_id}/apply",
+    status_code=202,
+    operation_id="applyBrief",
+    summary="Create creative jobs and a reactivation campaign preview from the brief",
+    response_description="Created jobs and campaign preview",
+)
+async def apply(
+    request: Request, seller_id: SellerId, brief_id: UUID, _key: IdempotencyKey = None
+) -> AppliedBrief:
+    state = request.app.state
+    if state.sessions is None or state.jobs is None:
+        raise ProblemError(
+            ProblemCode.PROVIDER_UNAVAILABLE,
+            detail="applying a brief queues jobs and needs the database (DATABASE_URL)",
+        )
+    briefs = PostgresBriefs(state.sessions)
+    brief = await briefs.get(seller_id, brief_id)
+    if brief is None:
+        raise ProblemError(ProblemCode.NOT_FOUND, detail=f"no brief {brief_id}")
+    if not await briefs.move(seller_id, brief_id, to="applied", expect="ready"):
+        raise ProblemError(ProblemCode.CONFLICT, detail=f"brief {brief_id} was already applied")
+    assets = assets_from_state(state)
+    started: list[UUID] = []
+
+    async def check(params: CreativeJobCreate) -> object:
+        return await job_payload(
+            seller_id, params, catalog=state.catalog, sellers=state.sellers, assets=assets
+        )
+
+    async def start(params: CreativeJobCreate) -> UUID:
+        job_id = await start_job(
+            seller_id,
+            params,
+            catalog=state.catalog,
+            sellers=state.sellers,
+            assets=assets,
+            queue=state.jobs,
+            sessions=state.sessions,
+        )
+        started.append(job_id)
+        return job_id
+
+    async def preview(data: ReactivationCampaignCreate) -> UUID:
+        deps = campaign_deps(state.sessions, state.catalog, state.compliance)
+        return (await preview_campaign(deps, seller_id, data, now=datetime.now(UTC))).id
+
+    try:
+        return await apply_brief(brief, check=check, start=start, preview=preview)
+    except Exception:
+        if not started:  # nothing was queued (e.g. a product without a photo): try again later
+            await briefs.move(seller_id, brief_id, to="ready", expect="applied")
+        raise
