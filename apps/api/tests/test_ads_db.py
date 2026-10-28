@@ -13,17 +13,20 @@ from typing import Any
 from uuid import UUID
 
 import pytest
+import sqlalchemy as sa
 from fastapi.testclient import TestClient
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from vitrina_api.main import create_app
 from vitrina_catalog.sellers import PostgresSellerStore
+from vitrina_core.ids import new_id
 from vitrina_core.jobs import PostgresJobQueue, TaskRegistry, Worker, load_tasks
 from vitrina_core.providers import Blob
 from vitrina_core.settings import Settings
 from vitrina_core.storage import LocalBlobStore
 from vitrina_creative.api import AdStore, get_approved_asset, read_provenance
 from vitrina_creative.testing import source_photo
+from vitrina_learning.tables import attribution_events
 
 from .test_creative_db import SECRET, STRANGER, bearer, scripted_providers, sign_up
 
@@ -33,6 +36,19 @@ LINK_A1 = "https://wa.me/573000000701?text=Hola%2C%20vi%20el%20anuncio%20%23A1"
 
 def owner() -> dict[str, str]:
     return bearer(OWNER)
+
+
+async def attribute(
+    sessions: async_sessionmaker[AsyncSession], seller_id: UUID, ad_id: UUID, *kinds: str
+) -> None:
+    """Rows as learning's attribution sweep writes them from ``ad.*`` events (T044)."""
+    async with sessions() as session, session.begin():
+        for kind in kinds:
+            await session.execute(
+                sa.insert(attribution_events).values(
+                    id=new_id(), seller_id=seller_id, ad_id=ad_id, kind=kind
+                )
+            )
 
 
 @pytest.mark.db
@@ -121,6 +137,21 @@ async def test_db_as_2_5_an_ad_goes_from_draft_to_a_code_an_export_and_a_chat(
         listed = client.get("/v1/ads?status=approved", headers=owner()).json()["items"]
         assert [item["code"] for item in listed] == ["A2", "A1"]
         assert client.get("/v1/ads?status=draft", headers=owner()).json()["items"] == []
+
+        # I-10: the ads that brought chats show them; an ad without activity has no stats.
+        await attribute(
+            db_sessions,
+            UUID(str(seller_id)),
+            UUID(ad["id"]),
+            "chat_started",
+            "chat_started",
+            "reservation",
+        )
+        stats = {"chats": 2, "reservations": 1, "bookings": 0}
+        listed = client.get("/v1/ads?status=approved", headers=owner()).json()["items"]
+        assert {item["code"]: item.get("stats") for item in listed} == {"A2": None, "A1": stats}
+        assert client.get(f"/v1/ads/{ad['id']}", headers=owner()).json()["stats"] == stats
+        assert client.get("/v1/ads/by-code/A1", headers=owner()).json()["stats"] == stats
 
         export = client.get(f"/v1/ads/{ad['id']}/export", headers=owner())
         assert (export.status_code, export.headers["content-type"]) == (200, "application/zip")

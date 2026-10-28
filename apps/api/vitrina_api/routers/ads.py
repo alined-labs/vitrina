@@ -2,7 +2,8 @@
 
 Contract paths: /ads, /ads/{ad_id}, /ads/{ad_id}/approve, /ads/{ad_id}/export, /ads/by-code/{code}
 (T042; AS-2.3, AS-2.5; FR-013..015). Ads live in the database with their creatives, so every
-operation answers 503 without one.
+operation answers 503 without one. Reads carry ``stats`` from learning's attribution (T044, I-10):
+lifetime chats, reservations and bookings, present only for ads that had any.
 """
 
 from typing import Annotated
@@ -22,6 +23,7 @@ from vitrina_core.http import (
 )
 from vitrina_core.storage import BlobStore
 from vitrina_creative.api import CODE_PATTERN, Ad, AdCreate, AdStatus, AdStore, export_package
+from vitrina_learning.api import ad_stats
 
 router = APIRouter(tags=["Ads"])
 
@@ -43,6 +45,12 @@ def _not_found(ad_id: UUID | str) -> ProblemError:
     return ProblemError(ProblemCode.NOT_FOUND, detail=f"no ad {ad_id} for this seller")
 
 
+async def _with_stats(request: Request, seller_id: UUID, ads: list[Ad]) -> list[Ad]:
+    """The ads with ``stats`` filled where learning counted activity (seller-scoped)."""
+    found = await ad_stats(request.app.state.sessions, seller_id, [ad.id for ad in ads])
+    return [ad.model_copy(update={"stats": found[ad.id]}) if ad.id in found else ad for ad in ads]
+
+
 @router.get(
     "/ads",
     operation_id="listAds",
@@ -50,6 +58,7 @@ def _not_found(ad_id: UUID | str) -> ProblemError:
     response_description="Page of ads",
 )
 async def list_ads(
+    request: Request,
     seller_id: SellerId,
     store: Ads,
     page: Paging,
@@ -59,7 +68,7 @@ async def list_ads(
     items, cursor = await store.page(
         seller_id, limit=page.limit, cursor=page.cursor, status=status, product_id=product_id
     )
-    return Page[Ad](items=items, next_cursor=cursor)
+    return Page[Ad](items=await _with_stats(request, seller_id, list(items)), next_cursor=cursor)
 
 
 @router.post(
@@ -89,11 +98,15 @@ async def create_ad(
     responses=problem_responses(404),
 )
 async def get_ad_by_code(
-    seller_id: SellerId, store: Ads, code: Annotated[str, Path(pattern=CODE_PATTERN)]
+    request: Request,
+    seller_id: SellerId,
+    store: Ads,
+    code: Annotated[str, Path(pattern=CODE_PATTERN)],
 ) -> Ad:
     ad = await store.by_code(seller_id, code)
     if ad is None:
         raise ProblemError(ProblemCode.NOT_FOUND, detail=f"no ad #{code} for this seller")
+    [ad] = await _with_stats(request, seller_id, [ad])
     return ad
 
 
@@ -104,10 +117,11 @@ async def get_ad_by_code(
     response_description="Ad",
     responses=problem_responses(404),
 )
-async def get_ad(seller_id: SellerId, store: Ads, ad_id: UUID) -> Ad:
+async def get_ad(request: Request, seller_id: SellerId, store: Ads, ad_id: UUID) -> Ad:
     ad = await store.get(seller_id, ad_id)
     if ad is None:
         raise _not_found(ad_id)
+    [ad] = await _with_stats(request, seller_id, [ad])
     return ad
 
 
