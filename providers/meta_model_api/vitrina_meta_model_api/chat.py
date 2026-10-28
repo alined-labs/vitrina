@@ -104,6 +104,8 @@ def _body(request: ChatRequest) -> dict[str, Any]:
         body["max_completion_tokens"] = request.max_tokens
     if request.reasoning_effort is not None:
         body["reasoning_effort"] = request.reasoning_effort
+    if request.prompt_cache_key is not None:
+        body["prompt_cache_key"] = request.prompt_cache_key
     return body
 
 

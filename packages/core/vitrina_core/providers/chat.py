@@ -62,6 +62,9 @@ class ChatRequest(Frozen):
     # Reasoning tokens count against this cap: too small a cap leaves no room for the answer.
     max_tokens: int | None = None
     reasoning_effort: ReasoningEffort | None = None
+    # Requests that share a key share the provider's prompt cache, so a repeated prefix is
+    # served from it sooner and bills at the cached rate (one key per seller, for example).
+    prompt_cache_key: str | None = None
 
 
 class ChatResponse(Frozen):
