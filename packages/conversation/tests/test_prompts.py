@@ -202,6 +202,9 @@ def test_as_3_3_a_list_of_days_answers_for_the_days_it_leaves_out(shop: Shop) ->
     prompt = render_system_prompt(shop.seller, [], NOW)
 
     assert (
-        "Un horario que lista días u horas responde también por los que deja por fuera: si dice "
-        "«de lunes a viernes», di que el sábado no, citando ese dato." in prompt
+        "Un horario que lista días u horas responde también por los días que deja por fuera, "
+        "pero solo sobre lo que describe: si dice «Almuerzos de lunes a viernes», di que el "
+        "sábado no hay almuerzos, citando ese dato. Si el negocio abre ese día para otra cosa no "
+        "lo sabes: ofrece preguntárselo a Ana, sin pasarle la conversación." in prompt
     )
+    assert "di que el sábado no, citando" not in prompt
