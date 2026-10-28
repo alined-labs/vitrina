@@ -2,7 +2,7 @@
 
 SAM 3.1 takes a concept as a short noun phrase and, live, finds nothing for Spanish ones:
 "bag", "handbag" and "woven bag" all found a Wayuu mochila (0.93–0.96), while "mochila", "bolso"
-and "Mochila wayuu" found nothing (research/findings/2026-10-28-muse-image-live.md). So one
+and "Mochila wayuu" found nothing (live check, 2026-10-28). So one
 small Spark call names the product in English before segmenting; the seller never sees it.
 """
 

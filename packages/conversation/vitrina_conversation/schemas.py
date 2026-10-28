@@ -4,7 +4,7 @@
 
 The response's ``AgentTurnOutput`` is the API shape: three required fields and nullable as
 a whole, null when no valid answer came back. The model's own answer is held to the strict
-agent-tools.json shape (``contract.AgentTurnOutput``); research/OPEN.md Q15 and C2.
+agent-tools.json shape (``contract.AgentTurnOutput``); Q15 and C2.
 """
 
 from datetime import datetime

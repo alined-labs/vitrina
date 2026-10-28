@@ -10,7 +10,7 @@ export const sections: readonly Section[] = [
   { slug: "anuncios", label: "Anuncios", summary: "Anuncios aprobados con su código y su enlace de WhatsApp.", story: "US-2" },
   // T045
   { slug: "conversaciones", label: "Conversaciones", summary: "Chats que atiende el agente y los que esperan tu respuesta.", story: "US-3" },
-  // G6: no dashboard task in tasks.md; built by MX1 (brain research/OPEN.md)
+  // no dashboard task in tasks.md: built with the compliance and learning modules
   { slug: "contactos", label: "Contactos", summary: "Tus clientes y su autorización para recibir promociones.", story: "US-6" },
   // G6
   { slug: "campanas", label: "Campañas", summary: "Reactivación solo con consentimiento y dentro del horario legal.", story: "US-6" },

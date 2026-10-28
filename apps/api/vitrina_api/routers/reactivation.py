@@ -1,4 +1,4 @@
-"""Reactivation router. Owner: MX0 (plan.md §3); T064's routes by MX2 (daily sync 2026-10-28).
+"""Reactivation router (T064).
 
 Contract paths: /reactivation/campaigns, /reactivation/campaigns/{campaign_id} and its /send,
 /reactivation/eligibility. Campaigns live in Postgres: without DATABASE_URL every route

@@ -1,4 +1,4 @@
-"""Briefs router. Owner: MX0 (plan.md §3).
+"""Briefs router.
 
 Contract paths: /briefs, /briefs/generate, /briefs/{brief_id}, /briefs/{brief_id}/apply.
 """

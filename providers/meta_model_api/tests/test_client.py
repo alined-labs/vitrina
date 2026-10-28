@@ -29,7 +29,7 @@ def test_the_client_uses_the_settings_and_leaves_retries_to_with_backoff() -> No
 
 
 def test_live_providers_can_give_chat_calls_their_own_timeout() -> None:
-    # The worker's chat calls are background jobs: a copy grid took 31 s live (MX1, T034).
+    # The worker's chat calls are background jobs: a copy grid took 31 s live (T034).
     config = settings(meta_api_key="test-key", provider_timeout_s=20.0)
 
     turns = live_providers(config)

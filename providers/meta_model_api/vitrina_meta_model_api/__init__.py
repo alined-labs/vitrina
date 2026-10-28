@@ -1,9 +1,9 @@
 """Meta Model API adapter (OpenAI-compatible): chat, embeddings, image, segmentation,
-transcription (plan.md §1, ADR-0003). Owners: MX0 (chat, embeddings; T011), MX1 (image, SAM).
+transcription (plan.md §1, ADR-0003). Chat and embeddings: T011; image and SAM: T031–T033.
 
 ``MetaChatModel``, ``MetaEmbedder``, ``MetaImageModel``, ``MetaSegmenter`` and ``MetaTranscriber`` share one client from ``meta_client``;
 ``live_providers`` hands them to ``vitrina_core.providers.compose``. Model IDs come from
-settings (``MODEL_*``), never from code (research/OPEN.md Q01).
+settings (``MODEL_*``), never from code (Q01).
 """
 
 from vitrina_meta_model_api.chat import MetaChatModel

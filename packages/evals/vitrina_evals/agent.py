@@ -1,4 +1,4 @@
-"""The agent the conversations_es suite evaluates: MX2's conversation engine (T024).
+"""The agent the conversations_es suite evaluates: the conversation engine (T024).
 
 ``conversation_agent`` adapts ``vitrina_conversation.api.run_turn`` to the evals' ``Agent``
 protocol: one dry-run turn per customer message, with the case's earlier exchanges as

@@ -129,7 +129,7 @@ jobs:
       - name: migrations and database tests
         run: make test-db
 
-  # The Next.js dashboard (T013, MX1's package): type check, lint, the generated client
+  # The Next.js dashboard (T013): type check, lint, the generated client
   # against the contract, and a production build.
   dashboard:
     name: dashboard

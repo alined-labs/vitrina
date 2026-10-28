@@ -1,4 +1,4 @@
-"""The conversation module's part of an erasure (T062 with MX0; AS-6.6, FR-065; CI's db job).
+"""The conversation module's part of an erasure (T062; AS-6.6, FR-065; CI's db job).
 
 Everything the chat wrote about the contact loses its content: messages, the agent's answers
 and their review, handoff summaries, objection quotes, booking names, and the raw webhook

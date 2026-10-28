@@ -1,7 +1,7 @@
-"""The T011 spike: what the Meta Model API supports, checked live (research/OPEN.md Q01, Q06).
+"""The T011 spike: what the Meta Model API supports, checked live (Q01, Q06).
 
 Needs META_API_KEY and MODEL_AGENT (MODEL_EMBED for the embedding check). Run by hand and
-copy the outcome, including the notes printed by passing checks, into research/findings/:
+keep the outcome, including the notes printed by passing checks:
 
     uv run --env-file .env pytest -m live providers/meta_model_api/tests/test_live.py -rA
 

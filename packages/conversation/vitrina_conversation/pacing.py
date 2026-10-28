@@ -2,7 +2,7 @@
 
 Sends to one recipient are serialized, and each waits until the spacing has passed since
 the previous one to that recipient ended; different recipients never wait for each other.
-The pacer lives in the process: MX2 runs one worker (plan.md §3); a second process would need
+The pacer lives in the process: a deployment runs one worker; a second process would need
 the spacing kept in the database.
 """
 

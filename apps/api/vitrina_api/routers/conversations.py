@@ -1,4 +1,4 @@
-"""Conversations router. Owner: MX2 (plan.md §3).
+"""Conversations router.
 
 Contract paths: /conversations, /conversations/{conversation_id} and its /messages, /takeover, /release.
 """

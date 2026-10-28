@@ -1,7 +1,7 @@
 """Voice notes as text (T051, AS-3.6): download → 16 kHz mono WAV → Muse Voice Transcribe.
 
 WhatsApp voice notes are OGG/Opus. Whether Transcribe takes that, and Spanish, is still open
-(research/OPEN.md Q02), so the default stands: transcode to 16 kHz mono WAV with ffmpeg first
+(Q02), so the default stands: transcode to 16 kHz mono WAV with ffmpeg first
 (plan.md §1). Without ffmpeg on the PATH, or when it fails, the audio goes as it came, and a
 failed transcription reaches the pipeline, which tells the customer it could not hear them
 (Art. VIII). Files go through a temporary folder, because an M4A from an iPhone needs a

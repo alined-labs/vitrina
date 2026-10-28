@@ -1,4 +1,4 @@
-"""Jobs router. Owner: MX0 (plan.md §3).
+"""Jobs router.
 
 Contract paths: /jobs/{job_id}.
 """

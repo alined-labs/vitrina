@@ -1,4 +1,4 @@
-"""Webhooks router. Owner: MX2 (plan.md §3).
+"""Webhooks router.
 
 Contract paths: /webhooks/whatsapp.
 """

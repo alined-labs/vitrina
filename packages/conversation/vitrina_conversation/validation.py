@@ -51,7 +51,7 @@ COURTESY = frozenset({
 })  # fmt: skip
 # Inside a question to the customer only these may appear besides courtesy words and names:
 # question words, the customer's wishes and neutral nouns. "gratis", "hay", "llega" or
-# "descuento" inside a question still claim something (MX1 review of #51).
+# "descuento" inside a question still claim something (review of #51).
 QUESTION_WORDS = frozenset({
     "a", "al", "algo", "algun", "alguna", "alguno", "anuncio", "anuncios", "ayudamos", "ayudar",
     "ayudo", "busca", "buscabas", "buscan", "buscas", "cantidad", "ciudad", "color", "colores",

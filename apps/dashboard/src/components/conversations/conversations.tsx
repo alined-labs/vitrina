@@ -28,7 +28,7 @@ export function Conversations() {
       setItems(data.items ?? []);
       setState("ready");
     } else if (response.status === 404) {
-      setState("not_connected"); // the conversation engine (MX2) has not published its routes yet
+      setState("not_connected"); // the conversation engine has not published its routes yet
     } else {
       setState("error");
       setMessage(problemMessage(error, "No pudimos cargar las conversaciones."));

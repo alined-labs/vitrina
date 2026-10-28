@@ -1,4 +1,4 @@
-"""Sellers router. Owner: MX0 (plan.md §3).
+"""Sellers router.
 
 Contract paths: /sellers, /sellers/me, /sellers/me/voice-samples.
 """

@@ -5,7 +5,7 @@ documented JSON body; one without goes to ``/images/generations``. ``size`` only
 aspect ratio: the output resolution is the model's own (1600×1600 on the first live call).
 Images come back as base64 PNG, so the verifier reads them losslessly.
 
-Scenes take 9–18 s (research/findings/2026-10-28-muse-image-live.md), past the 20 s chat
+Scenes take 9–18 s (live check, 2026-10-28), past the 20 s chat
 budget's margin, so image calls get their own timeout. They run in creative jobs on the worker,
 never inside a customer's turn (Art. VIII.1 bounds turns).
 """

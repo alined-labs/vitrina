@@ -2,7 +2,7 @@
 
 A slot is booked when it fits inside one of the seller's opening intervals that day, in the
 seller's timezone, and overlaps none of the seller's other bookings. The settings carry no
-capacity, so a seller takes one appointment at a time (research/OPEN.md Q37, assumed). A
+capacity, so a seller takes one appointment at a time (Q37, assumed). A
 refused or past slot comes back as ``outside_hours`` or ``slot_taken`` with up to three free
 slots of the same length, on a 30-minute grid from each opening, within the next seven days
 (Q37, assumed). A time without an offset is the seller's local time. Each seller's bookings
