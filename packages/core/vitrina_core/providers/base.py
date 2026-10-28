@@ -42,8 +42,8 @@ class Blob(Frozen):
 class CallMeta(Frozen):
     """What the model-call ledger records for every call (FR-084, openapi.yaml ModelCallMeta).
 
-    ``cost_usd`` is None when the provider does not report a price (research question on
-    per-model pricing); the ledger then stores 0.
+    ``cost_usd`` is None when the provider does not report a price; the ledger then prices a
+    live call from its model's list price (``vitrina_core.pricing``), else stores 0.
     """
 
     provider: ProviderName

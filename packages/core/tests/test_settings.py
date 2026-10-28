@@ -3,6 +3,7 @@ from pathlib import Path
 import pytest
 from pydantic import ValidationError
 
+from vitrina_core.pricing import ModelPrice
 from vitrina_core.settings import REPO_ROOT, Settings
 
 
@@ -54,6 +55,28 @@ def test_missing_model_id_names_its_variable() -> None:
         make().model_id("strategist")
 
     assert make(model_strategist="wonder-id").model_id("strategist") == "wonder-id"
+
+
+def test_fr_084_the_default_prices_are_meta_list_prices() -> None:
+    prices = make().model_prices
+
+    assert prices["muse-spark-1.3"] == ModelPrice(input_per_mtok=1.25, output_per_mtok=4.25)
+    assert prices["muse-wonder-1.0"] == ModelPrice(input_per_mtok=4.0, output_per_mtok=20.0)
+    assert prices["muse-image-1.0"] == ModelPrice(per_image=0.01)
+    assert prices["sam-3.1"] == ModelPrice(per_image=0.0025)
+    assert prices["muse-voice-transcribe-1.0"] == ModelPrice(per_audio_hour=0.18)
+    # The data-sharing variants are never called (constitution Art. V.2), so they have no price.
+    assert not any(model.endswith("-contributor") for model in prices)
+
+
+def test_fr_084_model_prices_come_from_the_environment(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv(
+        "MODEL_PRICES", '{"agent-model": {"input_per_mtok": 2, "output_per_mtok": 8}}'
+    )
+
+    assert make().model_prices == {
+        "agent-model": ModelPrice(input_per_mtok=2.0, output_per_mtok=8.0)
+    }
 
 
 def test_database_url_gets_the_asyncpg_driver() -> None:

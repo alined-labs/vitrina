@@ -10,16 +10,28 @@ from vitrina_core.ledger import (
     InMemoryLedger,
     LedgeredChatModel,
     LedgeredEmbedder,
+    LedgeredImageModel,
+    LedgeredSegmenter,
+    LedgeredTranscriber,
     SpendWatch,
     period_bounds,
 )
+from vitrina_core.pricing import ModelPrice
 from vitrina_core.providers import (
+    Blob,
     CallMeta,
     ChatMessage,
     ChatRequest,
     ChatResponse,
     EmbeddingRequest,
     EmbeddingResponse,
+    ImageRequest,
+    ImageResponse,
+    ModelPurpose,
+    SegmentRequest,
+    SegmentResponse,
+    TranscriptionRequest,
+    TranscriptionResponse,
 )
 
 SELLER = UUID("00000000-0000-7000-8000-00000000000a")
@@ -78,6 +90,75 @@ async def test_an_unknown_price_is_recorded_as_zero_never_guessed() -> None:
     await LedgeredChatModel(Chat(cost=None), ledger).complete(REQUEST)
 
     assert ledger.entries[0].cost_usd == 0.0
+
+
+SPARK = ModelPrice(input_per_mtok=1.25, output_per_mtok=4.25)
+
+
+async def test_fr_084_a_live_call_without_a_cost_is_priced_from_its_list_price() -> None:
+    ledger = InMemoryLedger()
+    model = LedgeredChatModel(Chat(cost=None), ledger, {"agent-model": SPARK})
+
+    response = await model.complete(REQUEST)
+
+    # 120 tokens in at $1.25 and 30 out at $4.25 per million.
+    assert ledger.entries[0].cost_usd == pytest.approx(0.0002775)
+    assert response.meta.cost_usd == pytest.approx(0.0002775)
+
+
+async def test_fr_084_a_reported_cost_or_a_replay_is_never_repriced() -> None:
+    ledger = InMemoryLedger()
+    prices = {"agent-model": SPARK}
+
+    await LedgeredChatModel(Chat(cost=0.0021), ledger, prices).complete(REQUEST)
+    await LedgeredChatModel(Chat(cost=None, replayed=True), ledger, prices).complete(REQUEST)
+
+    assert [entry.cost_usd for entry in ledger.entries] == [0.0021, 0.0]
+
+
+def meta_for(model: str, purpose: ModelPurpose) -> CallMeta:
+    return CallMeta(provider="meta_model_api", model=model, purpose=purpose)
+
+
+async def test_fr_084_images_masks_and_audio_are_priced_by_their_unit() -> None:
+    ledger = InMemoryLedger()
+    prices = {
+        "image-model": ModelPrice(per_image=0.01),
+        "segment-model": ModelPrice(per_image=0.0025),
+        "transcribe-model": ModelPrice(per_audio_hour=0.18),
+    }
+    photo = Blob(data=b"photo", mime_type="image/png")
+
+    class Images:
+        async def generate(self, request: ImageRequest) -> ImageResponse:
+            return ImageResponse(
+                images=(photo,) * request.count, meta=meta_for(request.model, "scene")
+            )
+
+    class Masks:
+        async def segment(self, request: SegmentRequest) -> SegmentResponse:
+            return SegmentResponse(segments=(), meta=meta_for(request.model, "segment"))
+
+    class Voice:
+        async def transcribe(self, request: TranscriptionRequest) -> TranscriptionResponse:
+            return TranscriptionResponse(
+                text="hola", duration_s=61.9, meta=meta_for(request.model, "transcribe")
+            )
+
+    await LedgeredImageModel(Images(), ledger, prices).generate(
+        ImageRequest(model="image-model", prompt="bolso tejido", count=3)
+    )
+    await LedgeredSegmenter(Masks(), ledger, prices).segment(
+        SegmentRequest(model="segment-model", image=photo)
+    )
+    await LedgeredTranscriber(Voice(), ledger, prices).transcribe(
+        TranscriptionRequest(
+            model="transcribe-model", audio=Blob(data=b"ogg", mime_type="audio/ogg")
+        )
+    )
+
+    # Three images at $0.01, one segmented image at $0.0025, 61 whole seconds at $0.18 an hour.
+    assert [entry.cost_usd for entry in ledger.entries] == pytest.approx([0.03, 0.0025, 0.00305])
 
 
 async def test_embeddings_are_recorded_too() -> None:
