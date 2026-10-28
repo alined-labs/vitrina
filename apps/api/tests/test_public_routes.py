@@ -4,6 +4,7 @@ from pathlib import Path
 
 import pytest
 from fastapi.testclient import TestClient
+from pydantic import SecretStr
 from starlette.requests import Request
 
 from vitrina_api.main import create_app
@@ -44,13 +45,35 @@ def visitor_request(headers: dict[str, str]) -> Request:
     return Request(scope)
 
 
+SECRET = "proxy-secret-for-tests"
+PROXY = Settings(_env_file=None, visitor_proxy_secret=SecretStr(SECRET))  # type: ignore[call-arg]
+FROM_PROXY = {"X-Vitrina-Proxy-Secret": SECRET}
+
+
 def test_as_8_2_behind_the_proxy_each_visitor_is_limited_by_their_own_address() -> None:
-    assert visitor_address(visitor_request({"X-Vitrina-Visitor": "203.0.113.7"})) == "203.0.113.7"
-    assert visitor_address(visitor_request({"X-Vitrina-Visitor": " 2001:db8::1 "})) == "2001:db8::1"
+    first = visitor_request({**FROM_PROXY, "X-Vitrina-Visitor": "203.0.113.7"})
+    second = visitor_request({**FROM_PROXY, "X-Vitrina-Visitor": " 2001:db8::1 "})
+
+    assert visitor_address(first, PROXY) == "203.0.113.7"
+    assert visitor_address(second, PROXY) == "2001:db8::1"
+
+
+def test_as_8_2_a_caller_without_the_proxy_secret_cannot_choose_its_address() -> None:
+    forged = {"X-Vitrina-Visitor": "203.0.113.7"}
+
+    assert visitor_address(visitor_request(forged), PROXY) == "10.0.0.1"
+    guessed = visitor_request({**forged, "X-Vitrina-Proxy-Secret": "a guess"})
+    assert visitor_address(guessed, PROXY) == "10.0.0.1"
+
+
+def test_as_8_2_without_the_setting_no_visitor_header_is_trusted() -> None:
+    unset = Settings(_env_file=None)  # type: ignore[call-arg]
+    request = visitor_request({**FROM_PROXY, "X-Vitrina-Visitor": "203.0.113.7"})
+
+    assert visitor_address(request, unset) == "10.0.0.1"
 
 
 def test_without_a_valid_visitor_header_the_client_address_counts() -> None:
-    assert visitor_address(visitor_request({})) == "10.0.0.1"
-    assert (
-        visitor_address(visitor_request({"X-Vitrina-Visitor": "anything, 1.2.3.4"})) == "10.0.0.1"
-    )
+    assert visitor_address(visitor_request(FROM_PROXY), PROXY) == "10.0.0.1"
+    listed = visitor_request({**FROM_PROXY, "X-Vitrina-Visitor": "anything, 1.2.3.4"})
+    assert visitor_address(listed, PROXY) == "10.0.0.1"

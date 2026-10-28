@@ -120,7 +120,10 @@ cd apps/dashboard
 pnpm install --frozen-lockfile
 pnpm run cf:preview   # optional: the same Worker locally on http://localhost:8787
 pnpm run cf:deploy    # next build, the OpenNext bundle, then wrangler deploy
+pnpm exec wrangler secret put VISITOR_PROXY_SECRET   # once: paste the API's value
 ```
+
+The secret reaches the running Worker at once, with no new deploy. Until it is set, the proxy sends no visitor address and the API counts every visitor at the proxy's address.
 
 ### Check
 
@@ -138,6 +141,6 @@ pnpm exec wrangler tail               # live logs
 
 ### Notes
 
-- **Visitor address.** The proxy does not forward `X-Forwarded-For` or `CF-Connecting-IP` to the API, so the middleware sends the visitor's address as `X-Vitrina-Visitor`, always overwriting any value the browser sent. The public showcase's five-an-hour limit reads it; a call made straight to the API is limited by its own address.
+- **Visitor address.** The proxy does not forward `X-Forwarded-For` or `CF-Connecting-IP` to the API, so the middleware sends the visitor's address as `X-Vitrina-Visitor`, together with `X-Vitrina-Proxy-Secret`, the `VISITOR_PROXY_SECRET` it shares with the API. Both always overwrite what the browser sent. The API trusts the address only when the secret matches, so the public showcase's five-an-hour limit counts each visitor, and a call made straight to the API is limited by its own address.
 - **Versions.** Next.js 16.4.3 with `@opennextjs/cloudflare` 1.20.14 and Wrangler 4.154.0. Earlier adapters refused or broke Next.js 16.4, and 1.20.14 fixes truncated responses under concurrent requests. The dashboard keeps `middleware.ts`: Next.js 16 renames it to `proxy.ts`, which runs only on Node.js, and the adapter does not support Node middleware yet. CI builds the Worker bundle on every pull request (`pnpm run cf:build`).
 - **Outbound fetches.** `global_fetch_strictly_public` keeps the Worker from fetching private addresses; the API address must be public, as Container Apps' external ingress is.
