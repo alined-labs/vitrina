@@ -77,7 +77,9 @@ inbound → opt-out/erasure keyword check (R7)
         → mode check: human → store only
         → scope classifier (cheap Spark call or rules) → off-topic → canned decline
         → retrieval (hybrid: pgvector cosine + pg_trgm, top-k 5, only status=active)
-        → Spark tool loop (max 4 tool rounds, 20 s budget) with tools from agent-tools.json
+        → Spark tool loop (max 4 tool rounds, 20 s budget) with tools from agent-tools.json;
+          the retrieved facts are already in the prompt, so search_catalog is called only
+          for what they do not cover (amendment A-007, NFR-01)
         → structured AgentTurnOutput (response_format json_schema → fallback repair)
         → validators: price (R2), groundedness (R3), confidence (R4), handoff consistency (R5)
         → consent gating (R8) → record objection → send (pacing R12) → attribution events

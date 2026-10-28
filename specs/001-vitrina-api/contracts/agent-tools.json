@@ -3,7 +3,7 @@
   "$id": "https://vitrina.example/contracts/agent-tools.json",
   "title": "Vitrina sales agent — tool-calling and structured-output contract",
   "description": "Frozen contract between the conversation engine (owner: M1) and the catalog/consent modules. Tools are exposed to Muse Spark in OpenAI-compatible `tools` format; the `definitions.tools[*].parameters` objects are passed verbatim. Every tool is scoped to the current seller_id and conversation_id server-side; the model never supplies them. Changes require a spec amendment (constitution Art. VI).",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "definitions": {
     "AgentTurnOutput": {
       "type": "object",
@@ -49,7 +49,7 @@
         "type": "function",
         "function": {
           "name": "search_catalog",
-          "description": "Buscar productos y datos del negocio relevantes para la pregunta del cliente. Úsalo antes de afirmar cualquier precio, disponibilidad, envío o política. Devuelve fragmentos con fact_id que debes citar.",
+          "description": "Buscar productos y datos del negocio que no estén ya en el contexto. Devuelve fragmentos con fact_id que debes citar.",
           "parameters": {
             "type": "object",
             "additionalProperties": false,
