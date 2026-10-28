@@ -46,7 +46,8 @@ async def attribute(
     """Fold one inbound message into the conversation's attribution.
 
     The flag is True when this message attributed the conversation, the moment to emit
-    ``ad.chat_started``.
+    ``ad.chat_started`` with the ad. A new chat without an ad emits it once with ``ad_id``
+    null (the pipeline), so a code named later adds the ad's event after that one.
     """
     if current.status == "attributed":
         return current, False
@@ -60,11 +61,11 @@ async def attribute(
 
 
 def chat_started_payload(
-    ad_id: UUID, conversation_id: UUID, contact_id: UUID, occurred_at: datetime
-) -> dict[str, str]:
-    """data-model.md §4 ``ad.chat_started``."""
+    ad_id: UUID | None, conversation_id: UUID, contact_id: UUID, occurred_at: datetime
+) -> dict[str, str | None]:
+    """data-model.md §4 ``ad.chat_started``; ``ad_id`` is None for an unattributed chat."""
     return {
-        "ad_id": str(ad_id),
+        "ad_id": str(ad_id) if ad_id is not None else None,
         "conversation_id": str(conversation_id),
         "contact_id": str(contact_id),
         "occurred_at": occurred_at.astimezone(UTC).isoformat().replace("+00:00", "Z"),
