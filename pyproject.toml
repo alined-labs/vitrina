@@ -91,6 +91,11 @@ warn_return_any = true
 module = ["asyncpg", "asyncpg.*"]
 ignore_missing_imports = true
 
+# Nor does snowballstemmer, which the catalog's text matching uses for Spanish stems.
+[[tool.mypy.overrides]]
+module = ["snowballstemmer", "snowballstemmer.*"]
+ignore_missing_imports = true
+
 [tool.pydantic-mypy]
 init_forbid_extra = true
 init_typed = true
