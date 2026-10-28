@@ -18,6 +18,7 @@ from vitrina_conversation.image import Photos
 from vitrina_conversation.pacing import Pacer
 from vitrina_conversation.voice import VoiceNotes
 from vitrina_conversation.wiring import (
+    agent_deps,
     memory_pipeline,
     photos_for,
     postgres_pipeline,
@@ -123,3 +124,11 @@ async def test_as_3_5_and_3_6_without_a_database_media_is_read_too() -> None:
 
 async def no_seller(_seller_id: UUID) -> SellerSettings | None:
     return None
+
+
+def test_nfr_01_live_turns_reason_little_and_the_scope_check_least() -> None:
+    config = settings(model_agent="spark-test")
+
+    deps = agent_deps(config, providers(config).chat, InMemoryCatalog())
+
+    assert (deps.reasoning_effort, deps.scope_reasoning_effort) == ("low", "minimal")

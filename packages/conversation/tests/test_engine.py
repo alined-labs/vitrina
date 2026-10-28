@@ -495,3 +495,17 @@ async def test_r11_a_sensitive_verdict_cancels_the_agent_call_in_flight(shop: Sh
     assert result.handoff is not None
     assert chat.cancelled
     assert [call.purpose for call in result.model_calls] == ["classify"]
+
+
+async def test_nfr_01_each_call_carries_its_reasoning_effort(shop: Shop) -> None:
+    chat = ScriptedChat(
+        [tool_call("search_catalog", query="envío"), final_answer("¡Hola! ¿En qué te ayudo?")]
+    )
+
+    await run_turn(
+        request(shop, "¿cuánto vale el envío a Medellín?"),
+        deps(chat, shop, reasoning_effort="low", scope_reasoning_effort="minimal"),
+    )
+
+    assert [sent.reasoning_effort for sent in chat.requests] == ["low", "low"]
+    assert [sent.reasoning_effort for sent in chat.classified] == ["minimal"]

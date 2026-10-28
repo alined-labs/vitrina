@@ -57,6 +57,7 @@ from vitrina_core.providers import (
     ChatMessage,
     ChatModel,
     ChatRequest,
+    ReasoningEffort,
     ResponseFormat,
     with_backoff,
 )
@@ -112,6 +113,9 @@ class AgentDeps:
     history_turns: int = 10
     temperature: float | None = 0.2
     strict_schema: bool = True
+    reasoning_effort: ReasoningEffort | None = None
+    """For the agent's calls; the scope check has its own (``scope_reasoning_effort``)."""
+    scope_reasoning_effort: ReasoningEffort | None = None
     approved_ads: ApprovedAds | None = None
     ad_assets: AdAssets | None = None
     bookings: BookingStore | None = None
@@ -220,6 +224,7 @@ class _Turn:
                 chat=self.deps.chat,
                 model=self.deps.model,
                 strict_schema=self.deps.strict_schema,
+                reasoning_effort=self.deps.scope_reasoning_effort,
             )
         )
         agent = asyncio.create_task(self._agent())
@@ -434,6 +439,7 @@ class _Turn:
                 name="AgentTurnOutput", json_schema=output_schema(), strict=self.deps.strict_schema
             ),
             temperature=self.deps.temperature,
+            reasoning_effort=self.deps.reasoning_effort,
         )
         response = await with_backoff(
             lambda: self.deps.chat.complete(request), sleep=self.deps.sleep
