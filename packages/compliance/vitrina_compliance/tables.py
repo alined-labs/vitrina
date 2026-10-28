@@ -3,7 +3,7 @@
 from typing import Any
 
 import sqlalchemy as sa
-from sqlalchemy.dialects.postgresql import BYTEA
+from sqlalchemy.dialects.postgresql import BYTEA, JSONB
 
 from vitrina_core.db import metadata
 
@@ -65,5 +65,48 @@ erasure_receipts = sa.Table(
     _moment("requested_at", nullable=False, now=True),
     _moment("completed_at"),
     sa.Column("scope", sa.Text, nullable=False),
+    _moment("created_at", nullable=False, now=True),
+)
+
+# Reactivation campaigns and every eligibility decision made for them (T064, FR-064).
+reactivation_campaigns = sa.Table(
+    "reactivation_campaigns",
+    metadata,
+    sa.Column("id", sa.Uuid, primary_key=True),
+    sa.Column(
+        "seller_id", sa.Uuid, sa.ForeignKey("sellers.id", ondelete="CASCADE"), nullable=False
+    ),
+    sa.Column("brief_id", sa.Uuid),  # FK to briefs in the migration; no module declares it yet
+    sa.Column("ad_id", sa.Uuid, sa.ForeignKey("ads.id", ondelete="SET NULL")),
+    sa.Column("template_name", sa.Text, nullable=False),
+    sa.Column("template_language", sa.Text, nullable=False, server_default="es"),
+    sa.Column("segment", JSONB, nullable=False, server_default=sa.text("'{}'::jsonb")),
+    sa.Column("status", sa.Text, nullable=False, server_default="preview"),
+    _moment("scheduled_for"),
+    _moment("created_at", nullable=False, now=True),
+)
+
+send_decisions = sa.Table(
+    "send_decisions",
+    metadata,
+    sa.Column("id", sa.Uuid, primary_key=True),
+    sa.Column(
+        "seller_id", sa.Uuid, sa.ForeignKey("sellers.id", ondelete="CASCADE"), nullable=False
+    ),
+    sa.Column(
+        "campaign_id",
+        sa.Uuid,
+        sa.ForeignKey("reactivation_campaigns.id", ondelete="CASCADE"),
+        nullable=False,
+    ),
+    sa.Column(
+        "contact_id", sa.Uuid, sa.ForeignKey("contacts.id", ondelete="CASCADE"), nullable=False
+    ),
+    sa.Column("decision", sa.Text, nullable=False),
+    sa.Column("reason", sa.Text, nullable=False),
+    sa.Column("reason_text_es", sa.Text),
+    _moment("next_allowed_at"),
+    sa.Column("message_id", sa.Uuid, sa.ForeignKey("messages.id", ondelete="SET NULL")),
+    _moment("evaluated_at", nullable=False, now=True),
     _moment("created_at", nullable=False, now=True),
 )
