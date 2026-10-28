@@ -4,6 +4,7 @@ import { useCallback, useEffect, useState } from "react";
 import { api, type components } from "@/lib/api/client";
 import { problemMessage } from "@/lib/format";
 import { CONSENT, CONSENT_CHANNEL, CONSENT_PURPOSE, OBJECTION, RECORDED_BY } from "@/lib/labels";
+import { useLoad } from "@/lib/use-load";
 
 type Contact = components["schemas"]["Contact"];
 type ConsentRecord = components["schemas"]["ConsentRecord"];
@@ -25,8 +26,10 @@ const CONSENT_STYLE: Record<Contact["marketing_consent"], string> = {
 /** Customers and their marketing consent, with the append-only ledger behind it (US-6, FR-060..065). */
 export function Contacts() {
   const [filter, setFilter] = useState<Filter>("all");
-  const [items, setItems] = useState<Contact[] | null>(null);
-  const [cursor, setCursor] = useState<string | null>(null);
+  // Each filter keeps its own list and next page, as the ads page does with its tabs.
+  const [lists, setLists] = useState<Partial<Record<Filter, { items: Contact[]; cursor: string | null }>>>({});
+  const items = lists[filter]?.items ?? null;
+  const cursor = lists[filter]?.cursor ?? null;
   const [message, setMessage] = useState<string | null>(null);
 
   const load = useCallback(
@@ -37,20 +40,25 @@ export function Contacts() {
         setMessage(problemMessage(error, "No pudimos cargar tus contactos."));
         return;
       }
-      setItems((current) => (after ? [...(current ?? []), ...(data.items ?? [])] : (data.items ?? [])));
-      setCursor(data.next_cursor);
+      setLists((current) => ({
+        ...current,
+        [filter]: {
+          items: after ? [...(current[filter]?.items ?? []), ...(data.items ?? [])] : (data.items ?? []),
+          cursor: data.next_cursor ?? null,
+        },
+      }));
     },
     [filter],
   );
 
-  useEffect(() => {
-    setItems(null);
-    setMessage(null);
-    void load();
-  }, [load]);
+  useLoad(load);
 
   function replace(contact: Contact) {
-    setItems((current) => current?.map((item) => (item.id === contact.id ? contact : item)) ?? null);
+    setLists((current) => {
+      const list = current[filter];
+      if (!list) return current;
+      return { ...current, [filter]: { ...list, items: list.items.map((item) => (item.id === contact.id ? contact : item)) } };
+    });
   }
 
   return (
@@ -62,7 +70,10 @@ export function Contacts() {
             role="tab"
             type="button"
             aria-selected={value === filter}
-            onClick={() => setFilter(value)}
+            onClick={() => {
+              setFilter(value);
+              setMessage(null);
+            }}
             className={`rounded-full px-4 py-1.5 text-sm ${value === filter ? "bg-zinc-900 text-white" : "bg-zinc-100 hover:bg-zinc-200"}`}
           >
             {label}
@@ -115,9 +126,6 @@ function ContactRow({
     setLedger(data ?? []);
   }, [contact.id]);
 
-  useEffect(() => {
-    if (open) void loadLedger();
-  }, [open, loadLedger]);
 
   async function refresh() {
     const { data } = await api.GET("/contacts/{contact_id}", { params: { path: { contact_id: contact.id } } });
@@ -150,7 +158,15 @@ function ContactRow({
   const active = !contact.erased_at && !erasing;
   return (
     <li className="space-y-3 px-4 py-3 text-sm">
-      <button type="button" onClick={() => setOpen(!open)} aria-expanded={open} className="flex w-full flex-wrap items-center gap-2 text-left">
+      <button
+        type="button"
+        onClick={() => {
+          setOpen(!open);
+          if (!open) void loadLedger();
+        }}
+        aria-expanded={open}
+        className="flex w-full flex-wrap items-center gap-2 text-left"
+      >
         <span className="font-medium">{name}</span>
         {contact.display_name && contact.phone_masked && <span className="text-zinc-500">{contact.phone_masked}</span>}
         <span className={`rounded px-2 py-0.5 text-xs ${CONSENT_STYLE[contact.marketing_consent]}`}>{CONSENT[contact.marketing_consent]}</span>

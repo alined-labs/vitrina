@@ -1,6 +1,6 @@
 # Dashboard
 
-Next.js 15 seller dashboard for Vitrina (plan.md §1, §2). It is a pnpm package outside the uv workspace and talks to the API only through the TypeScript client generated from `specs/001-vitrina-api/contracts/openapi.yaml`.
+Next.js 16 seller dashboard for Vitrina (plan.md §1, §2). It is a pnpm package outside the uv workspace and talks to the API only through the TypeScript client generated from `specs/001-vitrina-api/contracts/openapi.yaml`.
 
 ## Run
 

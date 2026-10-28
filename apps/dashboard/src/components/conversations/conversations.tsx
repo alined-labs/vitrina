@@ -4,6 +4,7 @@ import { useCallback, useEffect, useState } from "react";
 import { api, type components } from "@/lib/api/client";
 import { problemMessage } from "@/lib/format";
 import { HANDOFF_REASON, MODE, OBJECTION } from "@/lib/labels";
+import { useLoad } from "@/lib/use-load";
 
 type Conversation = components["schemas"]["Conversation"];
 type Filter = "attention" | "agent" | "all";
@@ -17,7 +18,9 @@ const FILTERS: { value: Filter; label: string }[] = [
 /** Chats the agent handles and the ones handed to the seller, with the ad that brought them (US-3, US-4). */
 export function Conversations() {
   const [filter, setFilter] = useState<Filter>("attention");
-  const [items, setItems] = useState<Conversation[] | null>(null);
+  // Each filter keeps its own list, as the ads page does with its tabs.
+  const [lists, setLists] = useState<Partial<Record<Filter, Conversation[]>>>({});
+  const items = lists[filter] ?? null;
   const [state, setState] = useState<"ready" | "not_connected" | "error">("ready");
   const [message, setMessage] = useState<string | null>(null);
 
@@ -25,7 +28,7 @@ export function Conversations() {
     const query = filter === "attention" ? { needs_attention: true } : filter === "agent" ? { mode: "agent" as const } : {};
     const { data, error, response } = await api.GET("/conversations", { params: { query: { ...query, limit: 50 } } });
     if (data) {
-      setItems(data.items ?? []);
+      setLists((current) => ({ ...current, [filter]: data.items ?? [] }));
       setState("ready");
     } else if (response.status === 404) {
       setState("not_connected"); // the conversation engine has not published its routes yet
@@ -35,10 +38,7 @@ export function Conversations() {
     }
   }, [filter]);
 
-  useEffect(() => {
-    setItems(null);
-    void load();
-  }, [load]);
+  useLoad(load);
 
   if (state === "not_connected") {
     return (

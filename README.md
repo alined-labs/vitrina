@@ -27,7 +27,7 @@ The agent is scoped to one seller's business and declines everything else, in li
 
 ```mermaid
 flowchart LR
-  Seller["Seller"] --> Dash["Dashboard (Next.js 15)"]
+  Seller["Seller"] --> Dash["Dashboard (Next.js 16)"]
   Dash --> API["Vitrina API (FastAPI, /v1)"]
   Customer["Customer on WhatsApp"] --> WA["WhatsApp Cloud API"]
   WA -->|"webhook (HMAC)"| API
