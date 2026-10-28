@@ -177,7 +177,7 @@ class FakeStorage:
             raise answer
         return answer
 
-    def store(self) -> tuple[SupabaseBlobStore, list[float]]:
+    def store(self, service_key: str = "service-role-key") -> tuple[SupabaseBlobStore, list[float]]:
         waits: list[float] = []
 
         async def sleep(seconds: float) -> None:
@@ -185,7 +185,7 @@ class FakeStorage:
 
         store = SupabaseBlobStore(
             "https://project.supabase.test",
-            SecretStr("service-role-key"),
+            SecretStr(service_key),
             bucket="vitrina",
             client=httpx2.AsyncClient(transport=httpx2.MockTransport(self.handler)),
             sleep=sleep,
@@ -209,6 +209,18 @@ async def test_supabase_put_uploads_with_upsert_and_the_service_key() -> None:
     assert sent.headers["content-type"] == "image/jpeg"
     assert sent.headers["x-upsert"] == "true"
     assert sent.content == PHOTO
+
+
+async def test_supabase_secret_keys_travel_only_in_the_apikey_header() -> None:
+    # sb_secret_ keys are not JWTs: Supabase wants them in apikey, never as a Bearer token.
+    fake = FakeStorage(httpx2.Response(200, json={"Key": f"vitrina/{KEY}"}))
+    store, _ = fake.store("sb_secret_test-key")
+
+    await store.put(KEY, PHOTO, "image/jpeg")
+
+    [sent] = fake.requests
+    assert sent.headers["apikey"] == "sb_secret_test-key"
+    assert "authorization" not in sent.headers
 
 
 async def test_supabase_get_returns_the_blob_with_its_content_type() -> None:

@@ -212,7 +212,13 @@ class SupabaseBlobStore:
         self.bucket = bucket
         self.default_ttl_s = default_ttl_s
         secret = service_key.get_secret_value()
-        self._headers = {"authorization": f"Bearer {secret}", "apikey": secret}
+        # New secret keys are not JWTs and go in apikey only; the legacy service_role JWT also
+        # works as the Bearer token.
+        self._headers = (
+            {"apikey": secret}
+            if secret.startswith("sb_secret_")
+            else {"authorization": f"Bearer {secret}", "apikey": secret}
+        )
         self._client = client or httpx2.AsyncClient(timeout=timeout_s)
         self._sleep = sleep
 

@@ -8,12 +8,18 @@ import signal
 from vitrina_core.db import create_engine, create_session_factory
 from vitrina_core.jobs import PostgresJobQueue, TaskRegistry, Worker, load_tasks
 from vitrina_core.ledger import PostgresLedger, SpendWatch
-from vitrina_core.providers.compose import compose
+from vitrina_core.providers.compose import LiveProviders, compose
 from vitrina_core.settings import Settings, get_settings
 from vitrina_core.storage import blob_store
 from vitrina_meta_model_api import live_providers
 
 logger = logging.getLogger("vitrina.worker")
+
+
+def job_providers(settings: Settings) -> LiveProviders:
+    """Live adapters for jobs: chat waits PROVIDER_JOB_TIMEOUT_S. Turns run here too, but the
+    engine's turn budget bounds them."""
+    return live_providers(settings, chat_timeout_s=settings.provider_job_timeout_s)
 
 
 async def serve(settings: Settings, stop: asyncio.Event | None = None) -> None:
@@ -24,7 +30,7 @@ async def serve(settings: Settings, stop: asyncio.Event | None = None) -> None:
     engine = create_engine(settings)
     sessions = create_session_factory(engine)
     ledger = PostgresLedger(sessions, SpendWatch(settings.spend_limit_usd))
-    providers = compose(settings, ledger, lambda: live_providers(settings))
+    providers = compose(settings, ledger, lambda: job_providers(settings))
     storage = blob_store(settings)
     stop = stop or asyncio.Event()
     loop = asyncio.get_running_loop()

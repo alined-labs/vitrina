@@ -20,6 +20,9 @@ def test_defaults_are_safe_without_any_environment() -> None:
     assert (settings.mask_iou_min, settings.color_delta_max) == (0.85, 0.25)
     assert settings.outbound_spacing_s == 6.0
     assert settings.provider_attempts == 3
+    assert settings.public_web_url == "http://localhost:3000"
+    # Background jobs wait longer for a chat answer than a customer's turn (MX1, T034).
+    assert (settings.provider_timeout_s, settings.provider_job_timeout_s) == (20.0, 90.0)
 
 
 def test_environment_variables_use_the_documented_names(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -27,12 +30,14 @@ def test_environment_variables_use_the_documented_names(monkeypatch: pytest.Monk
     monkeypatch.setenv("DB_SCHEMA", "dev_mx0")
     monkeypatch.setenv("MODEL_AGENT", "agent-model-id")
     monkeypatch.setenv("SERVICE_TOKEN", "local-service-token")
+    monkeypatch.setenv("PUBLIC_WEB_URL", "https://vitrina.example")
 
     settings = make()
 
     assert settings.replay is False
     assert settings.db_schema == "dev_mx0"
     assert settings.model_agent == "agent-model-id"
+    assert settings.public_web_url == "https://vitrina.example"
     assert settings.service_token is not None
     assert settings.service_token.get_secret_value() == "local-service-token"
     assert "local-service-token" not in repr(settings)
