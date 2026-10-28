@@ -153,6 +153,7 @@ async def classify_scope(
         ),
         temperature=0.0,
         reasoning_effort=reasoning_effort,
+        prompt_cache_key=f"classify:{seller.seller_id}",
     )
     try:
         response = await chat.complete(request)
