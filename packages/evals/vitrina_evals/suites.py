@@ -24,11 +24,12 @@ from vitrina_core.settings import REPO_ROOT, Settings
 from vitrina_evals.agent import conversation_agent
 from vitrina_evals.cases import load_cases
 from vitrina_evals.consent import load_consent_cases, run_consent_scheduler
+from vitrina_evals.fidelity import load_fidelity, run_fidelity
 from vitrina_evals.runner import Agent, SuiteResult, run_conversations
 from vitrina_evals.schemas import EvalMetrics, EvalSuite
 
 # Suites in the contract that later tasks build.
-PLANNED = {"fidelity": "T072", "price_validator": "T072"}
+PLANNED = {"price_validator": "T072"}
 
 
 def tracked(providers: Providers, ledger: ModelCallLedger) -> Providers:
@@ -57,7 +58,7 @@ async def execute(
         return run_consent_scheduler(
             load_consent_cases()[:sample] if sample else load_consent_cases()
         )
-    if suite != "conversations_es":
+    if suite not in ("conversations_es", "fidelity"):
         return SuiteResult(
             "error", EvalMetrics(), [], f"the {suite} suite arrives with {PLANNED[suite]}"
         )
@@ -68,6 +69,10 @@ async def execute(
         providers = tracked(live, ledger)
     else:
         return SuiteResult("error", EvalMetrics(), [], "a live run needs the process's providers")
+    if suite == "fidelity":
+        return await run_fidelity(
+            load_fidelity(), providers=providers, settings=settings, ledger=ledger, sample=sample
+        )
     return await run_conversations(
         load_cases(sample=sample, only=cases),
         agent=agent if agent is not None else conversation_agent(settings),

@@ -1,0 +1,118 @@
+{
+  "source": "source.jpg",
+  "source_mask": "source-mask.png",
+  "label": "woven bag",
+  "possessive": "de la mochila",
+  "cases": [
+    {
+      "case_id": "g01-good",
+      "kind": "good",
+      "scene": "good/g01.jpg"
+    },
+    {
+      "case_id": "g02-good",
+      "kind": "good",
+      "scene": "good/g02.jpg"
+    },
+    {
+      "case_id": "g03-good",
+      "kind": "good",
+      "scene": "good/g03.jpg"
+    },
+    {
+      "case_id": "g04-good",
+      "kind": "good",
+      "scene": "good/g04.jpg"
+    },
+    {
+      "case_id": "g05-good",
+      "kind": "good",
+      "scene": "good/g05.jpg"
+    },
+    {
+      "case_id": "g06-good",
+      "kind": "good",
+      "scene": "good/g06.jpg"
+    },
+    {
+      "case_id": "g07-good",
+      "kind": "good",
+      "scene": "good/g07.jpg"
+    },
+    {
+      "case_id": "g08-good",
+      "kind": "good",
+      "scene": "good/g08.jpg"
+    },
+    {
+      "case_id": "g09-good",
+      "kind": "good",
+      "scene": "good/g09.jpg"
+    },
+    {
+      "case_id": "g10-good",
+      "kind": "good",
+      "scene": "good/g10.jpg"
+    },
+    {
+      "case_id": "a01-g04",
+      "kind": "altered",
+      "scene": "altered/a01.jpg",
+      "change": "color: hues rotated 120 degrees"
+    },
+    {
+      "case_id": "a02-g02",
+      "kind": "altered",
+      "scene": "altered/a02.jpg",
+      "change": "color: product in greyscale"
+    },
+    {
+      "case_id": "a03-g07",
+      "kind": "altered",
+      "scene": "altered/a03.jpg",
+      "change": "color: the red band turned blue"
+    },
+    {
+      "case_id": "a04-g10",
+      "kind": "altered",
+      "scene": "altered/a04.jpg",
+      "change": "shape: top third of the bag removed"
+    },
+    {
+      "case_id": "a05-g05",
+      "kind": "altered",
+      "scene": "altered/a05.jpg",
+      "change": "shape: product stretched 45 % wider"
+    },
+    {
+      "case_id": "a06-g05",
+      "kind": "altered",
+      "scene": "altered/a06.jpg",
+      "change": "count: two units instead of one"
+    },
+    {
+      "case_id": "a07-g04",
+      "kind": "altered",
+      "scene": "altered/a07.jpg",
+      "change": "logo: a badge printed on the front"
+    },
+    {
+      "case_id": "a08-g08",
+      "kind": "altered",
+      "scene": "altered/a08.jpg",
+      "change": "shape: a blue pocket added on the side"
+    },
+    {
+      "case_id": "a09-g03",
+      "kind": "altered",
+      "scene": "altered/a09.jpg",
+      "change": "material: woven pattern replaced by a flat surface"
+    },
+    {
+      "case_id": "a10-g09",
+      "kind": "altered",
+      "scene": "altered/a10.jpg",
+      "change": "color: colours inverted"
+    }
+  ]
+}
