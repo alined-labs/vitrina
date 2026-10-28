@@ -128,6 +128,20 @@ async def test_chat_sends_the_reasoning_effort_only_when_set(api: FakeApi) -> No
     assert "reasoning_effort" not in api.body(1)
 
 
+async def test_chat_sends_the_prompt_cache_key_only_when_set(api: FakeApi) -> None:
+    api.answer(
+        completion({"role": "assistant", "content": "hola"}),
+        completion({"role": "assistant", "content": "hola"}),
+    )
+    chat = MetaChatModel(api.client())
+
+    await chat.complete(REQUEST.model_copy(update={"prompt_cache_key": "seller-a"}))
+    await chat.complete(REQUEST)
+
+    assert api.body(0)["prompt_cache_key"] == "seller-a"
+    assert "prompt_cache_key" not in api.body(1)
+
+
 async def test_chat_sends_images_as_base64_data_urls(api: FakeApi) -> None:
     api.answer(completion({"role": "assistant", "content": "Una mochila azul."}))
     photo = Blob(data=b"\x89PNG fake bytes", mime_type="image/png")
