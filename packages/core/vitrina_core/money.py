@@ -5,13 +5,14 @@ fact or product is written, and the price validator extracts the amounts in a re
 the two parsed differently, honest replies would fail and invented prices could pass.
 
 Counted as money: a number with ``$``, ``COP``, ``pesos`` or ``lucas``; a number with a
-multiplier (``mil``, ``k``, ``millón``); spelled-out amounts with ``mil``/``millón`` or a
-currency word; numbers grouped like ``12.000``, ``1'250.000`` or ``45 000``; a plain number
-right after a price word (``cuesta 85000``, ``te sale 85000``, ``por 85000``); a plain number
-from 1.000 up a few words after one (``el precio de la camisa es 85000``); and an amount in
-another currency (``20 USD``), which no cited peso amount matches. ``45 mil 900`` is 45.900,
-``medio millón`` 500.000 and ``40-45 mil`` both ends. Not money: percentages, phone numbers,
-dates, times, years, sizes, counts.
+multiplier (``mil``, ``k``, ``millón``, or ``palos`` right after a number); spelled-out amounts
+with ``mil``/``millón`` or a currency word; numbers grouped like ``12.000``, ``1'250.000`` or
+``45 000``; a plain number right after a price word (``cuesta 85000``, ``te sale 85000``,
+``por 85000``), in words too (``cuesta noventa``); a plain number from 1.000 up a few words
+after one (``el precio de la camisa es 85000``); and an amount in another currency
+(``20 USD``), which no cited peso amount matches. ``45 mil 900`` is 45.900, ``medio millón``
+500.000, ``dos palos`` 2.000.000 and ``40-45 mil`` both ends. Not money: percentages, phone
+numbers, dates, times, years, sizes, counts.
 """
 
 import re
@@ -43,6 +44,10 @@ _HUNDREDS = {
 _THOUSAND = {"mil"}
 _MILLION = {"millon", "millones", "mill"}
 _THOUSANDS_SLANG = {"luca", "lucas", "luka", "lukas"}
+# Millions, only right after a number: "dos palos", while "palo de escoba" is a stick.
+_MILLIONS_SLANG = {"palo", "palos"}
+# "cuesta un poco más": an article after a price word, not an amount.
+_ARTICLES = {"un", "una", "uno"}
 _CURRENCY_AFTER = {"pesos", "peso", "pesitos", "pesito", "cop"}
 # Another currency: reported as written, so it can only fail the check.
 _FOREIGN_AFTER = {"usd", "dolar", "dolares", "eur", "euro", "euros"}
@@ -160,15 +165,31 @@ def _price_cue(tokens: list[str], index: int) -> str | None:
     return None
 
 
-def _counts_something_else(tokens: list[str], index: int, value: float) -> bool:
-    """``2 días``, ``2 a 3 días``, ``3 unidades``: the number is a quantity, not a price.
+def _palos(tokens: list[str], index: int) -> bool:
+    """``dos palos`` are millions; ``dos palos de selfie`` are sticks, unless ``de pesos``."""
+    if index >= len(tokens) or tokens[index] not in _MILLIONS_SLANG:
+        return False
+    return tokens[index + 1 : index + 2] != ["de"] or tokens[index + 2 : index + 3] == ["pesos"]
 
-    ``3 x $20.000`` counts, but ``85000 x unidad`` is a price per unit.
+
+def _counts_something_else(tokens: list[str], index: int, value: float) -> bool:
+    """``2 días``, ``2 a 3 días``, ``dos a tres días``, ``3 unidades``: a quantity, not a price.
+
+    ``3 x $20.000`` counts, but ``85000 x unidad`` is a price per unit. A range of counts
+    climbs, so a smaller number after this one starts something else: ``85000 y 3 cuotas``.
     """
     for token in tokens[index + 1 : index + 4]:
         if token in _NON_MONEY_UNITS:
             return token != "x" or value < 1000
-        if not (token[0].isdigit() or token in _CONNECTORS):
+        if token in _CONNECTORS:
+            continue
+        if token[0].isdigit():
+            following = _number(token)[0]
+        elif token in _UNITS or token in _HUNDREDS:
+            following = _UNITS.get(token, 0) + _HUNDREDS.get(token, 0)
+        else:
+            return False
+        if following < value:
             return False
     return False
 
@@ -227,13 +248,13 @@ def amounts_cop(text: str) -> list[int]:
             multiplier, consumed, remainder = 1, 1, 0
             if nxt in _THOUSAND or nxt in _THOUSANDS_SLANG or nxt == "k":
                 multiplier, consumed = 1000, 2
-            elif nxt in _MILLION:
+            elif nxt in _MILLION or _palos(tokens, index + 1):
                 multiplier, consumed = 1_000_000, 2
             elif nxt in _CONNECTORS and len(following) >= 3 and following[1][0].isdigit():
                 # "entre 12 y 15 mil": the multiplier after the second number applies to both
                 if following[2] in _THOUSAND or following[2] in _THOUSANDS_SLANG:
                     multiplier = 1000
-                elif following[2] in _MILLION:
+                elif following[2] in _MILLION or _palos(tokens, index + 3):
                     multiplier = 1_000_000
             if consumed == 2:  # "45 mil 900", "1 millón 500 mil": the rest of the amount
                 remainder, used = _remainder(tokens, index + 2, multiplier)
@@ -277,7 +298,8 @@ def amounts_cop(text: str) -> list[int]:
         ):
             value, used, scaled = _words(tokens, index)
             if used:
-                after = tokens[index + used : index + used + 2]
+                end = index + used
+                after = tokens[end : end + 2]
                 slang = bool(after) and after[0] in _THOUSANDS_SLANG
                 currency_after = bool(after) and (
                     after[0] in _CURRENCY_AFTER or after[:2] == ["de", "pesos"]
@@ -286,9 +308,20 @@ def amounts_cop(text: str) -> list[int]:
                     found.append(value * 1000)
                     index += used + 1
                     continue
+                if not scaled and _palos(tokens, end):  # "dos palos y medio"
+                    rest, extra = _remainder(tokens, end + 1, 1_000_000)
+                    found.append(value * 1_000_000 + rest)
+                    index = end + 1 + extra
+                    continue
                 # "¡mil gracias!": a bare "mil" is money only with a currency word or a $ sign
                 lone_mil = used == 1 and token == "mil"
-                if (scaled and not lone_mil) or currency_after or marked_before:
+                # "cuesta noventa" is reported as written, like "vale 85"
+                priced = (
+                    not (used == 1 and token in _ARTICLES)
+                    and not _counts_something_else(tokens, end - 1, value)
+                    and _price_cue(tokens, index) == "strong"
+                )
+                if (scaled and not lone_mil) or currency_after or marked_before or priced:
                     found.append(value)
                 index += used
                 continue

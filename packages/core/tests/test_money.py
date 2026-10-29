@@ -116,6 +116,11 @@ def test_fr_026_spanish_money_expressions_normalize_to_integer_cop(
         ("Vale 85", [85]),
         ("Te queda en 85", [85]),
         ("El precio es de 85", [85]),
+        # The same in words: "cuesta noventa" is a price with its "mil" left out
+        ("Cuesta noventa", [90]),
+        ("Vale ochenta y cinco", [85]),
+        ("Te la dejo en noventa", [90]),
+        ("Cuesta mil", [1000]),
     ],
 )
 def test_fr_026_amounts_are_found_in_replies(text: str, expected: list[int]) -> None:
@@ -148,6 +153,15 @@ def test_fr_026_amounts_are_found_in_replies(text: str, expected: list[int]) -> 
         ("un millón y medio", [1500000]),
         ("dos millones y medio de pesos", [2500000]),
         ("mil millones", [1000000000]),
+        # "palos" are millions, right after a number
+        ("dos palos", [2000000]),
+        ("Te sale en 2 palos", [2000000]),
+        ("Te queda en un palo", [1000000]),
+        ("dos palos y medio", [2500000]),
+        ("Son dos palos de pesos", [2000000]),
+        # A count after a price is not a range with it
+        ("Precio 85000 y 3 cuotas", [85000]),
+        ("Cuesta 85000 y 2 unidades", [85000]),
         # Other groupings, ranges and currencies
         ("$1'250.000", [1250000]),
         ("1’250.000", [1250000]),
@@ -207,6 +221,14 @@ def test_fr_026_colombian_ways_of_writing_a_price_are_read_whole(
         # A year a few words after a price word is a date, not a price
         "El precio de lanzamiento sube en 2026",
         "El envío es gratis. Tenemos 3500 seguidores",
+        # An article after a price word, a count in words, and sticks that are sticks
+        "Cuesta un poco más",
+        "Vale una fortuna",
+        "Envío en dos días",
+        "Envío: dos a tres días",
+        "El palo de escoba",
+        "Un palo de escoba",
+        "Tenemos 2 palos de selfie",
     ],
 )
 def test_fr_026_numbers_that_are_not_money_are_ignored(text: str) -> None:
@@ -286,6 +308,16 @@ def test_fr_026_a_plain_amount_after_a_price_word_is_found(phrase: str, amount: 
     distant = phrase.startswith("El precio")
     expected = [] if distant and 1900 <= amount <= 2099 else [amount]
     assert amounts_cop(phrase.format(amount)) == expected
+
+
+@given(st.integers(min_value=2, max_value=999))
+def test_fr_026_a_spelled_amount_after_a_price_word_is_found(amount: int) -> None:
+    assert amounts_cop(f"Cuesta {words_below_1000(amount)}") == [amount]
+
+
+@given(st.integers(min_value=1, max_value=999))
+def test_fr_026_palos_after_a_number_are_millions(millions: int) -> None:
+    assert amounts_cop(f"{millions} palos") == [millions * 1_000_000]
 
 
 @given(st.lists(st.integers(min_value=1, max_value=999), min_size=2, max_size=4))
