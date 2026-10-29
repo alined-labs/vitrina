@@ -22,7 +22,7 @@ def search_path(schema: str) -> str:
 
 def create_engine(settings: Settings) -> AsyncEngine:
     if settings.db_schema is None:
-        raise LookupError("DB_SCHEMA is not set: dev_mx0, dev_mx1 or dev_mx2 (plan.md §3)")
+        raise LookupError("DB_SCHEMA is not set: the schema to use (.env.example)")
     engine = create_async_engine(
         settings.async_database_url(),
         # Three machines and CI share one Supabase project: keep pools small.

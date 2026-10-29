@@ -38,7 +38,7 @@ check: lint types test drift ## Everything a commit must pass
 # The public repo describes the product, not how it is built: no build-machine names and no
 # paths into private notes (AGENTS.md). The patterns are written so they never match this file.
 public-text: ## Refuse build-machine names and private-note paths in tracked files
-	@if git grep -n -I -E '\bMX[0-3]\b|vitrina-b[r]ain|research/(OPEN[.]md|findings/)' -- . ':!evals/cassettes'; then \
+	@if git grep -n -I -E '(^|[^A-Za-z0-9])[Mm][Xx][0-3]([^A-Za-z0-9]|$$)|vitrina-b[r]ain|research/(OPEN[.]md|findings/)' -- . ':!evals/cassettes'; then \
 		echo "public-text: the lines above name build machines or private notes; reword them"; exit 1; fi
 
 migrate: ## Upgrade DB_SCHEMA on DATABASE_URL to the latest migration
