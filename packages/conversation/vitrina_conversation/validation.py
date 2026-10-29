@@ -14,7 +14,9 @@ the customer gets:
   sentence; anything else is an uncited claim and counts as confidence 0. Handoff replies
   need no citation (agent-tools.json ``cited_fact_ids``).
 - R4 confidence: below the seller's threshold (default 0.6) the fallback replaces the reply
-  and the turn counts as low confidence; the second in a row hands off.
+  and the turn counts as low confidence. The fallback tells the customer the owner will
+  answer, so it hands the chat to them (reason ``other``; Art. III.3, amendment A-010), and
+  a second in a row, after the owner hands the chat back, is ``low_confidence_twice``.
 - R5: a handoff the model chose keeps its reason and its reply (still under R2).
 """
 
@@ -363,7 +365,9 @@ def review(
         return decide("accept", output.reply, output.handoff_reason, 0)
     if confidence < low_confidence_threshold:
         streak = low_confidence_streak + 1
-        return decide("fallback", fallback, "low_confidence_twice" if streak >= 2 else None, streak)
+        return decide(
+            "fallback", fallback, "low_confidence_twice" if streak >= 2 else "other", streak
+        )
     return decide("accept", output.reply, None, 0)
 
 
