@@ -6,6 +6,7 @@ command line and the file handling without the real binary (not installed on the
 machines, plan.md §3).
 """
 
+import asyncio
 import json
 import os
 import sys
@@ -101,11 +102,12 @@ async def test_art_viii_a_download_failure_reaches_the_caller() -> None:
 # ── the ffmpeg runner, against a fake binary ──
 
 FAKE_FFMPEG = """\
-import json, sys, time
+import json, os, sys, time
 from pathlib import Path
 
 args = sys.argv[1:]
 Path(sys.argv[0] + ".args").write_text(json.dumps(args))
+Path(sys.argv[0] + ".pid").write_text(str(os.getpid()))
 mode = Path(sys.argv[0] + ".mode").read_text() if Path(sys.argv[0] + ".mode").exists() else ""
 if mode == "fail":
     sys.stderr.write("Invalid data found when processing input\\n")
@@ -131,6 +133,11 @@ class FakeFfmpeg:
     def args(self) -> list[str]:
         loaded: list[str] = json.loads(Path(f"{self.binary}.args").read_text())
         return loaded
+
+    def pid(self) -> int | None:
+        """The running fake's process id, once it has started."""
+        written = Path(f"{self.binary}.pid")
+        return int(written.read_text()) if written.exists() and written.read_text() else None
 
     def runner(self, timeout_s: float = 10) -> Ffmpeg:
         return Ffmpeg(str(self.binary), timeout_s=timeout_s)
@@ -165,6 +172,43 @@ async def test_q02_an_ffmpeg_failure_is_a_transcode_error(
 
     with pytest.raises(TranscodeError):
         await fake_ffmpeg.runner().to_wav(OGG)
+
+
+async def test_ffmpeg_reads_only_a_local_file_with_an_audio_demuxer(
+    fake_ffmpeg: FakeFfmpeg,
+) -> None:
+    await fake_ffmpeg.runner().to_wav(OGG)
+
+    args = fake_ffmpeg.args()
+    source = args.index("-i")
+    protocols, formats = args.index("-protocol_whitelist"), args.index("-format_whitelist")
+    assert max(protocols, formats) < source
+    assert args[protocols + 1] == "file"
+    assert {"ogg", "mp3", "aac", "amr", "mov"} <= set(args[formats + 1].split(","))
+    assert not {"hls", "concat", "sdp"} & set(args[formats + 1].split(","))
+
+
+async def test_a_cancelled_transcode_stops_ffmpeg(fake_ffmpeg: FakeFfmpeg) -> None:
+    fake_ffmpeg.behave("slow")
+    task = asyncio.create_task(fake_ffmpeg.runner(timeout_s=30).to_wav(OGG))
+    pid = None
+    for _ in range(100):
+        if (pid := fake_ffmpeg.pid()) is not None:
+            break
+        await asyncio.sleep(0.05)
+    assert pid is not None
+
+    task.cancel()
+    with pytest.raises(asyncio.CancelledError):
+        await task
+
+    for _ in range(60):
+        try:
+            os.kill(pid, 0)
+        except ProcessLookupError:
+            return
+        await asyncio.sleep(0.05)
+    pytest.fail("ffmpeg kept running after the transcode was cancelled")
 
 
 async def test_art_viii_1_a_stuck_ffmpeg_is_stopped(fake_ffmpeg: FakeFfmpeg) -> None:

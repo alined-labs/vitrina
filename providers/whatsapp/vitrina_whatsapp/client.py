@@ -17,6 +17,7 @@ import mimetypes
 from collections.abc import Awaitable, Callable, Mapping, Sequence
 from types import TracebackType
 from typing import Any, Literal, Self
+from urllib.parse import quote, urlsplit
 
 import httpx2
 from pydantic import BaseModel, Field, ValidationError
@@ -200,8 +201,13 @@ class WhatsAppClient(Messenger):
         """
         for attempt in (1, 2):
             info = await self._request(
-                "GET", f"{self.graph_url}/{media_id}", _media_info, repeatable=True
+                "GET", f"{self.graph_url}/{quote(media_id, safe='')}", _media_info, repeatable=True
             )
+            if urlsplit(info.url).scheme != "https":
+                # The token goes with the download: never over plain HTTP or another scheme.
+                raise WhatsAppSendError(
+                    "the media link is not https", retryable=False, attempts=attempt
+                )
             try:
                 data = await self._request("GET", info.url, _media_bytes, repeatable=True)
             except WhatsAppSendError as error:

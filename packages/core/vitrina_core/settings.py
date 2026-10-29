@@ -109,10 +109,13 @@ class Settings(BaseSettings):
     retrieval_top_k: int = 5  # plan.md §4.1
     idempotency_ttl_hours: int = 24  # data-model.md idempotency_keys
 
-    @field_validator("visitor_proxy_secret", mode="before")
+    @field_validator(
+        "visitor_proxy_secret", "whatsapp_app_secret", "whatsapp_verify_token", mode="before"
+    )
     @classmethod
     def _blank_secret_is_unset(cls, value: object) -> object:
-        # `VISITOR_PROXY_SECRET=` in .env must not become a secret that an empty header matches.
+        # `VISITOR_PROXY_SECRET=` in .env must not become a secret that an empty header matches,
+        # nor a blank app secret a key that anyone can sign webhooks with.
         return None if isinstance(value, str) and not value.strip() else value
 
     def visitor_proxy_matches(self, presented: str | None) -> bool:

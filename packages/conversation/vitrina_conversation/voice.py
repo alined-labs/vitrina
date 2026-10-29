@@ -6,9 +6,13 @@ WhatsApp voice notes are OGG/Opus. Whether Transcribe takes that, and Spanish, i
 failed transcription reaches the pipeline, which tells the customer it could not hear them
 (Art. VIII). Files go through a temporary folder, because an M4A from an iPhone needs a
 seekable input and a WAV header needs a seekable output.
+
+The audio is the customer's file, so ffmpeg may only open local files and read it with an audio
+demuxer: no playlist, session description or other format that points somewhere else.
 """
 
 import asyncio
+import contextlib
 import logging
 import shutil
 import tempfile
@@ -24,6 +28,11 @@ logger = logging.getLogger(__name__)
 LANGUAGE = "es"  # es-CO only (NFR-08)
 WAV_ARGS = ("-vn", "-ac", "1", "-ar", "16000", "-c:a", "pcm_s16le")
 """Audio only, mono, 16 kHz, 16-bit PCM."""
+INPUT_ARGS = (
+    *("-protocol_whitelist", "file"),
+    *("-format_whitelist", "ogg,mp3,aac,amr,mov,wav,matroska"),
+)
+"""WhatsApp's audio types (OGG/Opus, MP3, AAC, AMR, MP4/M4A) and WAV/WebM, from local files only."""
 
 MediaDownload = Callable[[str], Awaitable[Blob]]
 """``media_id -> audio`` (``WhatsAppClient.download_media``)."""
@@ -55,6 +64,7 @@ class Ffmpeg:
             process = await asyncio.create_subprocess_exec(
                 self.binary,
                 *("-hide_banner", "-loglevel", "error", "-nostdin", "-y"),
+                *INPUT_ARGS,
                 *("-i", str(source)),
                 *WAV_ARGS,
                 str(target),
@@ -68,6 +78,11 @@ class Ffmpeg:
                 process.kill()
                 await process.wait()
                 raise TranscodeError(f"ffmpeg took more than {self.timeout_s:g} s") from None
+            except BaseException:
+                # Cancelled, by the job's own timeout for one: ffmpeg must not outlive the job.
+                with contextlib.suppress(ProcessLookupError):
+                    process.kill()
+                raise
             if process.returncode != 0 or not target.is_file():
                 raise TranscodeError(f"ffmpeg exited with {process.returncode} and no WAV")
             return Blob(data=await asyncio.to_thread(target.read_bytes), mime_type="audio/wav")

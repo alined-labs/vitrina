@@ -130,3 +130,9 @@ def test_as_8_2_only_the_proxy_secret_itself_matches(monkeypatch: pytest.MonkeyP
     assert not settings.visitor_proxy_matches("")
     assert not settings.visitor_proxy_matches(None)
     assert "proxy-secret-for-tests" not in repr(settings)
+
+
+@pytest.mark.parametrize("name", ["whatsapp_app_secret", "whatsapp_verify_token"])
+def test_a_blank_whatsapp_secret_is_unset(name: str) -> None:
+    settings = Settings(_env_file=None, **{name: "  "})  # type: ignore[call-arg]
+    assert getattr(settings, name) is None
