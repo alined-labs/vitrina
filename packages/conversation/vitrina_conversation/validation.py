@@ -92,6 +92,12 @@ AGREEING = frozenset({
     "claro", "correcto", "dale", "exacto", "listo", "obvio", "ok", "okay", "perfecto", "supuesto",
 })  # fmt: skip
 NEGATIONS = frozenset({"no", "ningun", "ninguna", "ninguno", "nunca", "tampoco"})
+# A no takes back a bare yes only when its sentence names the offer: one of these, a promotion
+# or an amount ("No, ese precio ya no está"); "Ya no nos quedan rojas" refuses nothing.
+OFFER_WORDS = frozenset({
+    "descuento", "descuentos", "oferta", "ofertas", "precio", "precios", "promo", "promocion",
+    "promociones", "promos", "rebaja", "rebajas", "valor",
+})  # fmt: skip
 _YES = re.compile(r"(?<!\w)sí(?!\w)|^\W*si\s*[,.!]")
 # Closings whose "no" takes nothing back: "No dudes en escribirnos", "Nunca te vas a arrepentir".
 _NOT_A_NO = re.compile(
@@ -189,8 +195,9 @@ def agreed_offers(
     """The amounts and promotions in ``customer_message`` that no cited item carries and that
     ``reply`` says yes to, read sentence by sentence. A sentence without a no of its own that
     points back at them ("te la dejo en ese precio") or repeats the promotion agrees, whatever
-    the other sentences say; a bare yes agrees when the reply quotes no amount and no sentence
-    says no ("No, veci, ese precio ya no está. ¡Claro que te ayudo!" agrees to nothing)."""
+    the other sentences say. A bare yes agrees when the reply quotes no amount and no sentence
+    says no to the offer itself: "No, veci, ese precio ya no está. ¡Claro que te ayudo!" agrees
+    to nothing, "¡Claro que sí! Ya no nos quedan rojas" agrees."""
     if not customer_message:
         return Agreement()
     amounts = tuple(
@@ -205,7 +212,8 @@ def agreed_offers(
     for sentence in _SENTENCE.findall(statement):
         folded = _fold(sentence)
         if set(_words(_NOT_A_NO.sub(" ", folded))) & NEGATIONS:
-            refuses = True
+            names_offer = set(_words(folded)) & OFFER_WORDS or _promotions(sentence)
+            refuses = refuses or bool(names_offer or amounts_cop(sentence))
             continue
         if _CONCEDES.search(folded) or _promotions(sentence) & set(promotions):
             return Agreement(amounts, promotions)
