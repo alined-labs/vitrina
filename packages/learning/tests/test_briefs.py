@@ -102,6 +102,21 @@ async def test_as_5_1_a_valid_answer_becomes_the_brief_with_evidence_as_numbers(
     assert len(calls) == 1
 
 
+async def test_as_5_2_a_brief_never_asks_for_scarcity_it_has_no_stock_to_back() -> None:
+    # The dataset carries no stock, and a creative job asked for scarcity on a product without
+    # a low, known stock fails; so the brief offers no such hook, and one is a broken answer.
+    hooks = BRIEF_OUTPUT_SCHEMA["properties"]["creative_directives"]["items"]["properties"]["hook"]
+    scarce = json.loads(answer())
+    scarce["creative_directives"][0]["hook"] = "scarcity"
+    wonder = Wonder(json.dumps(scarce), answer())
+
+    content, calls = await write_brief(wonder, fixture_dataset(), model="wonder-test")
+
+    assert "scarcity" not in hooks["enum"]
+    assert len(calls) == 2
+    assert content.creative_directives[0].hook == "story"
+
+
 def test_as_5_3_the_example_headline_fits_the_brief() -> None:
     content = BriefContent.model_validate(
         {
