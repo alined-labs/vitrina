@@ -159,6 +159,21 @@ def test_fr_026_amounts_are_found_in_replies(text: str, expected: list[int]) -> 
         ("De 40 a 45 mil", [40000, 45000]),
         ("20 USD", [20]),
         ("12 mil 3 cuotas", [12000]),
+        ("45 mil tres cuotas", [45000]),
+        ("45 mil 900 pesos", [45900]),
+        ("1 millón 250 mil 500", [1250500]),
+        # A list keeps its amounts apart, with commas or without
+        ("Las camisas valen 45 mil, 50 mil y 60 mil", [45000, 50000, 60000]),
+        ("45 mil 50 mil", [45000, 50000]),
+        ("45 mil, 900 pesos", [45000, 900]),
+        ("1 millón, 500 mil", [1000000, 500000]),
+        # A price word before a comma, and a marked amount that has its own
+        ("El precio es, como siempre, 85000", [85000]),
+        ("Precio $85.000 y 3500 seguidores", [85000]),
+        # Years are left out only a few words after a price word
+        ("El precio de la edición es 2099", []),
+        ("El precio de la edición es 2100", [2100]),
+        ("El precio de la edición es 1899", [1899]),
     ],
 )
 def test_fr_026_colombian_ways_of_writing_a_price_are_read_whole(
@@ -188,6 +203,7 @@ def test_fr_026_colombian_ways_of_writing_a_price_are_read_whole(
         "Calle 45 # 12-30",
         "Tallas 36 38 40",
         "Media hora y medio kilo",
+        "Envío en 2 a 3 días",
         # A year a few words after a price word is a date, not a price
         "El precio de lanzamiento sube en 2026",
         "El envío es gratis. Tenemos 3500 seguidores",
@@ -270,3 +286,9 @@ def test_fr_026_a_plain_amount_after_a_price_word_is_found(phrase: str, amount: 
     distant = phrase.startswith("El precio")
     expected = [] if distant and 1900 <= amount <= 2099 else [amount]
     assert amounts_cop(phrase.format(amount)) == expected
+
+
+@given(st.lists(st.integers(min_value=1, max_value=999), min_size=2, max_size=4))
+def test_fr_026_a_list_of_prices_keeps_each_amount(thousands: list[int]) -> None:
+    *first, last = [f"{amount} mil" for amount in thousands]
+    assert amounts_cop(f"Valen {', '.join(first)} y {last}") == [n * 1000 for n in thousands]
