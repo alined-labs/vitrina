@@ -85,6 +85,8 @@ REASONS_ES: dict[HandoffReason, str] = {
     "policy_exception": "pide una excepción a la política",
     "other": "otro motivo",
 }
+# Why R4's first fallback (reason ``other``, A-010) hands the chat over, for the owner.
+NO_DATA_ES = "el asistente no tuvo el dato"
 _FIELDS = frozenset(AgentTurnOutput.model_fields)
 
 
@@ -318,20 +320,28 @@ class _Turn:
         if verdict is None:  # no readable answer at all: confidence 0 (R3, R4)
             streak = self.request.low_confidence_streak + 1
             final = FALLBACK_REPLY.format(owner_name=seller.owner_name)
-            handoff_reason: HandoffReason | None = "low_confidence_twice" if streak >= 2 else None
+            handoff_reason: HandoffReason | None = (
+                "low_confidence_twice" if streak >= 2 else "other"
+            )
         else:
             streak = verdict.low_confidence_streak
             final = verdict.final_reply or FALLBACK_REPLY.format(owner_name=seller.owner_name)
             handoff_reason = verdict.handoff_reason
         accepted = verdict is not None and verdict.outcome == "accept"
+        no_data = not accepted and handoff_reason == "other"  # R4's first fallback
         booked = self.box.actions.bookings
-        if booked and not accepted and handoff_reason is None:
-            # The tool booked it: the customer hears that, never "no tengo ese dato" (T052).
-            final = booking_confirmation(seller, booked)
+        if booked and no_data:
+            # The tool booked it: the customer hears that, never "no tengo ese dato", and
+            # nothing waits for the owner (T052).
+            final, handoff_reason = booking_confirmation(seller, booked), None
 
         actions = self.box.actions
         if handoff_reason is not None and actions.handoff is None:  # R5
-            actions.handoff = HandoffAction(new_id(), handoff_reason, self._summary(handoff_reason))
+            actions.handoff = HandoffAction(
+                new_id(),
+                handoff_reason,
+                self._summary(handoff_reason, NO_DATA_ES if no_data else None),
+            )
         tag = output.objection_tag if output is not None else None
         if tag is not None and all(objection.tag != tag for objection in actions.objections):
             actions.objections.append(ObjectionAction(new_id(), tag, self.request.message[:200]))
@@ -421,9 +431,10 @@ class _Turn:
             retried=retried,
         )
 
-    def _summary(self, reason: HandoffReason) -> str:
+    def _summary(self, reason: HandoffReason, why: str | None = None) -> str:
         """For the owner when the model handed off without writing a summary (R5)."""
-        text = f"Motivo: {REASONS_ES[reason]}. Último mensaje del cliente: «{self.request.message}»"
+        motive = why or REASONS_ES[reason]
+        text = f"Motivo: {motive}. Último mensaje del cliente: «{self.request.message}»"
         return text if len(text) <= 500 else text[:499] + "…"
 
     async def _answer(self, messages: list[ChatMessage]) -> AgentTurnOutput | None:

@@ -526,21 +526,19 @@ async def test_fr_024_the_model_sees_the_earlier_turns(world: World) -> None:
     assert contents == ["Hola", GREETING, "¿Tienen mochilas?"]
 
 
-async def test_r4_low_confidence_twice_across_messages_hands_off(world: World) -> None:
+async def test_r4_the_first_fallback_hands_off_and_the_owner_answers_next(world: World) -> None:
+    # A-010, Art. III.3: "te comunico con Ana" is kept at once; the agent stays quiet after it.
     product = world.shop.ids["mochila-azul"]
-    world.script(
-        final_answer("Creo que sí.", product, confidence=0.3),
-        final_answer("Puede ser.", product, confidence=0.3),
-    )
+    world.script(final_answer("Creo que sí.", product, confidence=0.3))
 
     first = await world.say("¿La tienen en verde?")
     second = await world.say("¿Y en morado?")
 
-    assert world.messenger.texts == [FALLBACK, FALLBACK]
+    assert world.messenger.texts == [FALLBACK]
     assert world.conversation(first).mode == "human"
     ((_, handoff),) = world.store.handoffs
-    assert handoff.reason == "low_confidence_twice"
-    assert second.turn is not None
+    assert handoff.reason == "other"
+    assert (second.status, second.turn) == ("human_mode", None)
 
 
 async def test_as_3_11_two_replies_to_one_customer_are_6_seconds_apart(world: World) -> None:
@@ -617,7 +615,7 @@ async def test_t043_no_ad_image_goes_with_a_fallback(world: World, why: str) -> 
     if why == "invented-price":  # R2 twice: the fallback and a handoff
         invented = final_answer("Te la dejo en $70.000, mira la foto.", product)
         world.script(tool_call("send_ad_asset", product_id=product), invented, invented)
-    else:  # R4 once: the fallback, no handoff yet
+    else:  # R4 once: the fallback and, since A-010, a handoff too
         unsure = final_answer("Te envío la foto de la mochila azul.", product, confidence=0.3)
         world.script(tool_call("send_ad_asset", product_id=product), unsure)
 
@@ -625,7 +623,7 @@ async def test_t043_no_ad_image_goes_with_a_fallback(world: World, why: str) -> 
 
     assert (world.messenger.texts, world.messenger.images) == ([FALLBACK], [])
     assert [row for row in world.store.messages if row.stored.type == "image"] == []
-    assert world.conversation(outcome).mode == ("human" if why == "invented-price" else "agent")
+    assert world.conversation(outcome).mode == "human"
 
 
 async def test_t043_no_ad_image_goes_with_a_handoff(world: World) -> None:

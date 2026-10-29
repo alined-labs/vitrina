@@ -132,13 +132,14 @@ def test_r3_a_greeting_needs_no_citation() -> None:
     assert result.groundedness.passed
 
 
-def test_r4_low_confidence_falls_back_and_counts_without_handing_off() -> None:
+def test_r4_the_first_low_confidence_turn_falls_back_and_hands_off() -> None:
+    # A-010, Art. III.3: the fallback tells the customer the owner will answer, so it hands off.
     result = review(answer("Creo que sí hay.", BAG.id, confidence=0.4), [BAG], owner_name=OWNER)
 
     assert (result.outcome, result.final_reply, result.handoff_reason) == (
         "fallback",
         FALLBACK,
-        None,
+        "other",
     )
     assert result.low_confidence_streak == 1
 

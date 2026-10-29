@@ -149,7 +149,22 @@ async def test_fr_025_an_unrepairable_answer_falls_back_as_low_confidence(shop: 
 
     result = await run_turn(request(shop, "¿Cuánto vale?"), deps(chat, shop))
 
-    assert (result.output, result.final_reply, result.handoff) == (None, FALLBACK, None)
+    assert (result.output, result.final_reply) == (None, FALLBACK)
+    assert result.handoff is not None
+    assert result.handoff.reason == "other"
+    assert result.low_confidence_streak == 1
+
+
+async def test_r4_the_first_fallback_hands_the_chat_to_the_owner(shop: Shop) -> None:
+    chat = ScriptedChat([final_answer("Creo que sí.", shop.ids["mochila-azul"], confidence=0.3)])
+
+    result = await run_turn(request(shop, "¿La tienen en verde?"), deps(chat, shop))
+
+    assert result.final_reply == FALLBACK
+    assert result.handoff is not None
+    assert result.handoff.reason == "other"
+    assert result.handoff.summary.startswith("Motivo: el asistente no tuvo el dato.")
+    assert "«¿La tienen en verde?»" in result.handoff.summary
     assert result.low_confidence_streak == 1
 
 
@@ -341,6 +356,8 @@ async def test_r3_an_uncited_claim_never_reaches_the_customer(shop: Shop) -> Non
     result = await run_turn(request(shop, "¿El envío es gratis?"), deps(chat, shop))
 
     assert result.final_reply == FALLBACK
+    assert result.handoff is not None
+    assert result.handoff.reason == "other"
     assert result.low_confidence_streak == 1
 
 
