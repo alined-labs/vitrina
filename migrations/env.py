@@ -21,7 +21,7 @@ def target() -> tuple[str, str | None]:
     settings = get_settings()
     schema = config.attributes.get("schema") or settings.db_schema
     if not schema:
-        raise SystemExit("DB_SCHEMA is not set: dev_mx0, dev_mx1 or dev_mx2 (plan.md §3)")
+        raise SystemExit("DB_SCHEMA is not set: the schema to migrate (.env.example)")
     url = config.attributes.get("url")
     if url:
         url = Settings(_env_file=None, database_url=url).async_database_url()  # type: ignore[call-arg]

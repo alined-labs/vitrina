@@ -72,7 +72,7 @@ class FakeQueue:
 
 
 def worker(queue: FakeQueue, registry: TaskRegistry) -> Worker:
-    return Worker(queue, registry, worker_id="mx0-test", clock=lambda: NOW)
+    return Worker(queue, registry, worker_id="worker-test", clock=lambda: NOW)
 
 
 async def test_fr_083_worker_runs_a_claimed_job_and_records_its_result() -> None:

@@ -51,11 +51,11 @@ def test_baseline_enables_pgvector_and_trigram_search() -> None:
 
 
 def test_baseline_versions_and_searches_inside_the_machine_schema() -> None:
-    sql = offline_sql(schema="dev_mx0")
+    sql = offline_sql(schema="dev_local")
 
-    assert 'CREATE SCHEMA IF NOT EXISTS "dev_mx0"' in sql
-    assert 'SET search_path TO "dev_mx0", public, extensions' in sql
-    assert "CREATE TABLE dev_mx0.alembic_version" in sql
+    assert 'CREATE SCHEMA IF NOT EXISTS "dev_local"' in sql
+    assert 'SET search_path TO "dev_local", public, extensions' in sql
+    assert "CREATE TABLE dev_local.alembic_version" in sql
 
 
 def test_baseline_enforces_the_invariants_in_the_database() -> None:

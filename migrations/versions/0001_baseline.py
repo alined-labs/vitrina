@@ -1,7 +1,7 @@
 """Baseline schema: every table in data-model.md §1 (T005).
 
-Tables are unqualified: the search path set by env.py puts them in the machine schema
-(dev_mx0, dev_mx1, dev_mx2 or a test schema). Enum values are copied here on purpose, so
+Tables are unqualified: the search path set by env.py puts them in the environment's schema
+(a development schema, prod or a test schema). Enum values are copied here on purpose, so
 this revision stays a fixed snapshot when the code moves on.
 
 Revision ID: 0001

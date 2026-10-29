@@ -29,7 +29,7 @@ def test_defaults_are_safe_without_any_environment() -> None:
 
 def test_environment_variables_use_the_documented_names(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("REPLAY", "false")
-    monkeypatch.setenv("DB_SCHEMA", "dev_mx0")
+    monkeypatch.setenv("DB_SCHEMA", "dev_local")
     monkeypatch.setenv("MODEL_AGENT", "agent-model-id")
     monkeypatch.setenv("SERVICE_TOKEN", "local-service-token")
     monkeypatch.setenv("PUBLIC_WEB_URL", "https://vitrina.example")
@@ -37,7 +37,7 @@ def test_environment_variables_use_the_documented_names(monkeypatch: pytest.Monk
     settings = make()
 
     assert settings.replay is False
-    assert settings.db_schema == "dev_mx0"
+    assert settings.db_schema == "dev_local"
     assert settings.model_agent == "agent-model-id"
     assert settings.public_web_url == "https://vitrina.example"
     assert settings.service_token is not None
@@ -99,11 +99,11 @@ def test_database_url_gets_the_asyncpg_driver() -> None:
 
 def test_env_file_is_read_from_the_repository_root(tmp_path: Path) -> None:
     env_file = tmp_path / ".env"
-    env_file.write_text("DB_SCHEMA=dev_mx2\nSPEND_LIMIT_USD=80\n")
+    env_file.write_text("DB_SCHEMA=dev_other\nSPEND_LIMIT_USD=80\n")
 
     settings = Settings(_env_file=env_file)  # type: ignore[call-arg]
 
-    assert (settings.db_schema, settings.spend_limit_usd) == ("dev_mx2", 80.0)
+    assert (settings.db_schema, settings.spend_limit_usd) == ("dev_other", 80.0)
 
 
 def test_as_8_2_a_blank_visitor_proxy_secret_trusts_no_proxy(tmp_path: Path) -> None:
