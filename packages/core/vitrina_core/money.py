@@ -6,14 +6,22 @@ the two parsed differently, honest replies would fail and invented prices could 
 
 Counted as money: a number with ``$``, ``COP``, ``pesos`` or ``lucas``; a number with a
 multiplier (``mil``, ``k``, ``millón``); spelled-out amounts with ``mil``/``millón`` or a
-currency word; numbers grouped like ``12.000``; and a plain number right after a price word
-(``cuesta 85000``). Not money: percentages, phone numbers, dates, times, sizes, counts.
+currency word; numbers grouped like ``12.000``, ``1'250.000`` or ``45 000``; a plain number
+right after a price word (``cuesta 85000``, ``te sale 85000``, ``por 85000``); a plain number
+from 1.000 up a few words after one (``el precio de la camisa es 85000``); and an amount in
+another currency (``20 USD``), which no cited peso amount matches. ``45 mil 900`` is 45.900,
+``medio millón`` 500.000 and ``40-45 mil`` both ends. Not money: percentages, phone numbers,
+dates, times, years, sizes, counts.
 """
 
 import re
 import unicodedata
 
-_TOKEN = re.compile(r"\d+(?:[.,]\d+)*|[a-zñ]+|[$%/:]")
+_TOKEN = re.compile(r"\d+(?:[.,]\d+)*|[a-zñ]+|[$%/:\-–—]|[.!?;](?!\d)")
+# 1'250.000: an apostrophe marks the millions. 45 000: a space groups thousands, as some
+# keyboards and writers do; the number is then read as written, so it needs a money mark.
+_APOSTROPHE_MILLIONS = re.compile(r"(?<=\d)['’´`](?=\d{3}(?:[.,]\d{3})*(?!\d))")
+_SPACE_GROUPED = re.compile(r"(?<![\d.,])\d{1,3}(?: \d{3})+(?![\d.,]| \d)")
 
 _UNITS = {
     "cero": 0, "un": 1, "uno": 1, "una": 1, "dos": 2, "tres": 3, "cuatro": 4, "cinco": 5,
@@ -35,16 +43,30 @@ _THOUSAND = {"mil"}
 _MILLION = {"millon", "millones", "mill"}
 _THOUSANDS_SLANG = {"luca", "lucas", "luka", "lukas"}
 _CURRENCY_AFTER = {"pesos", "peso", "pesitos", "pesito", "cop"}
+# Another currency: reported as written, so it can only fail the check.
+_FOREIGN_AFTER = {"usd", "dolar", "dolares", "eur", "euro", "euros"}
 # Price words before a plain number. Strong: any size counts, so a short "vale 85" is reported
-# and fails the check instead of hiding a price. Via "en": "te queda en 85". Weak: from 1.000 up.
+# and fails the check instead of hiding a price. Via "en": "te queda en 85", while "te queda 85"
+# and "está en 85" are weak. Weak: from 1.000 up, and so is a strong word a few words before.
 _STRONG_CUES = {
     "precio", "precios", "vale", "valen", "valor", "cuesta", "cuestan", "costo", "costos",
     "total", "envio", "domicilio", "cobro", "cobramos", "tarifa",
 }  # fmt: skip
-_EN_CUES = {"queda", "quedaria", "sale", "saldria", "deja", "dejo"}
-_WEAK_CUES = {"son", "pagar", "pago", "pagas", "abono", "descuento"}
-_CUE_LINKS = {"en", "de", "es", "a", "por", ":"}
-_CONNECTORS = {"y", "a", "o"}
+_EN_CUES = {
+    "queda", "quedan", "quedaria", "quedarian", "sale", "salen", "saldria", "saldrian", "deja",
+    "dejan", "dejo", "dejamos",
+}  # fmt: skip
+_EN_WEAK_CUES = {"esta", "estan", "estaria"}
+_WEAK_CUES = {"son", "seria", "serian", "sera", "seran", "pagar", "pago", "pagas", "abono",
+              "descuento"}  # fmt: skip
+_CUE_LINKS = {
+    "en", "de", "es", "a", "por", ":", "-", "–", "—", "unos", "unas", "solo", "solamente",
+    "apenas", "como", "aprox", "aproximadamente",
+}  # fmt: skip
+# How far back a strong price word still makes a plain number from 1.000 up a price.
+_CUE_REACH = 6
+_SENTENCE_END = {".", "!", "?", ";"}
+_CONNECTORS = {"y", "a", "o", "-", "–", "—"}
 # A number followed by one of these counts something else.
 _NON_MONEY_UNITS = {
     "dia", "dias", "hora", "horas", "semana", "semanas", "mes", "meses", "minuto", "minutos",
@@ -57,6 +79,12 @@ _NON_MONEY_UNITS = {
 def _fold(text: str) -> str:
     plain = unicodedata.normalize("NFKD", text.casefold())
     return "".join(char for char in plain if not unicodedata.combining(char) or char == "̃")
+
+
+def _normalized(text: str) -> str:
+    """Folded text with ``1'250.000`` and ``45 000`` rewritten as one number each."""
+    folded = _fold(_APOSTROPHE_MILLIONS.sub(".", text))
+    return _SPACE_GROUPED.sub(lambda match: match.group().replace(" ", ""), folded)
 
 
 def _number(token: str) -> tuple[float, bool]:
@@ -88,8 +116,15 @@ def _words(tokens: list[str], start: int) -> tuple[int, int, bool]:
             current = (current or 1) * 1000
             total, current, scaled = total + current, 0, True
         elif word in _MILLION:
-            total = (total + (current or 1)) * 1_000_000
+            total = ((total + current) or 1) * 1_000_000
             current, scaled = 0, True
+        elif (
+            word in ("medio", "media") and index + 1 < len(tokens) and tokens[index + 1] in _MILLION
+        ):
+            total, scaled = total + current * 1_000_000 + 500_000, True  # "medio millón"
+            current, index = 0, index + 1
+        elif word == "y" and scaled and tokens[index + 1 : index + 2] == ["medio"]:
+            total, index = total + 500_000, index + 1  # "un millón y medio"
         elif word == "y" and used and index + 1 < len(tokens) and tokens[index + 1] in _UNITS:
             pass  # "treinta y cinco"
         else:
@@ -100,29 +135,70 @@ def _words(tokens: list[str], start: int) -> tuple[int, int, bool]:
 
 
 def _price_cue(tokens: list[str], index: int) -> str | None:
-    """'strong', 'weak' or None for the price word just before ``tokens[index]``."""
-    position, crossed = index - 1, False
+    """'strong', 'weak', 'distant' or None for the price word before ``tokens[index]``."""
+    position, crossed = index - 1, []
     while position >= 0 and tokens[position] in _CUE_LINKS and index - position <= 2:
-        crossed, position = True, position - 1
+        crossed.append(tokens[position])
+        position -= 1
     word = tokens[position] if position >= 0 else ""
     if word in _STRONG_CUES or (crossed and word in _EN_CUES):
         return "strong"
-    return "weak" if word in _WEAK_CUES else None
+    if (
+        word in _WEAK_CUES
+        or word in _EN_CUES  # "te sale 85000"
+        or (crossed and word in _EN_WEAK_CUES)  # "está en 85000"
+        or "por" in crossed  # "2 por 85000"
+    ):
+        return "weak"
+    # "el precio de la camisa es 85000": a strong word earlier in the same sentence
+    for earlier in reversed(tokens[max(0, index - _CUE_REACH) : index]):
+        if earlier in _SENTENCE_END or earlier[0].isdigit() or earlier == "$":
+            break
+        if earlier in _STRONG_CUES:
+            return "distant"
+    return None
 
 
-def _counts_something_else(tokens: list[str], index: int) -> bool:
-    """``2 días``, ``2 a 3 días``, ``3 unidades``: the number is a quantity, not a price."""
+def _counts_something_else(tokens: list[str], index: int, value: float) -> bool:
+    """``2 días``, ``2 a 3 días``, ``3 unidades``: the number is a quantity, not a price.
+
+    ``3 x $20.000`` counts, but ``85000 x unidad`` is a price per unit.
+    """
     for token in tokens[index + 1 : index + 4]:
         if token in _NON_MONEY_UNITS:
-            return True
+            return token != "x" or value < 1000
         if not (token[0].isdigit() or token in _CONNECTORS):
             return False
     return False
 
 
+def _remainder(tokens: list[str], index: int, below: int) -> tuple[int, int]:
+    """What follows an amount with ``mil`` or ``millón``, as in ``45 mil 900`` or ``1 millón 500
+    mil``: (value, tokens used), with value under ``below``; (0, 0) when nothing does."""
+    if index >= len(tokens):
+        return 0, 0
+    token = tokens[index]
+    if below == 1_000_000 and tokens[index : index + 2] == ["y", "medio"]:
+        return 500_000, 2
+    if token.isdigit() and len(token) <= 3 and not _counts_something_else(tokens, index, 0):
+        value, used = int(token), 1
+        if below == 1_000_000 and tokens[index + 1 : index + 2] == ["mil"]:
+            more, extra = _remainder(tokens, index + 2, 1000)
+            value, used = value * 1000 + more, 2 + extra
+        return (value, used) if value < below else (0, 0)
+    if token in _UNITS or token in _HUNDREDS:
+        value, used, scaled = _words(tokens, index)
+        after = tokens[index + used : index + used + 1]
+        if after and after[0] in _NON_MONEY_UNITS:
+            return 0, 0
+        if value < below and (below == 1_000_000 or not scaled):
+            return value, used
+    return 0, 0
+
+
 def amounts_cop(text: str) -> list[int]:
     """Every monetary amount in ``text``, as integer pesos, in order of appearance."""
-    tokens = _TOKEN.findall(_fold(text))
+    tokens = _TOKEN.findall(_normalized(text))
     found: list[int] = []
     index = 0
     while index < len(tokens):
@@ -144,7 +220,7 @@ def amounts_cop(text: str) -> list[int]:
             ):
                 index += 1
                 continue
-            multiplier, consumed = 1, 1
+            multiplier, consumed, remainder = 1, 1, 0
             if nxt in _THOUSAND or nxt in _THOUSANDS_SLANG or nxt == "k":
                 multiplier, consumed = 1000, 2
             elif nxt in _MILLION:
@@ -155,15 +231,22 @@ def amounts_cop(text: str) -> list[int]:
                     multiplier = 1000
                 elif following[2] in _MILLION:
                     multiplier = 1_000_000
+            if consumed == 2:  # "45 mil 900", "1 millón 500 mil": the rest of the amount
+                remainder, used = _remainder(tokens, index + 2, multiplier)
+                consumed += used
             after = tokens[index + consumed : index + consumed + 2]
             currency_after = bool(after) and (
-                after[0] in _CURRENCY_AFTER or after[:2] == ["de", "pesos"]
+                after[0] in _CURRENCY_AFTER
+                or after[0] in _FOREIGN_AFTER
+                or after[:2] == ["de", "pesos"]
             )
             # Colombian numbers: 10 digits starting with 3 (mobile) or 60 (landline), or +57 prefixed
             phone_like = token.isdigit() and (
                 len(token) >= 11 or (len(token) == 10 and token[0] in "36")
             )
-            cue = None if _counts_something_else(tokens, index) else _price_cue(tokens, index)
+            year_like = token.isdigit() and len(token) == 4 and 1900 <= value <= 2099
+            counts = _counts_something_else(tokens, index, value)
+            cue = None if counts else _price_cue(tokens, index)
             is_money = (
                 marked_before
                 or multiplier > 1
@@ -171,12 +254,23 @@ def amounts_cop(text: str) -> list[int]:
                 or (grouped and value >= 1000)
                 or (cue == "strong" and not phone_like)
                 or (cue == "weak" and value >= 1000 and not phone_like)
+                or (cue == "distant" and value >= 1000 and not phone_like and not year_like)
             )
             if is_money:
-                found.append(int(value * multiplier))
+                found.append(int(value * multiplier) + remainder)
             index += consumed
             continue
-        if token in _UNITS or token in _HUNDREDS or token in _THOUSAND or token in _MILLION:
+        half_million = token in ("medio", "media") and tokens[index + 1 : index + 2] in (
+            ["millon"],
+            ["millones"],
+        )
+        if (
+            token in _UNITS
+            or token in _HUNDREDS
+            or token in _THOUSAND
+            or token in _MILLION
+            or half_million
+        ):
             value, used, scaled = _words(tokens, index)
             if used:
                 after = tokens[index + used : index + used + 2]

@@ -4,7 +4,8 @@ Each case is a reply the agent might write about the seller's own items, the amo
 rendered in the ways customers and sellers write money ($85.000, 85 mil, 85k, ochenta y cinco
 mil pesos, COP 85000). Half the cases quote only what the cited items say: the engine must let
 them through. The other half slip in an amount no cited item has (a nearby number, a total, a
-discount, a draft product's price): the engine must stop them. A scripted Spark gives each
+discount, a draft product's price), sometimes as plain digits after a price word ("te sale
+95000"): the engine must stop them. A scripted Spark gives each
 reply twice, so a stopped reply ends in the fallback after the guided retry. The cases come
 from a fixed seed, so every run is the same set; no model is called.
 
@@ -130,6 +131,10 @@ def price_cases(scene: Scene, *, count: int = CASES, seed: int = SEED) -> list[P
                     f" Con descuento te queda en {render(invented, rng.randrange(8))}.",
                     f" Las dos te salen en {render(invented, rng.randrange(8))}.",
                     f" La edición especial vale {render(invented, rng.randrange(8))}.",
+                    # Plain digits: only the words before them say they are a price
+                    f" Con descuento te sale {invented}.",
+                    f" Llevando las dos, por {invented}.",
+                    f" El precio de la edición especial es {invented}.",
                 )
             )
         cases.append(

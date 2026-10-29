@@ -123,6 +123,51 @@ def test_fr_026_amounts_are_found_in_replies(text: str, expected: list[int]) -> 
 
 
 @pytest.mark.parametrize(
+    ("text", "expected"),
+    [
+        # A plain number after a price word, with or without the words in between
+        ("Está en 95000", [95000]),
+        ("Te sale 95000", [95000]),
+        ("Salen a 95000", [95000]),
+        ("Te quedan en 95000", [95000]),
+        ("Serían 95000", [95000]),
+        ("Te lo dejo a solo 95000", [95000]),
+        ("Dos por 95000", [95000]),
+        ("Cuesta unos 95000", [95000]),
+        ("Precio - 85000", [85000]),
+        ("Precio 85000 x unidad", [85000]),
+        ("El precio de la camisa es 95000", [95000]),
+        ("Envío Bogotá 8000", [8000]),
+        ("Envío a Bogotá: 8000", [8000]),
+        # Amounts in parts
+        ("45 mil 900", [45900]),
+        ("45 mil quinientos", [45500]),
+        ("1 millón 500 mil", [1500000]),
+        ("1 millón y medio", [1500000]),
+        ("medio millón", [500000]),
+        ("un millón y medio", [1500000]),
+        ("dos millones y medio de pesos", [2500000]),
+        ("mil millones", [1000000000]),
+        # Other groupings, ranges and currencies
+        ("$1'250.000", [1250000]),
+        ("1’250.000", [1250000]),
+        ("$ 45 000", [45000]),
+        ("45 000 pesos", [45000]),
+        ("45\u00a0000 pesos", [45000]),
+        ("Entre 40-45 mil", [40000, 45000]),
+        ("Entre 40 – 45 mil", [40000, 45000]),
+        ("De 40 a 45 mil", [40000, 45000]),
+        ("20 USD", [20]),
+        ("12 mil 3 cuotas", [12000]),
+    ],
+)
+def test_fr_026_colombian_ways_of_writing_a_price_are_read_whole(
+    text: str, expected: list[int]
+) -> None:
+    assert amounts_cop(text) == expected
+
+
+@pytest.mark.parametrize(
     "text",
     [
         "Llámanos al 300 000 0001",
@@ -138,6 +183,14 @@ def test_fr_026_amounts_are_found_in_replies(text: str, expected: list[int]) -> 
         "Vale, son 3 unidades",
         "Queda 1 unidad en talla M",
         "Cien por ciento algodón",
+        "Entregamos en 2-3 días",
+        "Por 3 meses de garantía",
+        "Calle 45 # 12-30",
+        "Tallas 36 38 40",
+        "Media hora y medio kilo",
+        # A year a few words after a price word is a date, not a price
+        "El precio de lanzamiento sube en 2026",
+        "El envío es gratis. Tenemos 3500 seguidores",
     ],
 )
 def test_fr_026_numbers_that_are_not_money_are_ignored(text: str) -> None:
@@ -175,3 +228,45 @@ def test_format_cop_uses_colombian_grouping() -> None:
         "$12.000",
         "$1.200.000",
     ]
+
+
+@given(st.integers(min_value=1_000_000, max_value=999_999_999))
+def test_fr_026_an_apostrophe_marks_the_millions(amount: int) -> None:
+    millions, rest = divmod(amount, 1_000_000)
+    thousands, units = divmod(rest, 1000)
+    assert amounts_cop(f"${millions}'{thousands:03d}.{units:03d}") == [amount]
+
+
+@given(st.integers(min_value=1000, max_value=50_000_000))
+def test_fr_026_space_grouped_thousands_with_a_money_mark(amount: int) -> None:
+    spaced = f"{amount:,}".replace(",", " ")
+    assert amounts_cop(f"{spaced} pesos") == [amount]
+    assert amounts_cop(f"$ {spaced}") == [amount]
+
+
+@given(st.integers(min_value=1, max_value=999), st.integers(min_value=1, max_value=999))
+def test_fr_026_thousands_and_the_rest_are_one_amount(thousands: int, rest: int) -> None:
+    assert amounts_cop(f"{thousands} mil {rest}") == [thousands * 1000 + rest]
+
+
+@given(
+    st.integers(min_value=1, max_value=998).flatmap(
+        lambda low: st.tuples(st.just(low), st.integers(min_value=low + 1, max_value=999))
+    )
+)
+def test_fr_026_a_range_shares_its_multiplier(ends: tuple[int, int]) -> None:
+    low, high = ends
+    assert amounts_cop(f"entre {low}-{high} mil") == [low * 1000, high * 1000]
+
+
+@pytest.mark.parametrize(
+    "phrase",
+    ["Está en {}", "Te sale {}", "Por {}", "Cuesta unos {}", "Te lo dejo a solo {}",
+     "El precio de la camisa es {}"],
+)  # fmt: skip
+@given(amount=st.integers(min_value=1000, max_value=50_000_000))
+def test_fr_026_a_plain_amount_after_a_price_word_is_found(phrase: str, amount: int) -> None:
+    # A year (1900 to 2099) a few words after a price word is left out: it is a date there.
+    distant = phrase.startswith("El precio")
+    expected = [] if distant and 1900 <= amount <= 2099 else [amount]
+    assert amounts_cop(phrase.format(amount)) == expected
