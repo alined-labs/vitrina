@@ -94,9 +94,10 @@ class Settings(BaseSettings):
     outbound_spacing_s: float = 6.0  # R12, Art. VIII.2
     provider_attempts: int = 3  # R12
     provider_timeout_s: float = 20.0  # Art. VIII.1
-    # Chat calls in background jobs: a live copy grid took 31 s (2026-10-28). Turns keep
+    # Chat calls in background jobs: a live copy grid took 31 s (2026-10-28), and a Wonder brief
+    # 89 s, after earlier attempts at the same prompt had run past 90 s (2026-10-29). Turns keep
     # provider_timeout_s inside their own budget.
-    provider_job_timeout_s: float = 90.0
+    provider_job_timeout_s: float = 180.0
     # GET /health/providers: each check's limit, and how long a report is reused.
     health_check_timeout_s: float = 5.0
     health_cache_s: float = 30.0
