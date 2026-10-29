@@ -4,6 +4,9 @@ The kind comes from the bytes, never from the client's content type: JPEG, PNG a
 to 10 MB, and MP4 videos up to 60 MB and 15 s. Photos are decoded, which gives their size and
 refuses anything Pillow cannot read; a video's duration comes from its ``mvhd`` box, so no ffmpeg
 is needed to accept an upload.
+
+A photo may have at most 40 megapixels. A few megabytes of PNG can hold far more, and the worker
+decodes every pixel: a 150-megapixel photo needs more memory than the worker has.
 """
 
 from dataclasses import dataclass
@@ -14,6 +17,7 @@ from PIL import Image, UnidentifiedImageError
 
 MB = 1024 * 1024
 IMAGE_MAX_BYTES = 10 * MB
+IMAGE_MAX_PIXELS = 40_000_000
 VIDEO_MAX_BYTES = 60 * MB
 VIDEO_MAX_SECONDS = 15.0
 
@@ -116,13 +120,21 @@ def _find_box(data: bytes, start: int, end: int, kind: bytes) -> tuple[int, int]
     return None
 
 
+TOO_MANY_PIXELS = (
+    f"La foto tiene demasiados píxeles: el máximo es {IMAGE_MAX_PIXELS // 1_000_000} megapíxeles."
+)
+
+
 def _image_size(data: bytes) -> tuple[int, int]:
     try:
         with Image.open(BytesIO(data)) as image:
             image.verify()
         with Image.open(BytesIO(data)) as image:
-            return image.size
+            width, height = image.size
     except Image.DecompressionBombError as error:
-        raise MediaRejectedError("La foto tiene demasiados píxeles.") from error
+        raise MediaRejectedError(TOO_MANY_PIXELS) from error
     except (UnidentifiedImageError, OSError, SyntaxError, ValueError) as error:
         raise MediaRejectedError("No pudimos leer la foto; puede estar dañada.") from error
+    if width * height > IMAGE_MAX_PIXELS:
+        raise MediaRejectedError(TOO_MANY_PIXELS)
+    return width, height

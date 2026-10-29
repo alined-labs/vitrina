@@ -11,6 +11,7 @@ import numpy.typing as npt
 from PIL import Image, ImageFilter
 
 from vitrina_core.providers import Blob, Box
+from vitrina_creative.media import IMAGE_MAX_PIXELS
 
 Mask = npt.NDArray[np.bool_]
 Pixels = npt.NDArray[np.uint8]
@@ -27,15 +28,28 @@ MIN_VALUE = 0.15
 EDGE_PX = 2
 
 
+class TooManyPixelsError(ValueError):
+    """An image with more pixels than the worker can decode (``media.IMAGE_MAX_PIXELS``)."""
+
+
 def decode_rgb(blob: Blob) -> Pixels:
     with Image.open(BytesIO(blob.data)) as image:
+        _check_pixels(image)
         return np.asarray(image.convert("RGB"), dtype=np.uint8)
 
 
 def decode_mask(blob: Blob) -> Mask:
     """A mask image in any mode, as booleans: True where the product is."""
     with Image.open(BytesIO(blob.data)) as image:
+        _check_pixels(image)
         return np.asarray(image.convert("L"), dtype=np.uint8) > 127
+
+
+def _check_pixels(image: Image.Image) -> None:
+    """Before decoding: uploads are checked on arrival, this covers any image that was not."""
+    width, height = image.size
+    if width * height > IMAGE_MAX_PIXELS:
+        raise TooManyPixelsError(f"{width}x{height} is more than {IMAGE_MAX_PIXELS} pixels")
 
 
 def encode_png(array: Pixels | Mask) -> Blob:

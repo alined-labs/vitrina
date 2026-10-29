@@ -165,6 +165,34 @@ async def test_db_stalled_jobs_go_back_to_the_queue(
 
 
 @pytest.mark.db
+async def test_db_a_job_that_stalls_on_its_last_attempt_fails_instead_of_coming_back(
+    db_sessions: async_sessionmaker[AsyncSession],
+) -> None:
+    await add_sellers(db_sessions)
+    queue = PostgresJobQueue(db_sessions)
+    job_id = await enqueue(queue, db_sessions, max_attempts=1)
+    await queue.claim("w1", TASKS)
+    async with db_sessions() as session, session.begin():
+        await session.execute(
+            sa.update(jobs)
+            .where(jobs.c.id == job_id)
+            .values(heartbeat_at=sa.func.now() - timedelta(minutes=10))
+        )
+
+    assert await queue.requeue_stalled(timedelta(minutes=1)) == 0
+    assert await queue.claim("w2", TASKS) is None
+    view = await queue.get_for_seller(SELLER, job_id)
+    assert view is not None
+    assert view.error is not None
+    assert (view.status, view.error.code, view.error.retryable, view.finished_at is not None) == (
+        "failed",
+        "STALLED",
+        False,
+        True,
+    )
+
+
+@pytest.mark.db
 async def test_db_the_same_idempotency_key_enqueues_once(
     db_sessions: async_sessionmaker[AsyncSession],
 ) -> None:
