@@ -16,3 +16,8 @@ overrides:
   # OpenNext's build-time minifier pulls glob 10.4, whose CLI has a command-injection advisory;
   # the minifier only uses the library, and 10.5.0 is the patch release of the same major.
   "glob@>=10.2.0 <10.5.0": 10.5.0
+
+# Refuse dependencies from git or tarball URLs anywhere in the tree, and fail an install when a
+# package wants to run a build script nobody reviewed (allowBuilds above).
+blockExoticSubdeps: true
+strictDepBuilds: true
