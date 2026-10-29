@@ -1,7 +1,8 @@
 """HTTP conventions every router shares (T007): problem+json errors (FR-082), request ids
-(FR-084), cursor pagination (FR-080) and idempotent POSTs (FR-081).
+(FR-084), cursor pagination (FR-080), idempotent POSTs (FR-081) and request body limits.
 """
 
+from vitrina_core.http.body_limit import BodyLimitMiddleware
 from vitrina_core.http.context import current_request_id
 from vitrina_core.http.idempotency import (
     IdempotencyKey,
@@ -38,6 +39,7 @@ __all__ = [
     "DEFAULT_LIMIT",
     "MAX_LIMIT",
     "PROBLEM_JSON",
+    "BodyLimitMiddleware",
     "FieldError",
     "IdempotencyKey",
     "IdempotencyMiddleware",

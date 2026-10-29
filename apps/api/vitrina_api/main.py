@@ -39,6 +39,7 @@ from vitrina_core.auth import (
 from vitrina_core.db import create_engine, create_session_factory
 from vitrina_core.health import HealthCache
 from vitrina_core.http import (
+    BodyLimitMiddleware,
     IdempotencyMiddleware,
     IdempotencyStore,
     InMemoryIdempotencyStore,
@@ -51,11 +52,24 @@ from vitrina_core.ledger import InMemoryLedger, PostgresLedger, SpendWatch
 from vitrina_core.providers.compose import compose
 from vitrina_core.settings import Settings, get_settings
 from vitrina_core.storage import LocalBlobStore, blob_store, create_blob_router
+from vitrina_creative.media import IMAGE_MAX_BYTES, VIDEO_MAX_BYTES
 from vitrina_evals.api import InMemoryEvalRuns, PostgresEvalRuns, load_counters
 from vitrina_local_mock import MockOutbox, create_phone_router
 from vitrina_meta_model_api import live_providers
+from vitrina_whatsapp.webhook import MAX_BODY_BYTES
 
 API_PREFIX = "/v1"
+
+# The largest body each upload route takes: its own file limit plus room for the multipart
+# envelope. Every other body is JSON and gets BodyLimitMiddleware's 1 MB.
+_ENVELOPE = 1024 * 1024
+BODY_LIMITS = {
+    f"{API_PREFIX}/assets": VIDEO_MAX_BYTES + _ENVELOPE,
+    f"{API_PREFIX}/products/import": catalog.MAX_PHOTO_BYTES + _ENVELOPE,
+    f"{API_PREFIX}/public/showcases": IMAGE_MAX_BYTES + _ENVELOPE,
+    f"{API_PREFIX}/sellers/me/voice-samples": sellers.MAX_EXPORT_BYTES + _ENVELOPE,
+    f"{API_PREFIX}/webhooks/whatsapp": MAX_BODY_BYTES + _ENVELOPE,
+}
 
 # Contract tag order (openapi.yaml `tags`).
 ROUTERS = (
@@ -163,6 +177,9 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         else InMemoryIdempotencyStore()
     )
     app.add_middleware(IdempotencyMiddleware, store=store, scope=app.state.auth.idempotency_scope)
+    # Outside idempotency, which buffers a POST body before authentication; inside request ids,
+    # so a 413 carries one too.
+    app.add_middleware(BodyLimitMiddleware, limits=BODY_LIMITS)
     # Added late, so outer: every response, errors included, carries X-Request-Id.
     app.add_middleware(RequestIdMiddleware)
     origins = [
