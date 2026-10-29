@@ -15,7 +15,14 @@ from uuid import UUID
 from vitrina_core.providers import Blob, ChatModel, ImageModel, Segmenter
 from vitrina_creative.compose import CreativeFormat, compose_scenes
 from vitrina_creative.concept import sam_concept
-from vitrina_creative.copy import BrandVoice, CopyAngle, CopyInput, DroppedCell, write_copy
+from vitrina_creative.copy import (
+    BrandVoice,
+    CopyAngle,
+    CopyHook,
+    CopyInput,
+    DroppedCell,
+    write_copy,
+)
 from vitrina_creative.judge import RubricJudge, VoicedVariant, judge_copy
 from vitrina_creative.provenance import Provenance, embed_provenance
 from vitrina_creative.segment import SegmentationError, SegmentedPhoto, segment_photo
@@ -52,6 +59,7 @@ class PipelineInput:
     scenes_per_format: int = 3
     copy_variants: int = 10
     angles: tuple[CopyAngle, ...] = ()
+    hooks: tuple[CopyHook, ...] = ()
     scene_brief: str | None = None
 
 
@@ -156,7 +164,12 @@ async def run_pipeline(
         scene_brief=data.scene_brief,
     )
     written = await write_copy(
-        item, count=data.copy_variants, angles=data.angles or None, writer=chat, model=models.chat
+        item,
+        count=data.copy_variants,
+        angles=data.angles or None,
+        hooks=data.hooks or None,
+        writer=chat,
+        model=models.chat,
     )
 
     await on_stage("scoring", 0.9)

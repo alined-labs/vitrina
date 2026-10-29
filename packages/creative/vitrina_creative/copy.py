@@ -7,7 +7,8 @@ placeholder exactly once, no amount other than the product price or one in the s
 (the same normalizer as the price validator, R2), and no testimonials (constitution Art. IV.2).
 Failing cells are rewritten once with their problems listed; cells still failing are dropped
 and reported. Truthfulness also shapes the grid: ``scarcity`` needs a low, known stock, and
-``handmade`` needs the product data to say so (Ley 1480). Brand-voice scoring is T041.
+``handmade`` needs the product data to say so (Ley 1480). A job may narrow the grid to some
+angles or hooks (``CreativeJobCreate``, e.g. from a brief). Brand-voice scoring is T041.
 """
 
 import json
@@ -37,6 +38,13 @@ TESTIMONIAL = re.compile(
     r"|\bresen(a|as)\b|\btestimonio|\bopiniones\b|\b\d\s*estrellas\b|[★⭐]"
     r"|\bantes\s+y\s+despues\b|\bmiles\s+de\s+(clientes|personas|ventas)\b|\bmas\s+vendid"
     r'|["“][^"”]{3,90}["”]\s*[-—–]\s*\w'
+)
+NO_ANGLE_LEFT = (
+    "Los ángulos pedidos no sirven para este producto: handmade necesita que sus datos digan "
+    "que es hecho a mano, y price, un precio publicado."
+)
+NO_HOOK_LEFT = (
+    "El gancho scarcity necesita pocas unidades en inventario, y este producto no las tiene."
 )
 
 
@@ -100,27 +108,34 @@ def is_handmade(item: CopyInput) -> bool:
 def plan_grid(
     count: int,
     angles: Sequence[CopyAngle] | None = None,
+    hooks: Sequence[CopyHook] | None = None,
     *,
     allow_scarcity: bool = True,
     allow_handmade: bool = True,
     allow_price: bool = True,
 ) -> list[tuple[CopyHook, CopyAngle]]:
-    """``count`` cells: angles in turn, the hook shifted each lap, so no pair repeats early."""
+    """``count`` cells: angles in turn, the hook shifted each lap, so no pair repeats early.
+
+    A job may ask for some angles or hooks only (a brief's directive). One the product cannot
+    carry truthfully is left out, and when none is left the job fails with the reason.
+    """
     pool = [
         a
         for a in (angles or ANGLES)
         if (allow_handmade or a != "handmade") and (allow_price or a != "price")
     ]
-    hooks = [h for h in HOOKS if allow_scarcity or h != "scarcity"]
     if not pool:
-        raise ValueError("no angle left for this product")
+        raise CopyError("VALIDATION_ERROR", NO_ANGLE_LEFT)
+    hook_pool = [h for h in dict.fromkeys(hooks or HOOKS) if allow_scarcity or h != "scarcity"]
+    if not hook_pool:
+        raise CopyError("VALIDATION_ERROR", NO_HOOK_LEFT)
     cells: list[tuple[CopyHook, CopyAngle]] = []
     lap = 0
     while len(cells) < count:
         for index, angle in enumerate(pool):
             if len(cells) == count:
                 break
-            cells.append((hooks[(index + lap) % len(hooks)], angle))
+            cells.append((hook_pool[(index + lap) % len(hook_pool)], angle))
         lap += 1
     return cells
 
@@ -165,6 +180,7 @@ async def write_copy(
     *,
     count: int = 10,
     angles: Sequence[CopyAngle] | None = None,
+    hooks: Sequence[CopyHook] | None = None,
     writer: ChatModel,
     model: str,
 ) -> CopyResult:
@@ -172,6 +188,7 @@ async def write_copy(
     cells = plan_grid(
         count,
         angles,
+        hooks,
         allow_scarcity=item.stock is not None and 0 < item.stock <= LOW_STOCK,
         allow_handmade=is_handmade(item),
         allow_price=item.price_cop is not None,

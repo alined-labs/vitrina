@@ -80,6 +80,38 @@ def test_requested_angles_limit_the_grid() -> None:
     assert len(set(cells)) == 4
 
 
+def test_requested_hooks_limit_the_grid() -> None:
+    cells = plan_grid(4, hooks=["question", "benefit", "question"])
+    assert {hook for hook, _ in cells} == {"question", "benefit"}
+    assert len(set(cells)) == 4
+
+
+async def test_a_jobs_hooks_are_the_only_hooks_asked_for_and_written() -> None:
+    writer = ScriptedWriter(all_good)
+    result = await write_copy(BAG, count=4, hooks=["story"], writer=writer, model="m")
+    assert {v.hook for v in result.variants} == {"story"}
+    user = writer.requests[0].messages[1].content
+    assert isinstance(user, str)
+    assert {hook for _, hook, _ in SLOT_LINE.findall(user)} == {"story"}
+
+
+async def test_a_hook_or_angle_the_product_cannot_carry_fails_the_job_with_a_reason() -> None:
+    plenty = CopyInput(**{**BAG.__dict__, "stock": 40})
+    plain = CopyInput(
+        **{**BAG.__dict__, "product_name": "Camiseta básica", "product_description": "Algodón."}
+    )
+    for item, hooks, angles, word in (
+        (plenty, ["scarcity"], None, "inventario"),
+        (plain, None, ["handmade"], "hecho a mano"),
+    ):
+        with pytest.raises(CopyError) as caught:
+            await write_copy(
+                item, hooks=hooks, angles=angles, writer=ScriptedWriter(all_good), model="m"
+            )
+        assert caught.value.code == "VALIDATION_ERROR"
+        assert word in caught.value.message
+
+
 async def test_scarcity_needs_a_low_known_stock() -> None:
     for stock, expected in ((3, True), (None, False), (40, False)):
         writer = ScriptedWriter(all_good)
