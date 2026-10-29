@@ -1337,7 +1337,7 @@ export interface components {
             code?: string | null;
             /**
              * Format: uri
-             * @example https://wa.me/573001234567?text=Hola%2C%20vi%20el%20anuncio%20%23A7
+             * @example https://wa.me/573000000001?text=Hola%2C%20vi%20el%20anuncio%20%23A7
              */
             wa_link?: string | null;
             angle?: components["schemas"]["CopyAngle"];

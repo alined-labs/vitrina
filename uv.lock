@@ -1237,6 +1237,7 @@ version = "0.1.0"
 source = { editable = "apps/api" }
 dependencies = [
     { name = "fastapi" },
+    { name = "httpx2" },
     { name = "python-multipart" },
     { name = "uvicorn", extra = ["standard"] },
     { name = "vitrina-baseten" },
@@ -1256,6 +1257,7 @@ dependencies = [
 [package.metadata]
 requires-dist = [
     { name = "fastapi", specifier = ">=0.115" },
+    { name = "httpx2", specifier = ">=2.16" },
     { name = "python-multipart", specifier = ">=0.0.18" },
     { name = "uvicorn", extras = ["standard"], specifier = ">=0.32" },
     { name = "vitrina-baseten", editable = "providers/baseten" },
@@ -1352,6 +1354,7 @@ dependencies = [
     { name = "alembic" },
     { name = "asyncpg" },
     { name = "fastapi" },
+    { name = "httpx2" },
     { name = "pgvector" },
     { name = "pydantic" },
     { name = "pydantic-settings" },
@@ -1364,6 +1367,7 @@ requires-dist = [
     { name = "alembic", specifier = ">=1.14" },
     { name = "asyncpg", specifier = ">=0.30" },
     { name = "fastapi", specifier = ">=0.115" },
+    { name = "httpx2", specifier = ">=2.16" },
     { name = "pgvector", specifier = ">=0.3" },
     { name = "pydantic", specifier = ">=2.14" },
     { name = "pydantic-settings", specifier = ">=2.6" },
@@ -1454,6 +1458,7 @@ name = "vitrina-meta-model-api"
 version = "0.1.0"
 source = { editable = "providers/meta_model_api" }
 dependencies = [
+    { name = "httpx2" },
     { name = "meta-sam-parser" },
     { name = "openai" },
     { name = "pillow" },
@@ -1462,6 +1467,7 @@ dependencies = [
 
 [package.metadata]
 requires-dist = [
+    { name = "httpx2", specifier = ">=2.16" },
     { name = "meta-sam-parser", specifier = "==0.1.0" },
     { name = "openai", specifier = ">=3.39" },
     { name = "pillow", specifier = ">=11" },

@@ -306,7 +306,7 @@ class WhatsAppClient(Messenger):
             return None
         if error.retry_after_s is not None and error.retry_after_s > self._max_backoff_s:
             return None  # Meta wants a longer pause than a send may block: the caller reschedules.
-        backoff = min(self._backoff_s * 2 ** (attempt - 1), self._max_backoff_s)
+        backoff = min(self._backoff_s * 2.0 ** (attempt - 1), self._max_backoff_s)
         return max(backoff, error.retry_after_s or 0.0)
 
 

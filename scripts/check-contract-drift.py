@@ -105,7 +105,7 @@ def canonical(value: Any) -> str:
 
 
 def _is_null(schema: Any) -> bool:
-    return schema == NULL
+    return bool(schema == NULL)
 
 
 def _branch_key(schema: Any) -> tuple[bool, str]:

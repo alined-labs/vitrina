@@ -4,6 +4,7 @@ version = "0.1.0"
 description = "Meta Model API adapter (OpenAI-compatible): chat, embeddings, image, segmentation, transcription."
 requires-python = ">=3.14,<3.15"
 dependencies = [
+    "httpx2>=2.16",
     "meta-sam-parser==0.1.0",
     "pillow>=11",
     "openai>=3.39",

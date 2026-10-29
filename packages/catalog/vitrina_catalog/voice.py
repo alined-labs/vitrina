@@ -30,7 +30,7 @@ _URL = re.compile(r"https?://\S+|www\.\S+", re.I)
 _HANDLE = re.compile(r"(?<![\w@])@[\w.]{2,30}")
 _LONG_NUMBER = re.compile(r"(?<![\d.,$])\d{6,}(?![\d.,])")
 
-_EMOJI = re.compile("[\U0001f300-\U0001faff☀-➿❤\U0001f900-\U0001f9ff]")
+_EMOJI = re.compile("[\U0001f300-\U0001faff☀-➿❤]")
 _DIMINUTIVE = re.compile(r"\b\w{3,}(?:ito|ita|itos|itas)\b")
 _USTED = re.compile(r"\b(usted|ustedes|le|les|su|sus|senor|senora|buenos dias|buenas tardes)\b")
 _TU = re.compile(
