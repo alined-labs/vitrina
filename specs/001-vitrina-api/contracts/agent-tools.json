@@ -345,7 +345,7 @@
         "R5 Handoff consistency: if `handoff_reason` is non-null and the model did not call handoff_to_human, the engine calls it with that reason.",
         "R6 Human mode: when conversation.mode == human, the model is not invoked at all.",
         "R7 Opt-out first: keyword opt-out/erasure is applied before retrieval or model calls.",
-        "R8 Consent gating: record_consent succeeds only if the previous outbound message had proposed_consent_prompt == true and the inbound text is affirmative per the affirmative-lexicon (sí, si, claro, dale, listo, ok, de una, por favor avísame).",
+        "R8 Consent gating: record_consent succeeds only if the previous outbound message had proposed_consent_prompt == true and the inbound text is affirmative per the affirmative-lexicon (sí, si, claro, claro que sí, dale, listo, ok, de una, por favor avísame, avísame, avíseme, me avisas): the whole reply is lexicon phrases, with only pues, por favor or porfa besides.",
         "R9 Side effects in dry_run: reserve_item, book_slot, send_ad_asset, handoff_to_human, record_consent and opt_out return simulated results with status 'skipped_dry_run'.",
         "R10 Off-topic: scope classifier runs on every inbound; off-topic → canned polite decline, objection_tag=off_topic, no retrieval.",
         "R11 Medical/legal/financial advice requests → handoff(medical_topic or other) without answering.",
