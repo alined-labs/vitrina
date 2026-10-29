@@ -57,7 +57,7 @@ export function Facts() {
         }}
         className="grid gap-3 rounded-lg border border-dashed border-zinc-300 bg-white p-4 sm:grid-cols-[12rem_1fr_auto]"
       >
-        <select name="kind" defaultValue="shipping" className="min-w-0 rounded border border-zinc-300 px-3 py-2">
+        <select name="kind" aria-label="Tipo de respuesta" defaultValue="shipping" className="min-w-0 rounded border border-zinc-300 px-3 py-2">
           {Object.entries(KINDS).map(([value, label]) => (
             <option key={value} value={value}>
               {label}
@@ -66,6 +66,7 @@ export function Facts() {
         </select>
         <input
           name="text"
+          aria-label="Respuesta"
           required
           maxLength={1000}
           placeholder="Ej.: Envío a Medellín $12.000, llega en 2 a 3 días"

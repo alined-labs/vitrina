@@ -4,7 +4,7 @@ import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useCallback, useEffect, useState } from "react";
 import { api, type components } from "@/lib/api/client";
-import { jobErrorMessage, problemMessage } from "@/lib/format";
+import { formatDateTime, jobErrorMessage, problemMessage } from "@/lib/format";
 import { ANGLE, FORMAT, HOOK, STAGE, copyPreview, decimal, percent } from "@/lib/labels";
 
 type Job = components["schemas"]["CreativeJob"];
@@ -58,7 +58,7 @@ export function CreativeReview() {
                 >
                   <span className="block font-medium">{names[job.product_id] ?? "Producto"}</span>
                   <span className="block text-xs opacity-75">
-                    {STAGE[job.stage]} · {new Date(job.created_at).toLocaleString("es-CO")}
+                    {STAGE[job.stage]} · {formatDateTime(job.created_at)}
                   </span>
                 </button>
               </li>

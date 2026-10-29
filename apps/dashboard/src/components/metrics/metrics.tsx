@@ -2,7 +2,15 @@
 
 import { useEffect, useState } from "react";
 import { api, type components } from "@/lib/api/client";
-import { bogotaDate, formatCount, formatLatency, formatRate, formatUsd, problemMessage } from "@/lib/format";
+import {
+  bogotaDate,
+  formatCount,
+  formatDateTime,
+  formatLatency,
+  formatRate,
+  formatUsd,
+  problemMessage,
+} from "@/lib/format";
 import { StatusLabel, type Status } from "./status";
 
 type Summary = components["schemas"]["MetricsSummary"];
@@ -94,7 +102,7 @@ function count(value: number | undefined): string | null {
   return value == null ? null : formatCount(value);
 }
 
-function InventedPrices({ metrics, finishedAt }: { metrics: EvalMetrics; finishedAt?: string }) {
+function InventedPrices({ metrics, finishedAt }: { metrics: EvalMetrics; finishedAt?: string | undefined }) {
   const value = metrics.invented_price_rate;
   const status: Status = value == null ? "neutral" : value === 0 ? "good" : "critical";
   return (
@@ -109,7 +117,7 @@ function InventedPrices({ metrics, finishedAt }: { metrics: EvalMetrics; finishe
             : "Fuera de la meta (0 %): ningún cambio se publica así."}
       </StatusLabel>
       {finishedAt && (
-        <p className="text-xs text-zinc-500">Última evaluación: {new Date(finishedAt).toLocaleString("es-CO")}</p>
+        <p className="text-xs text-zinc-500">Última evaluación: {formatDateTime(finishedAt)}</p>
       )}
     </section>
   );

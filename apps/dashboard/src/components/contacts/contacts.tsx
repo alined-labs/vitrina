@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useState } from "react";
 import { api, type components } from "@/lib/api/client";
-import { problemMessage } from "@/lib/format";
+import { formatDateTime, problemMessage } from "@/lib/format";
 import { CONSENT, CONSENT_CHANNEL, CONSENT_PURPOSE, OBJECTION, RECORDED_BY } from "@/lib/labels";
 import { useLoad } from "@/lib/use-load";
 
@@ -181,7 +181,7 @@ function ContactRow({
       {open && (
         <div className="space-y-3 border-l-2 border-zinc-200 pl-3">
           {contact.last_marketing_sent_at && (
-            <p className="text-zinc-600">Última promoción: {new Date(contact.last_marketing_sent_at).toLocaleString("es-CO")}</p>
+            <p className="text-zinc-600">Última promoción: {formatDateTime(contact.last_marketing_sent_at)}</p>
           )}
           <Ledger records={ledger} />
           {active && (
@@ -218,7 +218,7 @@ function Ledger({ records }: { records: ConsentRecord[] | null }) {
             <span>· {CONSENT_PURPOSE[record.purpose]}</span>
             <span>· {CONSENT_CHANNEL[record.channel]}</span>
             {record.recorded_by && <span>· {RECORDED_BY[record.recorded_by]}</span>}
-            <span className="ml-auto">{new Date(record.recorded_at).toLocaleString("es-CO")}</span>
+            <span className="ml-auto">{formatDateTime(record.recorded_at)}</span>
           </p>
           <p className="text-zinc-700">«{record.text_shown}»</p>
           <p className="text-zinc-900">Respuesta: «{record.response_text}»</p>
@@ -242,7 +242,7 @@ function ManualConsent({ contactId, onRecorded, onError }: { contactId: string; 
     });
   }, [open, shown]);
 
-  async function submit(event: React.FormEvent) {
+  async function submit(event: React.SubmitEvent<HTMLFormElement>) {
     event.preventDefault();
     setBusy(true);
     const { error } = await api.POST("/contacts/{contact_id}/consents", {
