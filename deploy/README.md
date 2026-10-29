@@ -144,6 +144,14 @@ pnpm exec wrangler rollback           # back to the previous version
 pnpm exec wrangler tail               # live logs
 ```
 
+Next.js ships security fixes in monthly releases announced in advance on its blog
+(nextjs.org/blog, tag "security"), plus out-of-band ones for critical issues. When one comes out,
+look up `next` in the GitHub Advisory Database for the version in `apps/dashboard/package.json`.
+For a critical or high advisory, raise `next` and
+`eslint-config-next` to the patched 16.4 release, add it to `minimumReleaseAgeExclude` in
+`pnpm-workspace.yaml` (pnpm otherwise holds back a release that new), and deploy the
+dashboard within 48 hours.
+
 ### Notes
 
 - **Visitor address.** The proxy does not forward `X-Forwarded-For` or `CF-Connecting-IP` to the API, so the middleware sends the visitor's address as `X-Vitrina-Visitor`, together with `X-Vitrina-Proxy-Secret`, the `VISITOR_PROXY_SECRET` it shares with the API. Both always overwrite what the browser sent. The API trusts the address only when the secret matches, so the public showcase's five-an-hour limit counts each visitor, and a call made straight to the API is limited by its own address.
