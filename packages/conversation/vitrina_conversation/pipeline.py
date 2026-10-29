@@ -138,6 +138,7 @@ class _Inbound:
     contact_id: UUID
     conversation: ConversationState
     evidence: UUID
+    opted_out: bool
 
     def __init__(self, inbound: Inbound, deps: PipelineDeps, seller: SellerSettings) -> None:
         self.inbound = inbound
@@ -158,7 +159,11 @@ class _Inbound:
         recent = await deps.store.recent_messages(
             self.seller_id, conversation.id, limit=deps.history_turns * 2 + 1
         )
-        pending_prompt = self.seller.consent_prompt_text if _consent_pending(recent) else None
+        # Q31: once the customer opted out, no consent question is pending or asked again.
+        opted_out = contact.opted_out_at is not None
+        pending = _consent_pending(recent) and not opted_out
+        pending_prompt = self.seller.consent_prompt_text if pending else None
+        self.opted_out = opted_out
         normalized = normalize(inbound.kind, inbound.text, pending_consent_prompt=pending_prompt)
         stored = await deps.store.add_message(
             self.seller_id,
@@ -275,6 +280,7 @@ class _Inbound:
             low_confidence_streak=conversation.low_confidence_streak,
             pending_consent_prompt=pending_prompt,
             ad=await self._ad(),
+            opted_out=self.opted_out,
         )
         try:
             turn = await run_turn(request, deps.agent)

@@ -577,6 +577,28 @@ async def test_as_6_1_a_recorded_yes_is_confirmed_without_the_agent(world: World
     assert len(records) == 1
 
 
+async def test_q31_after_an_opt_out_consent_is_neither_asked_nor_granted(world: World) -> None:
+    prompt = world.shop.seller.consent_prompt_text
+    red = world.shop.ids["mochila-roja"]
+    await world.say("BAJA")
+    world.script(
+        final_answer(f"La mochila roja está agotada. {prompt}", red, proposed_consent_prompt=True),
+        tool_call("record_consent", purpose="marketing", response_text="Sí"),
+        final_answer("¡Con gusto, veci!", confidence=0.95),
+    )
+
+    await world.say("¿Tienen la mochila roja?")
+    outcome = await world.say("Sí")
+
+    # The opt-out wins (Q31): the question is dropped, so a later yes answers nothing.
+    assert world.messenger.texts[1:] == ["La mochila roja está agotada.", "¡Con gusto, veci!"]
+    assert outcome.turn is not None
+    (call,) = outcome.turn.tool_calls
+    assert (call.name, call.result["status"]) == ("record_consent", "rejected_no_prompt_shown")
+    records = await world.compliance.consents(world.seller_id, await world.contact_id())
+    assert [record.status for record in records] == ["revoked"]  # the BAJA only
+
+
 async def test_t043_the_ad_image_follows_the_reply_6_seconds_later(world: World) -> None:
     product = world.shop.ids["mochila-azul"]
     asset = world.gallery.approve(product)

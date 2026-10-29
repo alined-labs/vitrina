@@ -86,6 +86,8 @@ REASONS_ES: dict[HandoffReason, str] = {
     "other": "otro motivo",
 }
 _FIELDS = frozenset(AgentTurnOutput.model_fields)
+# What an opted-out customer gets when the reply was only the consent question (Q31).
+ANYTHING_ELSE = "¿Te ayudo con algo más?"
 
 
 def _utcnow() -> datetime:
@@ -112,6 +114,8 @@ class TurnRequest:
     """The consent question the last outbound message asked, if still unanswered (R8)."""
     ad: AdContext | None = None
     """The ad the chat came from (FR-023); the engine looks up its product's name."""
+    opted_out: bool = False
+    """The customer opted out (R7): the opt-out wins (Q31), so no consent question is asked."""
 
 
 @dataclass(frozen=True)
@@ -328,6 +332,12 @@ class _Turn:
         if booked and not accepted and handoff_reason is None:
             # The tool booked it: the customer hears that, never "no tengo ese dato" (T052).
             final = booking_confirmation(seller, booked)
+
+        if self.request.opted_out and output is not None:
+            # Q31: the opt-out wins, so the customer is never asked to opt back in (R8).
+            if seller.consent_prompt_text:
+                final = final.replace(seller.consent_prompt_text, "").strip() or ANYTHING_ELSE
+            output = output.model_copy(update={"proposed_consent_prompt": False})
 
         actions = self.box.actions
         if handoff_reason is not None and actions.handoff is None:  # R5
