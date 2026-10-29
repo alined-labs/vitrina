@@ -1,5 +1,6 @@
 """T083 end to end on Postgres: Foto → Vitrina from upload to the public page (AS-8.2, FR-072)."""
 
+import dataclasses
 import re
 from pathlib import Path
 from typing import Any
@@ -16,7 +17,7 @@ from vitrina_core.providers import Blob
 from vitrina_core.settings import Settings
 from vitrina_core.storage import BlobNotFoundError, LocalBlobStore, blob_key
 from vitrina_creative.api import read_provenance
-from vitrina_creative.testing import source_photo
+from vitrina_creative.testing import SparkByPurpose, source_photo
 
 from .test_creative_db import scripted_providers
 
@@ -40,7 +41,9 @@ async def test_db_as_8_2_a_photo_becomes_a_public_page_and_the_upload_is_deleted
         model_segment="sam-test",
     )  # type: ignore[call-arg]
     storage = LocalBlobStore(tmp_path, public_url=settings.public_api_url)
-    with TestClient(create_app(settings)) as client:
+    app = create_app(settings)  # the upload check asks the scripted Spark, which says yes
+    app.state.providers = dataclasses.replace(app.state.providers, chat=SparkByPurpose())
+    with TestClient(app) as client:
 
         def upload() -> Any:
             return client.post(

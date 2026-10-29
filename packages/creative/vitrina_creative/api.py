@@ -59,6 +59,8 @@ from vitrina_creative.segment import SegmentationError, SegmentedPhoto, segment_
 from vitrina_creative.showcase import (
     RATE_LIMIT,
     SHOWCASE_TASK,
+    UPLOAD_REFUSED,
+    UPLOAD_UNCHECKED,
     WINDOW,
     PublicShowcase,
     ShowcaseCreated,
@@ -68,6 +70,7 @@ from vitrina_creative.showcase import (
     new_slug,
     run_showcase,
     showcase_view,
+    upload_allowed,
     window_start,
 )
 from vitrina_creative.start import job_payload, start_job
@@ -89,6 +92,8 @@ __all__ = [
     "FORMAT_SIZES",
     "RATE_LIMIT",
     "SHOWCASE_TASK",
+    "UPLOAD_REFUSED",
+    "UPLOAD_UNCHECKED",
     "WINDOW",
     "Ad",
     "AdCreate",
@@ -155,6 +160,7 @@ __all__ = [
     "segment_photo",
     "showcase_view",
     "start_job",
+    "upload_allowed",
     "upload_asset",
     "verify_scene",
     "window_start",
