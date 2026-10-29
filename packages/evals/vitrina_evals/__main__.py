@@ -4,9 +4,10 @@
         [--out DIR]
 
 Replay, the default, needs no key (AS-7.3). ``--record`` calls the live providers like
-``--live`` and stores every answer as a cassette under CASSETTE_DIR, for replay later (T055). Exit status 1 when the run fails, which an
-invented price does (AS-7.2); 0 otherwise. An error run (no agent yet, missing cassettes)
-prints a GitHub warning annotation so CI shows it without blocking the build.
+``--live`` and stores every answer as a cassette under CASSETTE_DIR, for replay later (T055).
+Exit status 0 when the run passes; 1 when it fails, which an invented price does (AS-7.2); 2
+when it could not run (no agent, missing cassettes), with a GitHub error annotation, so a
+suite that never ran cannot pass the build.
 """
 
 import argparse
@@ -76,8 +77,8 @@ def main(argv: list[str] | None = None) -> int:
         stamp = report["finished_at"].replace(":", "").replace("-", "")
         (args.out / f"{args.suite}-{stamp}.json").write_text(text + "\n", encoding="utf-8")
     if result.status == "error":
-        sys.stdout.write(f"::warning title=evals {args.suite}::{result.notes}\n")
-    return 1 if result.status == "failed" else 0
+        sys.stdout.write(f"::error title=evals {args.suite}::{result.notes}\n")
+    return {"passed": 0, "failed": 1, "error": 2}[result.status]
 
 
 if __name__ == "__main__":
