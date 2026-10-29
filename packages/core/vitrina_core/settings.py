@@ -110,12 +110,17 @@ class Settings(BaseSettings):
     idempotency_ttl_hours: int = 24  # data-model.md idempotency_keys
 
     @field_validator(
-        "visitor_proxy_secret", "whatsapp_app_secret", "whatsapp_verify_token", mode="before"
+        "visitor_proxy_secret",
+        "whatsapp_app_secret",
+        "whatsapp_verify_token",
+        "db_schema",
+        mode="before",
     )
     @classmethod
-    def _blank_secret_is_unset(cls, value: object) -> object:
+    def _blank_is_unset(cls, value: object) -> object:
         # `VISITOR_PROXY_SECRET=` in .env must not become a secret that an empty header matches,
-        # nor a blank app secret a key that anyone can sign webhooks with.
+        # nor a blank app secret a key that anyone can sign webhooks with; and the blank
+        # `DB_SCHEMA=` that .env.example ships means no schema, not an invalid one.
         return None if isinstance(value, str) and not value.strip() else value
 
     def visitor_proxy_matches(self, presented: str | None) -> bool:

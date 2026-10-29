@@ -132,6 +132,18 @@ def test_as_8_2_only_the_proxy_secret_itself_matches(monkeypatch: pytest.MonkeyP
     assert "proxy-secret-for-tests" not in repr(settings)
 
 
+def test_a_blank_db_schema_is_unset(tmp_path: Path) -> None:
+    # A copy of .env.example has `DB_SCHEMA=`: it starts without a database, as if unset.
+    env_file = tmp_path / ".env"
+    env_file.write_text("DB_SCHEMA=\n")
+
+    from_file = Settings(_env_file=env_file)  # type: ignore[call-arg]
+    for settings in (from_file, make(db_schema=""), make(db_schema="  ")):
+        assert settings.db_schema is None
+    with pytest.raises(ValidationError, match="db_schema"):
+        make(db_schema=" dev ")
+
+
 @pytest.mark.parametrize("name", ["whatsapp_app_secret", "whatsapp_verify_token"])
 def test_a_blank_whatsapp_secret_is_unset(name: str) -> None:
     settings = Settings(_env_file=None, **{name: "  "})  # type: ignore[call-arg]
