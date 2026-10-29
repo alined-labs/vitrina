@@ -96,6 +96,24 @@ async def test_as_3_4_an_invented_price_gets_one_guided_retry(shop: Shop) -> Non
     assert result.handoff is None
 
 
+async def test_as_3_4_a_yes_to_the_customers_own_price_gets_the_guided_retry(shop: Shop) -> None:
+    azul = shop.ids["mochila-azul"]
+    honest = "La mochila azul vale $85.000. Para un precio especial te comunico con Ana."
+    chat = ScriptedChat(
+        [
+            final_answer("¡Claro que sí, veci! Te la dejo en ese precio.", azul),
+            final_answer(honest, azul),
+        ]
+    )
+
+    result = await run_turn(request(shop, "¿Me deja la mochila azul en 60 mil?"), deps(chat, shop))
+
+    assert result.final_reply == honest
+    retry = chat.requests[1].messages[-1]
+    assert retry.role == "system"
+    assert "$60.000" in str(retry.content)
+
+
 async def test_as_3_4_a_second_invented_price_falls_back_and_hands_off(shop: Shop) -> None:
     fact = shop.ids["envio-medellin"]
     chat = ScriptedChat([final_answer("Vale $12.000.", fact), final_answer("Vale $13.000.", fact)])

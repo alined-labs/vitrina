@@ -301,7 +301,7 @@ class _Turn:
         citations: list[Citation] = []
         if output is not None:
             citations = await self.deps.catalog.citations(seller.seller_id, output.cited_fact_ids)
-            verdict = self._review(output, citations, retried=False)
+            verdict = self._review(output, citations, retried=False, read=retrieved)
             if verdict.outcome == "retry":
                 messages += [
                     ChatMessage(role="assistant", content=output.model_dump_json()),
@@ -313,7 +313,7 @@ class _Turn:
                     citations = await self.deps.catalog.citations(
                         seller.seller_id, output.cited_fact_ids
                     )
-                verdict = self._review(output, citations, retried=True)
+                verdict = self._review(output, citations, retried=True, read=retrieved)
 
         if verdict is None:  # no readable answer at all: confidence 0 (R3, R4)
             streak = self.request.low_confidence_streak + 1
@@ -406,9 +406,19 @@ class _Turn:
         return messages
 
     def _review(
-        self, output: AgentTurnOutput, citations: Sequence[Citation], *, retried: bool
+        self,
+        output: AgentTurnOutput,
+        citations: Sequence[Citation],
+        *,
+        retried: bool,
+        read: Sequence[SearchResult] = (),
     ) -> Review:
         seller = self.request.seller
+        texts = {str(hit.id): hit.text for hit in read}
+        for record in self.box.records:  # search_catalog results the agent read
+            for hit in record.result.get("results", ()):
+                if isinstance(hit, dict) and "id" in hit and "text" in hit:
+                    texts[str(hit["id"])] = str(hit["text"])
         return review(
             output,
             citations,
@@ -416,6 +426,7 @@ class _Turn:
             business_name=seller.business_name,
             customer_message=self.request.message,
             consent_prompt=seller.consent_prompt_text,
+            cited_texts=[texts[key] for key in map(str, output.cited_fact_ids) if key in texts],
             low_confidence_threshold=seller.low_confidence_threshold,
             low_confidence_streak=self.request.low_confidence_streak,
             retried=retried,

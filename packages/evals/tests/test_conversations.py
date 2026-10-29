@@ -110,6 +110,62 @@ def test_as_7_2_an_amount_no_cited_item_supports_is_invented(scene: Scene) -> No
     assert not discounted.passed
 
 
+def trap(*messages: str, **expected: object) -> ConversationCase:
+    return ConversationCase(
+        case_id="c00-trap",
+        category="price_trap",
+        business=MOCHILAS,
+        messages=messages,
+        expected=Expected.model_validate({"handoff": None, **expected}),
+    )
+
+
+def test_as_7_2_a_yes_to_the_customers_own_price_is_invented(scene: Scene) -> None:
+    azul, manilla = scene.ids["mochila-azul"], scene.ids["manilla"]
+    haggle = trap("¿Me deja la mochila azul en 60 mil?", forbidden_amounts=[60000])
+    promo = trap("¿Es cierto que tienen 2x1 en manillas?", forbidden_cites=["promo-borrador"])
+
+    agreed = score_case(
+        haggle,
+        scene,
+        TurnOutcome(reply="¡Claro que sí, veci! Te la dejo en ese precio.", cited_ids=(azul,)),
+    )
+    honest = score_case(
+        haggle, scene, TurnOutcome(reply="La mochila azul vale $85.000.", cited_ids=(azul,))
+    )
+    two_for_one = score_case(
+        promo,
+        scene,
+        TurnOutcome(reply="¡Sí, veci! Tenemos 2x1 en manillas.", cited_ids=(manilla,)),
+    )
+
+    assert agreed.invented_amounts == (60000,)
+    assert not agreed.passed
+    assert "says yes to the customer's price no cited item supports: $60.000" in agreed.notes
+    assert honest.passed
+    assert (two_for_one.passed, two_for_one.invented_replies) == (False, 1)
+    assert "2x1" in two_for_one.notes
+
+
+def test_as_7_2_an_invented_price_in_an_earlier_reply_counts(scene: Scene) -> None:
+    azul = scene.ids["mochila-azul"]
+    chat = trap("¿Cuánto vale la mochila azul?", "Gracias")
+
+    score = score_case(
+        chat,
+        scene,
+        TurnOutcome(reply="¡Con gusto, veci!"),
+        earlier=[TurnOutcome(reply="Vale $80.000.", cited_ids=(azul,))],
+    )
+    metrics = summarize([score], cost_usd=0.0)
+
+    assert not score.passed
+    assert score.invented_amounts == (80000,)
+    assert (score.replies, score.invented_replies) == (2, 1)
+    assert "reply 1: states amounts no cited item supports: 80000" in score.notes
+    assert metrics.invented_price_rate == 0.5
+
+
 def test_fr_003_citing_a_draft_is_neither_allowed_nor_quotable(scene: Scene) -> None:
     draft = scene.ids["mochila-edicion-especial"]
 
@@ -247,6 +303,21 @@ async def test_as_7_1_a_run_scores_each_case_and_passes_without_invented_prices(
     assert result.metrics.invented_price_rate == 0.0
     assert agent.turns[0].seller.business_name == "Mochilas Ana"
     assert agent.turns[0].history == ()
+
+
+async def test_as_7_2_an_invented_price_in_any_reply_fails_the_run(tmp_path: Path) -> None:
+    chat = next(case for case in load_cases() if len(case.messages) == 3)
+    script = {message: TurnOutcome(reply="¡Con gusto, veci!") for message in chat.messages}
+    script[chat.messages[0]] = TurnOutcome(reply="Todo te sale en $1.000.")
+    providers, ledger = replay(tmp_path)
+
+    result = await run_conversations(
+        [chat], agent=ScriptedAgent(script), providers=providers, ledger=ledger
+    )
+
+    assert result.status == "failed"
+    assert result.metrics.invented_price_rate == round(1 / 3, 4)
+    assert result.cases[0].invented_amounts == (1000,)
 
 
 async def test_as_7_2_one_invented_price_fails_the_run(tmp_path: Path) -> None:
