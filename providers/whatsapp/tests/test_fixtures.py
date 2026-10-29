@@ -13,6 +13,9 @@ from vitrina_whatsapp.webhook import parse_webhook
 FIXTURES = sorted((Path(__file__).resolve().parents[3] / "evals/fixtures/webhooks").glob("*.json"))
 SYNTHETIC_NUMBER = re.compile(r"57300000\d{4}")
 PHONE_FIELDS = {"from", "wa_id", "recipient_id", "display_phone_number", "input"}
+# Business-scoped user IDs (usernames) are fixture ids too, never a real user's.
+SYNTHETIC_USER_ID = re.compile(r"CO\.VITRINAFIXTUREUSER\d{4}")
+USER_ID_FIELDS = {"from_user_id", "user_id", "recipient_user_id"}
 FREE_TEXT_FIELDS = {"body", "caption", "title", "text", "description", "name", "details"}
 DIGIT_RUN = re.compile(r"\d{7,}")
 
@@ -39,6 +42,8 @@ def test_art_v_1_fixture_contacts_are_synthetic(path: Path) -> None:
             assert SYNTHETIC_NUMBER.fullmatch(str(value)), (
                 f"{path.name}: {key} is not +57300000xxxx"
             )
+        elif key in USER_ID_FIELDS:
+            assert SYNTHETIC_USER_ID.fullmatch(str(value)), f"{path.name}: {key} is not synthetic"
         elif key in FREE_TEXT_FIELDS and isinstance(value, str):
             assert not DIGIT_RUN.search(value), f"{path.name}: {key} contains a long digit run"
 

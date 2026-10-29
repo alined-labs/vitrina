@@ -233,7 +233,7 @@ async def process_stored_message(
     except WebhookPayloadError:
         return None
     message = next((m for m in batch.messages if m.message_id == message_id), None)
-    if message is None:
+    if message is None or message.from_wa_id is None:
         return None
     return await process_inbound(
         Inbound(

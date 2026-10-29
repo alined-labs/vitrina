@@ -2,6 +2,7 @@
 message once and applies status callbacks (FR-028); the route acknowledges right after.
 """
 
+import json
 from uuid import UUID, uuid4
 
 import pytest
@@ -113,6 +114,32 @@ async def test_as_3_1_a_malformed_payload_is_kept_with_its_error_and_acknowledge
     assert result.queued == ()
     assert result.payload_id is not None
     assert store.webhooks[result.payload_id]["body"] == {"object": "page", "entry": []}
+
+
+async def test_as_3_1_one_unreadable_message_does_not_drop_the_delivery(
+    store: InMemoryConversationStore, queue: RecordingQueue
+) -> None:
+    good = json.loads(webhook_fixture("text_ad_code_a7"))
+    good["entry"][0]["changes"][0]["value"]["messages"].insert(0, {"type": "text"})
+    body = json.dumps(good).encode()
+
+    result = await ingest(store, queue).receive(body, sign(body, SECRET))
+
+    assert result.queued == ("wamid.VITRINA-FIXTURE-IN-0001",)
+    assert result.payload_id is not None
+    assert str(store.webhooks[result.payload_id]["error"]).startswith("messages.0: ")
+
+
+async def test_as_3_1_a_message_from_a_username_without_a_number_is_kept_not_queued(
+    store: InMemoryConversationStore, queue: RecordingQueue
+) -> None:
+    body = webhook_fixture("text_from_username")
+
+    result = await ingest(store, queue).receive(body, sign(body, SECRET))
+
+    assert (result.queued, queue.jobs) == ((), [])
+    assert result.payload_id is not None
+    assert store.webhooks[result.payload_id]["error"] is None
 
 
 async def test_as_3_1_messages_to_an_unknown_business_number_are_not_queued(
