@@ -55,6 +55,33 @@ while IFS= read -r line || [[ -n $line ]]; do
   values[$name]=$value
 done < "$secrets_file"
 
+# What production cannot run without (deploy/README.md, "What you need"): a real run stops
+# here, before any az command; a dry run names them and goes on. Only names are printed.
+setting() {
+  local item
+  for item in "${SETTINGS[@]}"; do
+    if [[ $item == "$1="* ]]; then printf '%s' "${item#*=}"; return; fi
+  done
+}
+required=(
+  DATABASE_URL SUPABASE_URL META_API_KEY SERVICE_TOKEN CONTACT_HASH_PEPPER CONTACT_ENCRYPTION_KEY
+  VISITOR_PROXY_SECRET MODEL_AGENT MODEL_STRATEGIST MODEL_IMAGE MODEL_SEGMENT MODEL_TRANSCRIBE
+)
+if [[ $(setting WHATSAPP_MOCK) == false ]]; then
+  required+=(WHATSAPP_ACCESS_TOKEN WHATSAPP_APP_SECRET WHATSAPP_VERIFY_TOKEN WHATSAPP_PHONE_NUMBER_ID)
+fi
+if [[ $(setting STORAGE_BACKEND) == supabase ]]; then
+  required+=(SUPABASE_SERVICE_ROLE_KEY)
+fi
+missing=()
+for name in "${required[@]}"; do
+  [[ -n ${values[$name]-} ]] || missing+=("$name")
+done
+if (( ${#missing[@]} )); then
+  echo "missing in $secrets_file: ${missing[*]}" >&2
+  [[ $dry == 1 ]] || exit 2
+fi
+
 secret_args=() env_args=() api_only_secrets=() api_only_env=() masked=(registry-password)
 for name in $(printf '%s\n' "${!SECRET_OF[@]}" | sort); do
   [[ -n ${values[$name]-} ]] || continue

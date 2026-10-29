@@ -40,6 +40,11 @@ DRY_RUN=1 deploy/azure.sh   # every az command it would run, secret values as **
 deploy/azure.sh             # the real thing; run it again to deploy a new commit
 ```
 
+Before any `az` command, the script checks that `.env` has every value production needs (the
+list above; the WhatsApp values while `WHATSAPP_MOCK=false`, the service key while
+`STORAGE_BACKEND=supabase`). If one is missing it stops and names it; a dry run names it and
+goes on. Only names are printed, never values.
+
 The script is idempotent. In order, it:
 
 1. creates the resource group and a Basic Azure Container Registry, if they are missing;
