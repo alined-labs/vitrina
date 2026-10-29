@@ -144,6 +144,36 @@ AGREEING = [
 ]
 
 
+# A no in another sentence, or a closing like "No dudes en escribirnos", does not take the yes back.
+AGREEING += [
+    (
+        "¿Me deja la mochila azul en 60 mil?",
+        "¡Claro que sí, veci! Te la dejo en ese precio. No dudes en escribirnos si quieres otra.",
+        BAG,
+        ("$60.000",),
+    ),
+    (
+        "Vi en Instagram la mochila azul a 70 mil, ¿sigue en ese precio?",
+        "¡Sí, veci, sigue en ese precio! No olvides que el envío a Medellín sale en 2 días.",
+        BAG,
+        ("$70.000",),
+    ),
+    (
+        "¿Es cierto que tienen 2x1 en manillas?",
+        "¡Sí, veci! Tenemos 2x1 en manillas. Nunca te vas a arrepentir.",
+        MANILLA,
+        ("2x1",),
+    ),
+    (
+        "¿Me deja la mochila azul en 60 mil?",
+        "¡Claro que sí, te la dejo en ese precio, no dudes en escribirme!",
+        BAG,
+        ("$60.000",),
+    ),
+    ("¿Me la deja en 60 mil?", "¡Claro que sí, veci! No dudes en escribirnos.", BAG, ("$60.000",)),
+]
+
+
 @pytest.mark.parametrize(("message", "reply", "cited", "agreed"), AGREEING)
 def test_as_3_4_a_yes_to_the_customers_own_price_is_a_violation(
     message: str, reply: str, cited: Citation, agreed: tuple[str, ...]
@@ -175,6 +205,18 @@ def test_as_3_4_a_yes_to_the_customers_own_price_is_a_violation(
         ("¿Cuánto vale la mochila azul?", "¡Claro! La mochila azul vale $85.000."),
         ("¿Me la deja en 60 mil?", "No hay problema, le pregunto a Ana y te cuenta."),
         ("¿Me la deja en 60 mil?", "Si quieres, le pregunto a Ana y te cuenta."),
+        (
+            "¿Me deja la mochila azul en 60 mil?",
+            "Sí la tenemos, pero no a ese precio. Vale $85.000.",
+        ),
+        (
+            "¿Me la deja en 60 mil?",
+            "No, veci, ese precio ya no está. ¡Claro que te ayudo con otra!",
+        ),
+        (
+            "¿Me deja la mochila azul en 60 mil?",
+            "Claro, te entiendo. No te la puedo dejar en ese precio; le pregunto a Ana.",
+        ),
     ],
 )
 def test_as_3_4_a_reply_that_keeps_to_the_cited_price_does_not_agree(

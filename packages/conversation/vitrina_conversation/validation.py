@@ -93,7 +93,12 @@ AGREEING = frozenset({
 })  # fmt: skip
 NEGATIONS = frozenset({"no", "ningun", "ninguna", "ninguno", "nunca", "tampoco"})
 _YES = re.compile(r"(?<!\w)sí(?!\w)|^\W*si\s*[,.!]")
-_NOT_A_NO = re.compile(r"\bno (?:hay problema|hay lio|te preocupes|se preocupe)\b")
+# Closings whose "no" takes nothing back: "No dudes en escribirnos", "Nunca te vas a arrepentir".
+_NOT_A_NO = re.compile(
+    r"\b(?:no|nunca) (?:hay problema|hay lio|te preocupes|se preocupe|dudes|dude|duden"
+    r"|olvides|olvide|olviden|te pierdas|se pierda|te vas a arrepentir|te arrepentiras"
+    r"|se va a arrepentir)\b"
+)
 # A price verb pointing back at the customer's amount: "te la dejo en ese precio", "sigue en
 # ese precio", "queda en eso". Folded text.
 _CONCEDES = re.compile(
@@ -182,8 +187,10 @@ def agreed_offers(
     cited_texts: Iterable[str] = (),
 ) -> Agreement:
     """The amounts and promotions in ``customer_message`` that no cited item carries and that
-    ``reply`` says yes to: with a yes and no amount of its own, by pointing back at them
-    ("en ese precio"), or by repeating the promotion. A reply that says no agrees to nothing."""
+    ``reply`` says yes to, read sentence by sentence. A sentence without a no of its own that
+    points back at them ("te la dejo en ese precio") or repeats the promotion agrees, whatever
+    the other sentences say; a bare yes agrees when the reply quotes no amount and no sentence
+    says no ("No, veci, ese precio ya no está. ¡Claro que te ayudo!" agrees to nothing)."""
     if not customer_message:
         return Agreement()
     amounts = tuple(
@@ -194,13 +201,17 @@ def agreed_offers(
     if not (amounts or promotions):
         return Agreement()
     statement = _QUESTION.sub(" ", reply)
-    folded = _fold(statement)
-    if set(_words(_NOT_A_NO.sub(" ", folded))) & NEGATIONS:
-        return Agreement()
-    plain = unicodedata.normalize("NFC", statement.casefold()).strip()
-    says_yes = bool(_YES.search(plain) or set(_words(folded)) & AGREEING)
-    points_back = bool(_CONCEDES.search(folded) or _promotions(statement) & set(promotions))
-    if points_back or (says_yes and not amounts_cop(statement)):
+    refuses = says_yes = False
+    for sentence in _SENTENCE.findall(statement):
+        folded = _fold(sentence)
+        if set(_words(_NOT_A_NO.sub(" ", folded))) & NEGATIONS:
+            refuses = True
+            continue
+        if _CONCEDES.search(folded) or _promotions(sentence) & set(promotions):
+            return Agreement(amounts, promotions)
+        plain = unicodedata.normalize("NFC", sentence.casefold()).strip()
+        says_yes = says_yes or bool(_YES.search(plain) or set(_words(folded)) & AGREEING)
+    if says_yes and not refuses and not amounts_cop(statement):
         return Agreement(amounts, promotions)
     return Agreement()
 
