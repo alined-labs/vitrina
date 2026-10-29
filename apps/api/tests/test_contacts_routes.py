@@ -136,6 +136,7 @@ async def test_after_an_opt_out_the_paper_form_cannot_grant_marketing_again(
 
     assert response.status_code == 409
     assert response.json()["code"] == "CONFLICT"
+    assert response.json()["detail"].startswith("Este contacto se dio de baja")
     assert [(entry["status"], entry["recorded_by"]) for entry in ledger] == [("revoked", "seller")]
 
 

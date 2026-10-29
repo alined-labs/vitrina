@@ -37,6 +37,9 @@ def compliance_store(request: Request) -> ComplianceStore:
 
 
 Store = Annotated[ComplianceStore, Depends(compliance_store)]
+OPTED_OUT_DETAIL = (
+    "Este contacto se dio de baja: no se puede registrar un nuevo permiso de marketing."
+)
 Paging = Annotated[PageQuery, Depends()]
 
 
@@ -136,7 +139,8 @@ async def record_consent_manually(
     except LookupError as error:
         raise _not_found(contact_id) from error
     except OptedOutError as error:
-        raise ProblemError(ProblemCode.CONFLICT, detail=str(error)) from error
+        # The dashboard shows a conflict's detail to the seller as written.
+        raise ProblemError(ProblemCode.CONFLICT, detail=OPTED_OUT_DETAIL) from error
 
 
 @router.post(
