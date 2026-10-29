@@ -4,6 +4,8 @@ Contract paths: /public/showcases, /public/showcases/{slug} (T083, P2; AS-8.2, F
 the visitor's address, hashed with a key and the hour, limits uploads to five an hour.
 Behind the dashboard's proxy the address arrives in ``X-Vitrina-Visitor`` (the proxy drops the
 forwarding headers and always sets this one); a direct call is limited by its own address.
+After the limit counts the attempt, Spark answers one yes/no question about the photo; a
+refused photo is answered in Spanish and never stored, and no job is queued.
 """
 
 import ipaddress
@@ -16,11 +18,14 @@ from fastapi import APIRouter, File, Form, Path, Request, UploadFile
 from vitrina_core.http import FieldError, ProblemCode, ProblemError, problem_responses
 from vitrina_core.ids import new_id
 from vitrina_core.jobs import PostgresJobQueue
+from vitrina_core.providers import Blob, ProviderError
 from vitrina_core.settings import Settings
 from vitrina_core.storage import BlobStore, blob_key
 from vitrina_creative.api import (
     RATE_LIMIT,
     SHOWCASE_TASK,
+    UPLOAD_REFUSED,
+    UPLOAD_UNCHECKED,
     WINDOW,
     MediaRejectedError,
     PublicShowcase,
@@ -29,6 +34,7 @@ from vitrina_creative.api import (
     address_hash,
     new_slug,
     showcase_view,
+    upload_allowed,
     window_start,
 )
 from vitrina_creative.media import IMAGE_MAX_BYTES, inspect_media
@@ -110,6 +116,16 @@ async def create_showcase(
         raise _invalid_image(error.message) from error
     if media.kind != "image":
         raise _invalid_image("Sube una foto JPEG, PNG o WebP.")
+    try:
+        allowed = await upload_allowed(
+            Blob(data=data, mime_type=media.mime_type),
+            chat=request.app.state.providers.chat,
+            model=settings.model_id("agent"),
+        )
+    except (ProviderError, LookupError) as error:
+        raise ProblemError(ProblemCode.PROVIDER_UNAVAILABLE, detail=UPLOAD_UNCHECKED) from error
+    if not allowed:
+        raise _invalid_image(UPLOAD_REFUSED)
 
     showcase_id, slug = new_id(), new_slug(product_name)
     source_key = blob_key(OWNER, "showcases", f"{slug}/source", media.extension)

@@ -8,7 +8,7 @@ perfect segmenter would return.
 
 The scripted providers at the end stand in for SAM, Muse Image and Spark in pipeline and
 end-to-end tests: masks come from the synthetic set, scenes in the order given, and Spark
-answers each purpose (review, copy, judge) with a valid reply.
+answers each purpose (upload check, review, copy, judge) with a valid reply.
 """
 
 import json
@@ -222,13 +222,16 @@ class ScriptedMuse:
 
 
 class SparkByPurpose:
-    """Review: unchanged. Copy: one valid text per asked slot. Judge: 4 on every dimension."""
+    """Upload check: allowed. Review: unchanged. Copy: one valid text per asked slot. Judge: 4
+    on every dimension."""
 
     async def complete(self, request: ChatRequest) -> ChatResponse:
         user = request.messages[-1].content
         text = user if isinstance(user, str) else ""
-        if request.purpose == "verify":
-            body: dict[str, object] = {"altered": False, "reason": "sin cambios en el producto"}
+        if request.purpose == "classify":
+            body: dict[str, object] = {"allowed": True}
+        elif request.purpose == "verify":
+            body = {"altered": False, "reason": "sin cambios en el producto"}
         elif request.purpose == "copy":
             body = {
                 "variants": [
@@ -240,4 +243,20 @@ class SparkByPurpose:
             dims = dict.fromkeys(("formality", "warmth", "emoji", "regionalisms", "naturalness"), 4)
             body = {"scores": [{"index": int(n), **dims} for n in NUMBERED.findall(text)]}
         message = ChatMessage(role="assistant", content=json.dumps(body, ensure_ascii=False))
+        return ChatResponse(message=message, meta=fake_meta(request))
+
+
+class ScriptedAnswers:
+    """Answers each request with the next text, or raises the next exception; keeps requests."""
+
+    def __init__(self, *answers: str | Exception) -> None:
+        self.answers = list(answers)
+        self.requests: list[ChatRequest] = []
+
+    async def complete(self, request: ChatRequest) -> ChatResponse:
+        self.requests.append(request)
+        answer = self.answers.pop(0)
+        if isinstance(answer, Exception):
+            raise answer
+        message = ChatMessage(role="assistant", content=answer)
         return ChatResponse(message=message, meta=fake_meta(request))
