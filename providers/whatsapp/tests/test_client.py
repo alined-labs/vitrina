@@ -483,3 +483,23 @@ async def test_t051_a_media_id_meta_does_not_know_is_a_provider_error(clock: Clo
             await client.download_media(MEDIA_ID)
 
     assert not is_retryable(caught.value)
+
+
+async def test_t051_the_token_never_goes_to_a_media_link_that_is_not_https(clock: Clock) -> None:
+    graph = ScriptedGraph(media_info(url="http://lookaside.fbsbx.example/plain"))
+
+    async with client_for(graph, clock) as client:
+        with pytest.raises(WhatsAppSendError, match="https") as caught:
+            await client.download_media(MEDIA_ID)
+
+    assert not is_retryable(caught.value)
+    assert len(graph.requests) == 1  # the media info only; nothing was downloaded
+
+
+async def test_t051_a_media_id_stays_one_path_segment(clock: Clock) -> None:
+    graph = ScriptedGraph(media_info(), httpx2.Response(200, content=b"OggS-opus-1"))
+
+    async with client_for(graph, clock) as client:
+        await client.download_media("../me?fields=id")
+
+    assert graph.requests[0].url.raw_path.endswith(b"/v26.0/..%2Fme%3Ffields%3Did")
