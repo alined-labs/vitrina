@@ -7,7 +7,13 @@ from pydantic import SecretStr
 from sqlalchemy.exc import DBAPIError
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
-from vitrina_compliance.consents import PostgresCompliance, opt_out, record_consent
+from vitrina_compliance.consents import (
+    ConsentRecordCreate,
+    ConsentRefusedError,
+    PostgresCompliance,
+    opt_out,
+    record_consent,
+)
 from vitrina_compliance.contacts import ContactIdentity
 from vitrina_compliance.tables import consent_records, contacts
 from vitrina_core.db.tables import events, sellers
@@ -106,3 +112,42 @@ async def test_db_opting_out_an_unknown_contact_is_a_lookup_error(
 
     with pytest.raises(LookupError):
         await opt_out(store, shop, new_id(), via="api")
+
+
+@pytest.mark.db
+async def test_db_after_an_opt_out_a_new_yes_records_nothing(
+    db_sessions: async_sessionmaker[AsyncSession], identity: ContactIdentity
+) -> None:
+    store = PostgresCompliance(db_sessions, identity)
+    shop = await seller(db_sessions, "+573000000204")
+    contact = await store.resolve_contact(shop, "573000000002")
+    await record_consent(store, shop, contact.id, prompt_text=PROMPT, response_text="dale")
+    await opt_out(store, shop, contact.id, via="keyword", response_text="BAJA")
+    paper_form = ConsentRecordCreate(
+        purpose="marketing",
+        status="granted",
+        text_shown="Formulario en el local",
+        response_text="Firmó que sí",
+        channel="in_person",
+    )
+
+    with pytest.raises(ConsentRefusedError, match="opted out"):
+        await record_consent(store, shop, contact.id, prompt_text=PROMPT, response_text="sí")
+    with pytest.raises(ConsentRefusedError, match="opted out"):
+        await store.append_consent(shop, contact.id, paper_form, recorded_by="seller")
+    processing = await store.append_consent(
+        shop,
+        contact.id,
+        paper_form.model_copy(update={"purpose": "data_processing"}),
+        recorded_by="seller",
+    )
+
+    after = await store.contact(shop, contact.id)
+    assert after is not None
+    assert after.marketing_consent == "revoked"
+    assert [(r.purpose, r.status) for r in await store.consents(shop, contact.id)] == [
+        ("data_processing", "granted"),
+        ("marketing", "revoked"),
+        ("marketing", "granted"),
+    ]
+    assert processing.purpose == "data_processing"
