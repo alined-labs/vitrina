@@ -17,7 +17,8 @@ dates, times, years, sizes, counts.
 import re
 import unicodedata
 
-_TOKEN = re.compile(r"\d+(?:[.,]\d+)*|[a-zñ]+|[$%/:\-–—]|[.!?;](?!\d)")
+# A comma or full stop not inside a number is kept: "45 mil, 50 mil" is two amounts.
+_TOKEN = re.compile(r"\d+(?:[.,]\d+)*|[a-zñ]+|[$%/:\-–—]|[.,!?;](?!\d)")
 # 1'250.000: an apostrophe marks the millions. 45 000: a space groups thousands, as some
 # keyboards and writers do; the number is then read as written, so it needs a money mark.
 _APOSTROPHE_MILLIONS = re.compile(r"(?<=\d)['’´`](?=\d{3}(?:[.,]\d{3})*(?!\d))")
@@ -181,6 +182,9 @@ def _remainder(tokens: list[str], index: int, below: int) -> tuple[int, int]:
     if below == 1_000_000 and tokens[index : index + 2] == ["y", "medio"]:
         return 500_000, 2
     if token.isdigit() and len(token) <= 3 and not _counts_something_else(tokens, index, 0):
+        nxt = tokens[index + 1] if index + 1 < len(tokens) else ""
+        if below == 1000 and (nxt in _THOUSAND or nxt in _THOUSANDS_SLANG or nxt == "k"):
+            return 0, 0  # "45 mil 50 mil": the next amount, not the rest of this one
         value, used = int(token), 1
         if below == 1_000_000 and tokens[index + 1 : index + 2] == ["mil"]:
             more, extra = _remainder(tokens, index + 2, 1000)
