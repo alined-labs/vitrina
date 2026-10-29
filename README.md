@@ -88,6 +88,14 @@ The suites live in `evals/fixtures`: Spanish conversations, consent and schedule
   - Messages to one recipient are spaced at least 6 s apart.
   - `BAJA` opts out at once, and `BORRAR MIS DATOS` erases the customer's data within 24 hours.
 
+## Known limits
+
+- **WhatsApp test number.** The business behind this demo is not verified with Meta. The demo and the deployment use Meta's WhatsApp test number, which can message only verified recipients (up to five). Running the WhatsApp Business app and the Cloud API on one number (coexistence) is out of scope: it needs a verified business and a Tech Provider.
+- **Free offers.** The price check reads every amount in a reply, but not "gratis" or "sin costo". A reply that promises something free still has to cite the seller's facts and pass the confidence check; the price check alone does not catch it.
+- **Handoff summaries.** When the agent hands a chat to the owner, the summary goes to the dashboard's waiting list, not to the owner's own WhatsApp.
+- **Consent wording.** The consent and opt-out texts follow Ley 1581 and Ley 2300, but no lawyer has reviewed them.
+- **Search.** No embedding model is available to our key, so catalog search runs on full text, trigrams and Spanish word stems.
+
 ## Run it locally (no keys needed)
 
 ```
