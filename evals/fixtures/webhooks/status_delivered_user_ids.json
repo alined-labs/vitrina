@@ -1,0 +1,41 @@
+{
+  "object": "whatsapp_business_account",
+  "entry": [
+    {
+      "id": "100000000000002",
+      "changes": [
+        {
+          "value": {
+            "messaging_product": "whatsapp",
+            "metadata": {
+              "display_phone_number": "573000000000",
+              "phone_number_id": "100000000000001"
+            },
+            "contacts": [
+              {
+                "wa_id": "573000000001",
+                "user_id": "CO.VITRINAFIXTUREUSER0002"
+              }
+            ],
+            "statuses": [
+              {
+                "id": "wamid.VITRINA-FIXTURE-OUT-0003",
+                "status": "delivered",
+                "timestamp": "1793113980",
+                "recipient_id": "573000000001",
+                "recipient_user_id": "CO.VITRINAFIXTUREUSER0002",
+                "recipient_logical_id": "VITRINA-FIXTURE-LOGICAL-0002",
+                "pricing": {
+                  "billable": true,
+                  "pricing_model": "PMP",
+                  "category": "utility"
+                }
+              }
+            ]
+          },
+          "field": "messages"
+        }
+      ]
+    }
+  ]
+}

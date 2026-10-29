@@ -1,0 +1,39 @@
+{
+  "object": "whatsapp_business_account",
+  "entry": [
+    {
+      "id": "100000000000002",
+      "changes": [
+        {
+          "value": {
+            "messaging_product": "whatsapp",
+            "metadata": {
+              "display_phone_number": "573000000000",
+              "phone_number_id": "100000000000001"
+            },
+            "contacts": [
+              {
+                "profile": {
+                  "name": "Camila Prueba"
+                },
+                "user_id": "CO.VITRINAFIXTUREUSER0001"
+              }
+            ],
+            "messages": [
+              {
+                "from_user_id": "CO.VITRINAFIXTUREUSER0001",
+                "id": "wamid.VITRINA-FIXTURE-IN-0013",
+                "timestamp": "1793113800",
+                "type": "text",
+                "text": {
+                  "body": "Hola, ¿tienen la mochila azul?"
+                }
+              }
+            ]
+          },
+          "field": "messages"
+        }
+      ]
+    }
+  ]
+}

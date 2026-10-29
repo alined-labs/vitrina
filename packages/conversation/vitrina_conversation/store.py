@@ -265,7 +265,11 @@ class InMemoryConversationStore:
         self, body: Mapping[str, Any], *, signature_valid: bool, error: str | None = None
     ) -> UUID:
         payload_id = new_id()
-        self.webhooks[payload_id] = {"body": dict(body), "signature_valid": signature_valid}
+        self.webhooks[payload_id] = {
+            "body": dict(body),
+            "signature_valid": signature_valid,
+            "error": error,
+        }
         return payload_id
 
     async def webhook(self, payload_id: UUID) -> dict[str, Any] | None:

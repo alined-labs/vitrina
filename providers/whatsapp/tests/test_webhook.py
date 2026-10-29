@@ -141,6 +141,103 @@ def test_fr_028_status_callbacks_are_parsed(
     assert update.errors == ()
 
 
+# ── usernames: Meta leaves the number out for a user with a username (business-scoped IDs) ──
+
+USERNAME_USER = "CO.VITRINAFIXTUREUSER0001"
+
+
+def envelope(messages: list[object], statuses: list[object] | None = None) -> bytes:
+    value = {
+        "metadata": {"display_phone_number": "573000000000", "phone_number_id": "1"},
+        "messages": messages,
+        "statuses": statuses or [],
+    }
+    return json.dumps(
+        {
+            "object": "whatsapp_business_account",
+            "entry": [{"id": "1", "changes": [{"field": "messages", "value": value}]}],
+        }
+    ).encode()
+
+
+def text(message_id: str, **sender: object) -> dict[str, object]:
+    return {
+        "id": message_id,
+        "timestamp": "1793113800",
+        "type": "text",
+        "text": {"body": "Hola"},
+        **sender,
+    }
+
+
+def test_as_3_1_a_sender_with_a_username_is_read_by_their_user_id(
+    webhook_body: Callable[[str], bytes],
+) -> None:
+    (message,) = parse_webhook(webhook_body("text_from_username")).messages
+
+    assert message.message_id == "wamid.VITRINA-FIXTURE-IN-0013"
+    assert message.from_wa_id is None
+    assert message.from_user_id == USERNAME_USER
+    assert message.profile_name == "Camila Prueba"
+    assert message.text == "Hola, ¿tienen la mochila azul?"
+
+
+def test_as_3_1_a_sender_with_a_number_keeps_their_user_id_too() -> None:
+    (message,) = parse_webhook(
+        envelope([text("wamid.A", **{"from": LAURA, "from_user_id": USERNAME_USER})])
+    ).messages
+
+    assert (message.from_wa_id, message.from_user_id) == (LAURA, USERNAME_USER)
+
+
+def test_as_3_1_one_unreadable_message_does_not_drop_the_delivery() -> None:
+    body = envelope(
+        [
+            {"from": LAURA, "type": "text"},  # no id, no timestamp
+            text("wamid.B", **{"from": ANDRES}),
+            text("wamid.C"),  # no sender at all
+            text("wamid.D", **{"from": 573000000003}),  # a number, not a string
+        ]
+    )
+
+    batch = parse_webhook(body)
+
+    assert batch.message_ids == ("wamid.B",)
+    assert len(batch.unreadable) == 3
+    assert batch.unreadable[0].startswith("messages.0: ")
+    assert "neither from nor from_user_id" in batch.unreadable[1]
+    assert all("573000000003" not in problem for problem in batch.unreadable)
+
+
+def test_fr_028_a_status_carries_the_user_id_and_the_new_fields_are_ignored(
+    webhook_body: Callable[[str], bytes],
+) -> None:
+    (update,) = parse_webhook(webhook_body("status_delivered_user_ids")).statuses
+
+    assert (update.message_id, update.status) == ("wamid.VITRINA-FIXTURE-OUT-0003", "delivered")
+    assert (update.recipient_wa_id, update.recipient_user_id) == (
+        LAURA,
+        "CO.VITRINAFIXTUREUSER0002",
+    )
+
+
+def test_fr_028_a_status_without_the_number_and_an_unreadable_one_still_parse() -> None:
+    sent = {"id": "wamid.OUT", "status": "sent", "timestamp": "1793113800"}
+    body = envelope(
+        [],
+        [
+            {**sent, "recipient_user_id": USERNAME_USER},
+            {"id": "wamid.BROKEN", "status": "read"},  # no timestamp
+        ],
+    )
+
+    batch = parse_webhook(body)
+
+    (update,) = batch.statuses
+    assert (update.recipient_wa_id, update.recipient_user_id) == (None, USERNAME_USER)
+    assert batch.unreadable[0].startswith("statuses.1: ")
+
+
 def test_fr_028_failed_status_carries_the_meta_error(webhook_body: Callable[[str], bytes]) -> None:
     (update,) = parse_webhook(webhook_body("status_failed_reengagement")).statuses
 
@@ -167,13 +264,9 @@ def test_as_3_1_other_webhook_fields_are_ignored_not_rejected(
         b"[]",
         b'{"object": "page", "entry": []}',
         b'{"object": "whatsapp_business_account"}',
-        (
-            b'{"object": "whatsapp_business_account", "entry": [{"id": "1", "changes": [{"field":'
-            b' "messages", "value": {"metadata": {"display_phone_number": "573000000000",'
-            b' "phone_number_id": "1"}, "messages": [{"from": "573000000001", "type": "text"}]}}]}]}'
-        ),
+        b'{"object": "whatsapp_business_account", "entry": [{"id": 573000000001}]}',
     ],
-    ids=["not-json", "not-an-object", "other-product", "no-entries", "message-without-id"],
+    ids=["not-json", "not-an-object", "other-product", "no-entries", "entry-id-not-a-string"],
 )
 def test_as_3_1_malformed_payload_is_rejected(body: bytes) -> None:
     with pytest.raises(WebhookPayloadError):
@@ -181,17 +274,22 @@ def test_as_3_1_malformed_payload_is_rejected(body: bytes) -> None:
 
 
 def test_as_3_1_payload_errors_never_echo_customer_data() -> None:
-    body = (
-        b'{"object": "whatsapp_business_account", "entry": [{"id": "1", "changes": [{"field":'
-        b' "messages", "value": {"metadata": {"display_phone_number": "573000000000",'
-        b' "phone_number_id": "1"}, "messages": [{"from": 573000000001, "id": "x",'
-        b' "timestamp": "1", "type": "text"}]}}]}]}'
-    )
-
     with pytest.raises(WebhookPayloadError) as caught:
-        parse_webhook(body)
+        parse_webhook(b'{"object": "whatsapp_business_account", "entry": [{"id": 573000000001}]}')
 
     assert "573000000001" not in str(caught.value)
+
+
+def test_as_3_1_a_change_without_metadata_is_listed_not_fatal() -> None:
+    body = (
+        b'{"object": "whatsapp_business_account", "entry": [{"id": "1", "changes": [{"field":'
+        b' "messages", "value": {"messages": []}}]}]}'
+    )
+
+    batch = parse_webhook(body)
+
+    assert batch.messages == ()
+    assert batch.unreadable[0].startswith("changes.0: ")
 
 
 # ── delivery status (FR-028): callbacks arrive late, twice or out of order ──

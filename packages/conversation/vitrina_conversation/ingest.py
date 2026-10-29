@@ -5,7 +5,10 @@ fails is refused and not kept (it is logged by size and digest only). A signed b
 as received (``webhook_payloads``, 30 days), and each message is queued once for
 ``process_inbound``: the queue is keyed by the WhatsApp message id, so Meta's redeliveries add
 nothing. Status callbacks are applied right away. A signed body this module cannot read is
-kept with its error and still acknowledged, because Meta would only send it again.
+kept with its error and still acknowledged, because Meta would only send it again; so is a
+body with one unreadable message, whose other messages are queued. A message written with a
+WhatsApp username and no number is kept but not queued: contacts, consent and replies go by
+number.
 """
 
 import hashlib
@@ -71,10 +74,20 @@ class Ingest:
                 decoded, signature_valid=True, error=str(error)
             )
             return IngestResult(payload_id)
-        payload_id = await self.store.save_webhook(decoded, signature_valid=True)
+        if batch.unreadable:
+            logger.warning("webhook partly unread: %s", "; ".join(batch.unreadable))
+        payload_id = await self.store.save_webhook(
+            decoded, signature_valid=True, error="; ".join(batch.unreadable) or None
+        )
 
         queued: list[str] = []
         for message in batch.messages:
+            if message.from_wa_id is None:
+                logger.warning(
+                    "message %s came from a username without a number; kept, not queued",
+                    message.message_id,
+                )
+                continue
             seller_id = await self.sellers(message.phone_number_id, message.business_number)
             if seller_id is None:
                 logger.warning(

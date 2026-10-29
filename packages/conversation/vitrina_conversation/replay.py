@@ -93,7 +93,7 @@ async def start_replay(
     fixture's customer has a live one with this seller)."""
     first = fixture.messages[0]
     contact = await compliance.resolve_contact(
-        seller_id, first.from_wa_id, display_name=first.profile_name
+        seller_id, _number(first), display_name=first.profile_name
     )
     conversation = await store.fresh_replay_conversation(seller_id, contact.id)
     return conversation.id
@@ -156,7 +156,7 @@ async def play(
         previous = message.sent_at
         inbound = Inbound(
             seller_id=seller_id,
-            wa_id=message.from_wa_id,
+            wa_id=_number(message),
             message_id=f"{message.message_id}.{session_id}",
             kind=message.kind,
             text=message.text,
@@ -172,3 +172,10 @@ async def play(
 
 def _frozen(moment: datetime) -> Callable[[], datetime]:
     return lambda: moment
+
+
+def _number(message: InboundMessage) -> str:
+    """The customer's number: every replay fixture is written by a customer who has one."""
+    if message.from_wa_id is None:
+        raise ValueError(f"replay message {message.message_id} has no customer number")
+    return message.from_wa_id
