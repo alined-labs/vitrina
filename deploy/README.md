@@ -60,10 +60,15 @@ API only; the worker never needs it.
 ### After the first deploy
 
 - Point the dashboard's API proxy at the printed address.
+- Create the shop's seller, with the WhatsApp business number as `whatsapp_number`, **before**
+  the webhook is set. Inbound messages go to the seller with that number, `POST /v1/sellers` is
+  open, and the number is not verified: whoever registers it first receives its chats.
 - In the Meta app, set the WhatsApp webhook to `https://<api address>/v1/webhooks/whatsapp`
   with the same `WHATSAPP_VERIFY_TOKEN`.
 - `GET /v1/health/providers` with a seller's token shows every dependency. In production each
   row should read `ok`, not `mocked`.
+- Check the production settings: `WHATSAPP_MOCK=false` (the mock phone's routes have no sign-in)
+  and a private storage bucket (photos are served only through signed links).
 
 ### Operating
 

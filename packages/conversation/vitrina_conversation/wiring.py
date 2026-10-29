@@ -26,11 +26,12 @@ from vitrina_catalog.sellers import InMemorySellerStore, PostgresSellerStore
 from vitrina_compliance.api import ComplianceStore, ContactIdentity, PostgresCompliance
 from vitrina_compliance.erasure import request_erasure
 from vitrina_conversation.booking import BookingStore, PostgresBookings
-from vitrina_conversation.engine import AdContext, AgentDeps
+from vitrina_conversation.engine import AgentDeps
 from vitrina_conversation.image import Photos
 from vitrina_conversation.ingest import SellerResolver
 from vitrina_conversation.pacing import Pacer
 from vitrina_conversation.pipeline import Inbound, InboundOutcome, PipelineDeps, process_inbound
+from vitrina_conversation.prompts import AdContext
 from vitrina_conversation.store import ConversationStore, PostgresConversationStore
 from vitrina_conversation.tools import AdAssets, ApprovedAds
 from vitrina_conversation.voice import VoiceNotes, ffmpeg_on_path

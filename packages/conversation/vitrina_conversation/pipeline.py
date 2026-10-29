@@ -32,7 +32,6 @@ from vitrina_compliance.api import (
 )
 from vitrina_conversation.attribution import AdLookup, attribute, chat_started_payload
 from vitrina_conversation.engine import (
-    AdContext,
     AgentDeps,
     Exchange,
     TurnRequest,
@@ -42,6 +41,7 @@ from vitrina_conversation.engine import (
 from vitrina_conversation.image import PhotoReader, PhotoReading
 from vitrina_conversation.normalize import NormalizedImage, normalize
 from vitrina_conversation.pacing import Pacer
+from vitrina_conversation.prompts import AdContext
 from vitrina_conversation.store import ConversationState, ConversationStore, Event, StoredMessage
 from vitrina_conversation.tools import HandoffAction, QueuedAsset
 from vitrina_conversation.validation import FALLBACK_REPLY
