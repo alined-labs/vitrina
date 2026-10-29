@@ -341,7 +341,7 @@
         "R1 Scope: only `active` facts and products are retrievable; `draft` items are never passed to the model (FR-003).",
         "R2 Price validator: every monetary expression in `reply` must match an amount in `cited_fact_ids`. Violation → one guided retry → fallback reply + handoff(price_unverified) (FR-026).",
         "R3 Groundedness: a reply with factual claims and empty `cited_fact_ids` is treated as confidence 0.",
-        "R4 Low confidence: confidence < 0.6 → fallback reply 'No tengo ese dato, te comunico con {owner_name}'; two consecutive → handoff(low_confidence_twice).",
+        "R4 Low confidence: confidence < 0.6 → fallback reply 'No tengo ese dato, te comunico con {owner_name}' and handoff(other), since the reply promises the owner (Art. III.3, amendment A-010); two consecutive (after the owner hands the chat back) → handoff(low_confidence_twice).",
         "R5 Handoff consistency: if `handoff_reason` is non-null and the model did not call handoff_to_human, the engine calls it with that reason.",
         "R6 Human mode: when conversation.mode == human, the model is not invoked at all.",
         "R7 Opt-out first: keyword opt-out/erasure is applied before retrieval or model calls.",
