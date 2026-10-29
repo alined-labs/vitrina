@@ -1716,7 +1716,7 @@ components:
           required: [altered]
           properties:
             altered: { type: boolean }
-            reason: { type: string, description: Spanish, shown to the seller }
+            reason: { type: string, description: 'Spanish, shown to the seller' }
         thresholds:
           type: object
           properties:
@@ -1879,7 +1879,7 @@ components:
         replay_model_outputs: { type: boolean, default: false }
     AgentTurnOutput:
       type: [object, 'null']
-      description: Structured output every agent turn must satisfy (FR-025). Mirrors `contracts/agent-tools.json#/definitions/AgentTurnOutput`.
+      description: 'Structured output every agent turn must satisfy (FR-025). `contracts/agent-tools.json#/definitions/AgentTurnOutput` governs what the model returns; this schema describes what the API returns, null when a turn produced no answer.'
       required: [reply, cited_fact_ids, confidence]
       properties:
         reply: { type: string, maxLength: 1200 }

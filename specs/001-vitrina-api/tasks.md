@@ -2,6 +2,7 @@
 
 Generated from `spec.md` + `plan.md`. Format: `- [ ] T### [P?] description → tests (AS-ids)`.
 `[P]` = parallelizable with neighbours. Every task ends with its tests green and `make check` passing.
+Every task follows FR-085: timestamps are ISO-8601 UTC, and money is integer COP unless the field ends in `_usd`.
 
 ## Phase 0 · Freeze (Day 1, after kickoff 12:00 ET)
 
@@ -26,7 +27,7 @@ Generated from `spec.md` + `plan.md`. Format: `- [ ] T### [P?] description → t
 - [ ] T021 [P] `POST /products/import` job: image → Spark → draft products. → tests with cassette (AS-1.3).
 - [ ] T022 [P] `POST /sellers`, `GET/PATCH /sellers/me`, voice-samples import job (seller-line filter, PII redaction, profile). → tests (AS-1.1, AS-1.5, FR-004).
 - [ ] T023 `conversation.normalize` for text; `conversation.attribution` (`#A..` parse, events). → tests (AS-3.2, FR-022..023).
-- [ ] T024 Agent loop v1: retrieval → Spark tool loop with `search_catalog`, `get_product`, `check_stock` → `AgentTurnOutput` parse/repair. → tests (FR-024..025).
+- [ ] T024 Agent loop v1: retrieval → Spark tool loop with `search_catalog`, `get_product`, `check_stock` → `AgentTurnOutput` parse/repair. → tests (FR-024..025; AS-4.2 the `record_objection` tool).
 - [ ] T025 Price validator (Spanish money normalizer) + groundedness + confidence rules (R2–R4) with guided retry and fallback. → Hypothesis + fixtures (AS-3.3, AS-3.4, FR-026).
 - [ ] T026 `POST /agent/turns` with `dry_run`, `validation`, `tool_calls`, `retrieved`. → contract tests (FR-030).
 - [ ] T027 Inbound pipeline end-to-end: webhook → job → agent → outbound with pacing + backoff. → integration test with mock messenger (AS-3.11, FR-028).
@@ -46,7 +47,7 @@ Generated from `spec.md` + `plan.md`. Format: `- [ ] T### [P?] description → t
 - [ ] T041 Brand-voice judge: Spark rubric fallback now, Glimmer adapter behind the interface. → tests.
 - [ ] T042 Ads: create, approve (code generator, `wa_link`), by-code, archive, export zip with `provenance.json`; `409 CREATIVE_BLOCKED`. → tests (AS-2.5, FR-014..015).
 - [ ] T043 `send_ad_asset` tool + `creative.api.get_approved_asset`. → tests.
-- [ ] T044 `attribution_events` consumer, `GET /analytics/attribution`, `GET /analytics/objections`. → tests (AS-4.1, FR-040..041).
+- [ ] T044 `attribution_events` consumer, `GET /analytics/attribution`, `GET /analytics/objections`. → tests (AS-4.1, AS-4.2 the objection counts, FR-040..041).
 - [ ] T045 Dashboard v1: catalog, creative review (with verifier report), ad approval, conversations list, attribution counter.
 
 ## Phase 4 · Multimodal turns and handoff (Day 5)

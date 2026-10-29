@@ -404,9 +404,25 @@ def test_real_app_matches_the_contract() -> None:
 
 
 def test_null_valued_keywords_never_drift_because_fastapi_cannot_emit_them() -> None:
-    # A-005: `{ type: string, description: Spanish, shown to the seller }` in a YAML flow
-    # mapping yields a key "shown to the seller" whose value is null.
+    # Before amendment A-005 quoted it (0.1.1), `{ type: string, description: Spanish, shown
+    # to the seller }` in a YAML flow mapping yielded a key "shown to the seller" whose value
+    # is null. The check still ignores such keys.
     contract = {"type": "string", "description": "Spanish", "shown to the seller": None}
 
     assert drift.normalize_schema(contract) == drift.normalize_schema({"type": "string"})
     assert drift.normalize_schema({"const": None}) == {"enum": [None]}
+
+
+def test_the_contract_has_no_null_valued_keys() -> None:
+    def nulls(node: object, path: str) -> list[str]:
+        if isinstance(node, dict):
+            return [
+                found
+                for key, value in node.items()
+                for found in ([f"{path}/{key}"] if value is None else nulls(value, f"{path}/{key}"))
+            ]
+        if isinstance(node, list):
+            return [found for i, item in enumerate(node) for found in nulls(item, f"{path}/{i}")]
+        return []
+
+    assert nulls(drift.load_contract(drift.DEFAULT_CONTRACT), "") == []

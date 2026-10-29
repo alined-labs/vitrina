@@ -1258,7 +1258,7 @@ export interface components {
             color_delta: number;
             visual_review: {
                 altered: boolean;
-                /** @description Spanish */
+                /** @description Spanish, shown to the seller */
                 reason?: string;
             };
             thresholds: {
@@ -1465,7 +1465,7 @@ export interface components {
             /** @default false */
             replay_model_outputs: boolean;
         };
-        /** @description Structured output every agent turn must satisfy (FR-025). Mirrors `contracts/agent-tools.json#/definitions/AgentTurnOutput`. */
+        /** @description Structured output every agent turn must satisfy (FR-025). `contracts/agent-tools.json#/definitions/AgentTurnOutput` governs what the model returns; this schema describes what the API returns, null when a turn produced no answer. */
         AgentTurnOutput: {
             reply: string;
             /** @description Fact or product IDs supporting every factual claim; empty only for greetings/handoffs */
