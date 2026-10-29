@@ -40,9 +40,7 @@ class CreativeJobCreate(BaseModel):
 
 class VisualReviewView(BaseModel):
     altered: bool
-    # openapi.yaml line 1718 leaves this description unquoted in a YAML flow mapping, which adds
-    # a null-valued key that the drift check ignores (#38); amendment A-005 quotes it.
-    reason: str | MISSING = MISSING
+    reason: Annotated[str, Field(description="Spanish, shown to the seller")] | MISSING = MISSING
 
 
 class ThresholdsView(BaseModel):
