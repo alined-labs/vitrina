@@ -11,6 +11,7 @@ from dataclasses import dataclass
 from vitrina_core.jobs import JobFailedError
 from vitrina_core.providers import Blob, Box, Segmenter, SegmentRequest, with_backoff
 from vitrina_creative.imaging import (
+    TooManyPixelsError,
     decode_mask,
     decode_rgb,
     encode_png,
@@ -18,6 +19,7 @@ from vitrina_creative.imaging import (
     mask_bbox,
     product_cutout,
 )
+from vitrina_creative.media import TOO_MANY_PIXELS
 from vitrina_creative.verifier import SourceProduct
 
 MIN_AREA = 0.05
@@ -48,9 +50,12 @@ async def segment_photo(
     min_area: float = MIN_AREA,
 ) -> SegmentedPhoto:
     """SAM on one source photo: the best-scoring product segment, or a SegmentationError."""
+    try:
+        pixels = decode_rgb(photo)
+    except TooManyPixelsError as error:
+        raise SegmentationError("PHOTO_TOO_LARGE", TOO_MANY_PIXELS) from error
     request = SegmentRequest(model=model, purpose="segment", image=photo, prompt=label)
     response = await with_backoff(lambda: segmenter.segment(request))
-    pixels = decode_rgb(photo)
     if not response.segments:
         raise _not_found()
     best = max(response.segments, key=lambda segment: segment.score)

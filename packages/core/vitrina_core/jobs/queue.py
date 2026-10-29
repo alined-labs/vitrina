@@ -2,7 +2,7 @@
 
 ``enqueue`` runs in the caller's session, so the job commits or rolls back with the rows
 that caused it. Workers claim one job at a time with ``FOR UPDATE SKIP LOCKED``; a job whose
-worker stops heart-beating goes back to the queue.
+worker stops heart-beating goes back to the queue, unless that was its last attempt.
 """
 
 from collections.abc import Mapping
@@ -190,12 +190,28 @@ class PostgresJobQueue:
         return int(due), float(longest)
 
     async def requeue_stalled(self, stalled_after: timedelta) -> int:
+        """Requeue the running jobs whose worker stopped heart-beating; how many went back.
+
+        A job that stalled on its last attempt fails instead: one that kills its worker (out of
+        memory, for one) would otherwise come back forever and hold up every job behind it.
+        """
+        stalled = sa.and_(
+            jobs.c.status == "running", jobs.c.heartbeat_at < sa.func.now() - stalled_after
+        )
+        error = {
+            "code": "STALLED",
+            "message": f"no heartbeat for {stalled_after.total_seconds():g} s on the last attempt",
+            "retryable": False,
+        }
         async with self.sessions() as session, session.begin():
+            await session.execute(
+                sa.update(jobs)
+                .where(stalled, jobs.c.attempts >= jobs.c.max_attempts)
+                .values(status="failed", error=error, finished_at=sa.func.now(), locked_by=None)
+            )
             result = await session.execute(
                 sa.update(jobs)
-                .where(
-                    jobs.c.status == "running", jobs.c.heartbeat_at < sa.func.now() - stalled_after
-                )
+                .where(stalled)
                 .values(status="queued", locked_by=None, run_after=sa.func.now())
                 .returning(jobs.c.id)
             )

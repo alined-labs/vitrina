@@ -29,7 +29,7 @@ from vitrina_creative.api import (
     segment_photo,
     verify_scene,
 )
-from vitrina_creative.imaging import decode_mask, encode_png, mask_bbox
+from vitrina_creative.imaging import TooManyPixelsError, decode_mask, encode_png, mask_bbox
 from vitrina_creative.testing import backdrop, bag, good_scenes, place, source_photo
 
 MODEL = "segment-model-from-settings"
@@ -99,6 +99,24 @@ async def test_no_segment_means_the_product_was_not_found() -> None:
     with pytest.raises(SegmentationError) as caught:
         await run(source_photo().image, FakeSam())
     assert caught.value.code == "PRODUCT_NOT_FOUND"
+
+
+async def test_a_photo_with_too_many_pixels_fails_before_sam_is_called() -> None:
+    buffer = BytesIO()
+    Image.new("1", (7_000, 7_000)).save(buffer, format="PNG")
+    sam = FakeSam()
+    with pytest.raises(SegmentationError) as caught:
+        await run(Blob(data=buffer.getvalue(), mime_type="image/png"), sam)
+    assert caught.value.code == "PHOTO_TOO_LARGE"
+    assert "40 megapíxeles" in caught.value.message
+    assert sam.requests == []
+
+
+def test_a_mask_with_too_many_pixels_is_not_decoded() -> None:
+    buffer = BytesIO()
+    Image.new("1", (7_000, 7_000)).save(buffer, format="PNG")
+    with pytest.raises(TooManyPixelsError):
+        decode_mask(Blob(data=buffer.getvalue(), mime_type="image/png"))
 
 
 async def test_a_mask_of_another_size_is_fitted_to_the_photo() -> None:
