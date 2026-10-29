@@ -4,6 +4,7 @@ from uuid import UUID
 
 import pytest
 import sqlalchemy as sa
+import yaml
 from fastapi import Depends, FastAPI, Request
 from fastapi.testclient import TestClient
 from pydantic import BaseModel, Field
@@ -26,6 +27,7 @@ from vitrina_core.http import (
 )
 from vitrina_core.ids import NIL
 from vitrina_core.providers import ProviderUnavailableError
+from vitrina_core.settings import REPO_ROOT
 
 SELLER_A = UUID("00000000-0000-7000-8000-00000000000a")
 SELLER_B = UUID("00000000-0000-7000-8000-00000000000b")
@@ -146,6 +148,16 @@ def test_fr_082_unexpected_errors_are_500_problems_without_internals() -> None:
     assert response.headers["content-type"] == "application/problem+json"
     assert response.json()["code"] == "INTERNAL_ERROR"
     assert "bug" not in response.text
+
+
+def test_fr_082_every_problem_code_is_one_the_contract_declares() -> None:
+    contract_path = REPO_ROOT / "specs" / "001-vitrina-api" / "contracts" / "openapi.yaml"
+    contract = yaml.safe_load(contract_path.read_text(encoding="utf-8"))
+    declared = set(contract["components"]["schemas"]["Problem"]["properties"]["code"]["enum"])
+    http, _ = client()
+
+    assert http.get("/boom").json()["code"] in declared
+    assert {code.value for code in ProblemCode} == declared
 
 
 def test_openapi_documents_problem_responses_instead_of_fastapi_422() -> None:

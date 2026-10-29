@@ -1453,6 +1453,7 @@ components:
             - BRIEF_SCHEMA_INVALID
             - PRICE_UNVERIFIED
             - DRAFT_NOT_CITABLE
+            - INTERNAL_ERROR
         errors:
           type: array
           description: Field-level details for `VALIDATION_ERROR`

@@ -14,8 +14,6 @@ from vitrina_core.http.context import current_request_id
 from vitrina_core.providers import ProviderError
 
 PROBLEM_JSON = "application/problem+json"
-# Unhandled errors have no code in the contract yet; proposed as amendment A-004.
-INTERNAL_ERROR = "INTERNAL_ERROR"
 
 
 class ProblemCode(StrEnum):
@@ -37,10 +35,12 @@ class ProblemCode(StrEnum):
     BRIEF_SCHEMA_INVALID = "BRIEF_SCHEMA_INVALID"
     PRICE_UNVERIFIED = "PRICE_UNVERIFIED"
     DRAFT_NOT_CITABLE = "DRAFT_NOT_CITABLE"
+    INTERNAL_ERROR = "INTERNAL_ERROR"  # an unhandled error (A-004)
 
 
-# Status and title per code: from the contract's responses where it names them; the last
-# three codes appear only in job errors and validation results there.
+# Status and title per code: from the contract's responses where it names them.
+# BRIEF_SCHEMA_INVALID, PRICE_UNVERIFIED and DRAFT_NOT_CITABLE appear only in job errors and
+# validation results there; INTERNAL_ERROR answers any unhandled error.
 CATALOGUE: dict[ProblemCode, tuple[int, str]] = {
     ProblemCode.VALIDATION_ERROR: (400, "Validation error"),
     ProblemCode.UNAUTHORIZED: (401, "Unauthorized"),
@@ -60,6 +60,7 @@ CATALOGUE: dict[ProblemCode, tuple[int, str]] = {
     ProblemCode.BRIEF_SCHEMA_INVALID: (502, "Brief did not match its schema"),
     ProblemCode.PRICE_UNVERIFIED: (422, "Price not supported by the cited facts"),
     ProblemCode.DRAFT_NOT_CITABLE: (422, "Draft items cannot be cited"),
+    ProblemCode.INTERNAL_ERROR: (500, "Internal error"),
 }
 
 _BY_STATUS = {
@@ -139,8 +140,9 @@ def problem_response(error: ProblemError) -> JSONResponse:
 
 
 def internal_error_response() -> JSONResponse:
+    status, title = CATALOGUE[ProblemCode.INTERNAL_ERROR]
     body = problem_body(
-        INTERNAL_ERROR, 500, "Internal error", detail="Unexpected error; quote the request_id"
+        ProblemCode.INTERNAL_ERROR, status, title, detail="Unexpected error; quote the request_id"
     )
     return JSONResponse(body, status_code=500, media_type=PROBLEM_JSON)
 
