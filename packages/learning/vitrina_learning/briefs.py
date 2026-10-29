@@ -56,6 +56,11 @@ ObjectionTag = Literal[
 ]
 ANGLES = ["price", "quality", "handmade", "urgency", "gift", "local_pride"]
 HOOKS = ["question", "bold_claim", "story", "social_proof_free", "scarcity", "benefit"]
+# A brief's directive narrows its creative job to its hook (A-008), and a job asked for scarcity
+# fails unless the product has a low, known stock. The dataset carries no stock, so a brief
+# never asks for it.
+BriefHook = Literal["question", "bold_claim", "story", "social_proof_free", "benefit"]
+BRIEF_HOOKS = [hook for hook in HOOKS if hook != "scarcity"]
 TAGS = [
     "price",
     "shipping",
@@ -212,7 +217,7 @@ BRIEF_OUTPUT_SCHEMA: dict[str, Any] = _object(
                 {
                     "product_id": {"type": "string", "format": "uuid"},
                     "angle": {"type": "string", "enum": ANGLES},
-                    "hook": {"type": ["string", "null"], "enum": [*HOOKS, None]},
+                    "hook": {"type": ["string", "null"], "enum": [*BRIEF_HOOKS, None]},
                     "scene_brief": {"type": "string", "maxLength": 500},
                     "offer": {"type": ["string", "null"], "maxLength": 200},
                 }
@@ -240,8 +245,9 @@ productos activos y cuántos anuncios aprobó el dueño. Escribe el brief del pr
 - insights: cada uno con los números de los datos en que se basa (evidence: métrica y valor). Nunca
   inventes un número que no esté en los datos.
 - recommended_angles: ángulos de la lista, cada uno con su razón.
-- creative_directives: un producto activo (su id exacto), un ángulo, un gancho y la escena; una
-  oferta solo como propuesta que el dueño debe aprobar.
+- creative_directives: un producto activo (su id exacto), un ángulo, un gancho y la escena; los
+  textos del anuncio se escriben solo con ese ángulo y ese gancho. Una oferta solo como propuesta
+  que el dueño debe aprobar.
 - reactivation_segments: por tipo de objeción, el ángulo del mensaje y, si sirve, el id de uno de
   los anuncios de los datos.
 En los textos nombra los ángulos en español: price precio, quality calidad, handmade hecho a
@@ -285,7 +291,7 @@ class _Angle(_Strict):
 class _Directive(_Strict):
     product_id: UUID
     angle: CopyAngle
-    hook: CopyHook | None
+    hook: BriefHook | None
     scene_brief: Annotated[str, Field(max_length=500)]
     offer: Annotated[str, Field(max_length=200)] | None
 
@@ -641,13 +647,14 @@ async def apply_brief(
     give drafts the seller approves, and the campaign stays a preview until the seller sends it.
 
     ``check`` dry-runs every directive (creative's ``job_payload``) before any job is queued,
-    so one product without a photo stops the whole apply. A directive's hook cannot reach the
-    copy grid: ``CreativeJobCreate`` has no hooks (A-008).
+    so one product without a photo stops the whole apply. A directive's hook narrows its job's
+    copy grid to that hook (A-008); without one, the job keeps every hook the product can carry.
     """
     jobs = [
         CreativeJobCreate(
             product_id=directive.product_id,
             angles=[directive.angle],
+            hooks=MISSING if directive.hook is MISSING else [directive.hook],
             scene_brief=directive.scene_brief,
             brief_id=brief.id,
         )

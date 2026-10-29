@@ -74,6 +74,19 @@ async def test_as_5_2_each_directive_is_a_creative_job_with_the_briefs_angle_and
     assert recorder.events == [f"check {BAG}", f"check {WALLET}", f"start {BAG}", f"start {WALLET}"]
 
 
+async def test_as_5_2_a_directive_with_a_hook_asks_its_job_for_that_hook_only() -> None:
+    recorder = Recorder()
+
+    await apply_brief(brief(), check=recorder.check, start=recorder.start, preview=recorder.preview)
+
+    # The bag's directive names the story hook; the wallet's names none, so its job keeps
+    # every hook the product can carry.
+    assert [job.model_dump(include={"hooks"}) for job in recorder.jobs] == [
+        {"hooks": ["story"]},
+        {},
+    ]
+
+
 async def test_fr_051_the_segments_become_one_campaign_preview_nothing_is_sent() -> None:
     recorder = Recorder()
 

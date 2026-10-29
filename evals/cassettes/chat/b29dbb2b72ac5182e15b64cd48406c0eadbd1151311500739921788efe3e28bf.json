@@ -1,10 +1,10 @@
 {
   "kind": "chat",
-  "recorded_at": "2026-10-28T16:52:24+00:00",
+  "recorded_at": "2026-10-29T18:11:23+00:00",
   "request": {
     "messages": [
       {
-        "content": "Eres el estratega de marketing de Mochilas Ana, un negocio de Colombia que vende por WhatsApp.\nRecibes datos agregados de un periodo, sin datos personales: cada anuncio con su ángulo y su embudo\n(chats, reservas, citas, traspasos a una persona, objeciones por tipo), las objeciones totales, los\nproductos activos y cuántos anuncios aprobó el dueño. Escribe el brief del próximo lote de anuncios:\n- headline: una sola frase en español de Colombia, de hasta 300 caracteres, con el hallazgo y la\n  acción, por ejemplo: \"El ángulo 'hecho a mano' generó 3× más chats, pero el 40 % se frenó por el\n  envío: el próximo lote abre con envío gratis en Bogotá.\"\n- insights: cada uno con los números de los datos en que se basa (evidence: métrica y valor). Nunca\n  inventes un número que no esté en los datos.\n- recommended_angles: ángulos de la lista, cada uno con su razón.\n- creative_directives: un producto activo (su id exacto), un ángulo, un gancho y la escena; una\n  oferta solo como propuesta que el dueño debe aprobar.\n- reactivation_segments: por tipo de objeción, el ángulo del mensaje y, si sirve, el id de uno de\n  los anuncios de los datos.\nEn los textos nombra los ángulos en español: price precio, quality calidad, handmade hecho a\nmano, urgency urgencia, gift regalo, local_pride orgullo local.\nResponde solo con el JSON del esquema.",
+        "content": "Eres el estratega de marketing de Mochilas Ana, un negocio de Colombia que vende por WhatsApp.\nRecibes datos agregados de un periodo, sin datos personales: cada anuncio con su ángulo y su embudo\n(chats, reservas, citas, traspasos a una persona, objeciones por tipo), las objeciones totales, los\nproductos activos y cuántos anuncios aprobó el dueño. Escribe el brief del próximo lote de anuncios:\n- headline: una sola frase en español de Colombia, de hasta 300 caracteres, con el hallazgo y la\n  acción, por ejemplo: \"El ángulo 'hecho a mano' generó 3× más chats, pero el 40 % se frenó por el\n  envío: el próximo lote abre con envío gratis en Bogotá.\"\n- insights: cada uno con los números de los datos en que se basa (evidence: métrica y valor). Nunca\n  inventes un número que no esté en los datos.\n- recommended_angles: ángulos de la lista, cada uno con su razón.\n- creative_directives: un producto activo (su id exacto), un ángulo, un gancho y la escena; los\n  textos del anuncio se escriben solo con ese ángulo y ese gancho. Una oferta solo como propuesta\n  que el dueño debe aprobar.\n- reactivation_segments: por tipo de objeción, el ángulo del mensaje y, si sirve, el id de uno de\n  los anuncios de los datos.\nEn los textos nombra los ángulos en español: price precio, quality calidad, handmade hecho a\nmano, urgency urgencia, gift regalo, local_pride orgullo local.\nResponde solo con el JSON del esquema.",
         "role": "system",
         "tool_calls": []
       },
@@ -41,7 +41,6 @@
                     "bold_claim",
                     "story",
                     "social_proof_free",
-                    "scarcity",
                     "benefit",
                     null
                   ],
@@ -199,20 +198,21 @@
   "response": {
     "finish_reason": "stop",
     "message": {
-      "content": "{\"creative_directives\": [{\"angle\": \"handmade\", \"hook\": \"question\", \"offer\": \"Propuesta sujeta a aprobación del dueño: evaluar un beneficio de envío o un descuento puntual solo si el dueño lo aprueba antes de publicar.\", \"product_id\": \"0192f310-0a1b-7c2d-8e3f-4a5b6c7d8e01\", \"scene_brief\": \"Plano cercano de las manos tejiendo y del tejido de la mochila wayuu azul, luego la mochila puesta en una escena cotidiana en Colombia y cierre invitando a escribir por WhatsApp para resolver dudas de envío.\"}, {\"angle\": \"price\", \"hook\": \"question\", \"offer\": \"Propuesta sujeta a aprobación del dueño: evaluar un beneficio por compra o un ajuste en el envío solo si el dueño lo aprueba antes de publicar.\", \"product_id\": \"0192f310-0a1b-7c2d-8e3f-4a5b6c7d8e02\", \"scene_brief\": \"Mostrar el cuero, las costuras y el interior del bolso de cuero café en planos cercanos y cerrar con una invitación a preguntar por WhatsApp por el valor final y el envío antes de reservar.\"}], \"headline\": \"El ángulo 'hecho a mano' lideró con 12 chats frente a 4 del ángulo 'precio', pero se registraron 6 objeciones por envío: el próximo lote debe abrir aclarando el envío y reforzando el valor hecho a mano.\", \"insights\": [{\"evidence\": [{\"metric\": \"chats_handmade\", \"value\": 12}, {\"metric\": \"chats_price\", \"value\": 4}], \"text\": \"El ángulo 'hecho a mano' aportó 12 chats frente a 4 chats del ángulo 'precio'.\"}, {\"evidence\": [{\"metric\": \"conversion_rate_handmade\", \"value\": 0.25}, {\"metric\": \"conversion_rate_price\", \"value\": 0.25}], \"text\": \"Los ángulos 'hecho a mano' y 'precio' registraron la misma tasa de conversión, por lo que conviene mantener el contraste entre ambos.\"}, {\"evidence\": [{\"metric\": \"reservations_handmade\", \"value\": 3}, {\"metric\": \"reservations_price\", \"value\": 1}, {\"metric\": \"bookings_handmade\", \"value\": 0}, {\"metric\": \"bookings_price\", \"value\": 0}], \"text\": \"El ángulo 'hecho a mano' generó 3 reservas frente a 1 reserva del ángulo 'precio', con 0 citas en ambos casos.\"}], \"reactivation_segments\": [{\"message_angle\": \"Reactivar con el ángulo 'hecho a mano' aclarando desde el inicio las condiciones de envío y pidiendo la ciudad para confirmar la disponibilidad antes de reservar.\", \"objection_tag\": \"shipping\", \"suggested_ad_id\": \"0192f310-0a1b-7c2d-8e3f-4a5b6c7d8e11\"}, {\"message_angle\": \"Reactivar con el ángulo 'precio' explicando qué incluye el valor y mostrando el detalle hecho a mano, sin anunciar descuentos que el dueño no haya aprobado.\", \"objection_tag\": \"price\", \"suggested_ad_id\": \"0192f310-0a1b-7c2d-8e3f-4a5b6c7d8e11\"}], \"recommended_angles\": [{\"angle\": \"handmade\", \"rationale\": \"Mantener el ángulo 'hecho a mano' como eje principal porque aportó 12 chats.\"}, {\"angle\": \"price\", \"rationale\": \"Conservar el ángulo 'precio' como apoyo porque aportó 4 chats y permite responder a las 2 objeciones por precio aclarando qué incluye el valor.\"}]}",
+      "content": "{\"creative_directives\": [{\"angle\": \"handmade\", \"hook\": \"question\", \"offer\": \"Propuesta (sujeta a aprobación del dueño): envío gratis Bogotá\", \"product_id\": \"0192f310-0a1b-7c2d-8e3f-4a5b6c7d8e01\", \"scene_brief\": \"Manos cosiendo; cerrar con enviar, no con barato.\"}, {\"angle\": \"price\", \"hook\": \"question\", \"offer\": \"Precio directo (sujeta a aprobación del dueño)\", \"product_id\": \"0192f310-0a1b-7c2d-8e3f-4a5b6c7d8e02\", \"scene_brief\": \"Ni precio gratis; enviar visible: Propuesta (sujeta...), enviar visible.\"}], \"headline\": \"Hecho a mano (handmade) ganó en chats; el frenó fue envío visible (shipping)—abrir con enviar, no con barato.\", \"insights\": [{\"evidence\": [{\"metric\": \"handmade.chats\", \"value\": 12}, {\"metric\": \"price.chats\", \"value\": 4}, {\"metric\": \"attributed_chats\", \"value\": 16}], \"text\": \"hecho a mano (handmade) generó 12 chats vs 4 de precio (price)\"}, {\"evidence\": [{\"metric\": \"chat_a7.objections_by_tag.shipping\", \"value\": 5}], \"text\": \"Envío visible (shipping) frenó chats de hecho a mano\"}, {\"evidence\": [{\"metric\": \"bookings\", \"value\": 0}], \"text\": \"Sin citas registradas (cero bookings)\"}], \"reactivation_segments\": [{\"message_angle\": \"shipping\", \"objection_tag\": \"shipping\", \"suggested_ad_id\": \"0192f310-0a1b-7c2d-8e3f-4a5b6c7d8e11\"}, {\"message_angle\": \"price\", \"objection_tag\": \"shipping\", \"suggested_ad_id\": \"0192f310-0a1b-7c2d-8e3f-4a5b6c7d8e12\"}], \"recommended_angles\": [{\"angle\": \"handmade\", \"rationale\": \"Lead: hecho a mano ganó en chats; llevar enviar visible.\"}, {\"angle\": \"price\", \"rationale\": \"Support: precio claro pero con envío visible, no barato solo.\"}]}",
       "role": "assistant",
       "tool_call_id": null,
       "tool_calls": []
     },
     "meta": {
       "cost_usd": null,
-      "latency_ms": 52267,
+      "latency_ms": 88891,
       "model": "muse-wonder-1.0",
       "provider": "meta_model_api",
       "purpose": "brief",
       "replayed": false,
-      "tokens_in": 714,
-      "tokens_out": 7290
+      "tokens_cached": 628,
+      "tokens_in": 732,
+      "tokens_out": 8298
     }
   }
 }
