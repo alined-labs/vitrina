@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useState } from "react";
 import { api, type components } from "@/lib/api/client";
-import { problemMessage } from "@/lib/format";
+import { formatDateTime, problemMessage } from "@/lib/format";
 import { HANDOFF_REASON, MODE, OBJECTION } from "@/lib/labels";
 import { useLoad } from "@/lib/use-load";
 
@@ -114,7 +114,7 @@ function ConversationRow({ conversation }: { conversation: Conversation }) {
         {conversation.is_replay && <span className="rounded bg-sky-100 px-2 py-0.5 text-xs text-sky-900">Demo</span>}
         {conversation.last_message_at && (
           <span className="ml-auto text-xs text-zinc-500">
-            {new Date(conversation.last_message_at).toLocaleString("es-CO")}
+            {formatDateTime(conversation.last_message_at)}
           </span>
         )}
       </div>

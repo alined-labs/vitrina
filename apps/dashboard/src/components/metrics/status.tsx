@@ -15,7 +15,7 @@ const ICON: Record<Status, string> = {
   neutral: "M4 8h8",
 };
 
-export function StatusIcon({ status }: { status: Status }) {
+function StatusIcon({ status }: { status: Status }) {
   return (
     <svg viewBox="0 0 16 16" width="16" height="16" aria-hidden="true" className="shrink-0">
       <circle cx="8" cy="8" r="8" fill={COLOR[status]} />

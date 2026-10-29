@@ -43,10 +43,24 @@ export function formatLatency(ms: number): string {
   return ms < 1000 ? `${integer.format(ms)} ms` : `${(ms / 1000).toFixed(1).replace(".", ",")} s`;
 }
 
+// Every date and time is shown in Bogotá, where the shop and its rules (Ley 2300 hours) are,
+// whatever the viewer's own time zone.
+const BOGOTA = "America/Bogota";
+
 /** Today's date in Bogotá as YYYY-MM-DD, moved by `days`. */
 export function bogotaDate(days = 0): string {
   const moment = new Date(Date.now() + days * 86_400_000);
-  return new Intl.DateTimeFormat("en-CA", { timeZone: "America/Bogota" }).format(moment);
+  return new Intl.DateTimeFormat("en-CA", { timeZone: BOGOTA }).format(moment);
+}
+
+/** A moment as a Colombian reads it, in Bogotá time: "29/10/2026, 7:41:03 a. m.". */
+export function formatDateTime(iso: string): string {
+  return new Date(iso).toLocaleString("es-CO", { timeZone: BOGOTA });
+}
+
+/** The day of a moment in Bogotá: "29/10/2026". */
+export function formatDate(iso: string): string {
+  return new Date(iso).toLocaleDateString("es-CO", { timeZone: BOGOTA });
 }
 
 // What a seller reads for each problem code. The API's own detail is shown only for the codes

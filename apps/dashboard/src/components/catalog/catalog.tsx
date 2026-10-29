@@ -166,13 +166,13 @@ function NewProduct({ onCreated }: { onCreated: () => Promise<void> }) {
       }}
       className="grid gap-3 rounded-lg border border-dashed border-zinc-300 bg-white p-4 sm:grid-cols-[minmax(0,2fr)_minmax(9rem,1fr)_minmax(7rem,1fr)_auto]"
     >
-      <input name="name" required maxLength={120} placeholder="Nombre del producto" className="min-w-0 rounded border border-zinc-300 px-3 py-2" />
-      <input name="price_cop" required type="number" min={1} step={1} placeholder="Precio (COP)" className="min-w-0 rounded border border-zinc-300 px-3 py-2" />
-      <input name="stock" type="number" min={0} step={1} placeholder="Inventario" className="min-w-0 rounded border border-zinc-300 px-3 py-2" />
+      <input name="name" aria-label="Nombre del producto" required maxLength={120} placeholder="Nombre del producto" className="min-w-0 rounded border border-zinc-300 px-3 py-2" />
+      <input name="price_cop" aria-label="Precio en pesos" required type="number" min={1} step={1} placeholder="Precio (COP)" className="min-w-0 rounded border border-zinc-300 px-3 py-2" />
+      <input name="stock" aria-label="Inventario" type="number" min={0} step={1} placeholder="Inventario" className="min-w-0 rounded border border-zinc-300 px-3 py-2" />
       <button type="submit" disabled={saving} className="rounded bg-zinc-900 px-4 py-2 text-white disabled:bg-zinc-300">
         Agregar
       </button>
-      <textarea name="description" maxLength={2000} placeholder="Descripción (materiales, tallas, colores)" className="min-w-0 rounded border border-zinc-300 px-3 py-2 sm:col-span-4" rows={2} />
+      <textarea name="description" aria-label="Descripción" maxLength={2000} placeholder="Descripción (materiales, tallas, colores)" className="min-w-0 rounded border border-zinc-300 px-3 py-2 sm:col-span-4" rows={2} />
       {error && (
         <p role="alert" className="text-sm text-red-700 sm:col-span-4">
           {error}

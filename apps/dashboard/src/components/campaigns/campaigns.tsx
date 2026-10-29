@@ -3,7 +3,7 @@
 import { useRouter, useSearchParams } from "next/navigation";
 import { useCallback, useEffect, useState } from "react";
 import { api, type components } from "@/lib/api/client";
-import { formatCount, problemMessage } from "@/lib/format";
+import { formatCount, formatDate, formatDateTime, problemMessage } from "@/lib/format";
 import { CAMPAIGN_STATUS, DECISION, DECISION_REASON, OBJECTION } from "@/lib/labels";
 
 type Campaign = components["schemas"]["ReactivationCampaign"];
@@ -65,7 +65,7 @@ export function Campaigns() {
             onClick={() => open(campaign.id)}
             className={`w-full rounded-md px-3 py-2 text-left text-sm ${campaign.id === selected ? "bg-zinc-900 text-white" : "hover:bg-zinc-100"}`}
           >
-            <span className="block">{new Date(campaign.created_at).toLocaleDateString("es-CO")} · {CAMPAIGN_STATUS[campaign.status]}</span>
+            <span className="block">{formatDate(campaign.created_at)} · {CAMPAIGN_STATUS[campaign.status]}</span>
             <span className="block text-xs opacity-70">
               {formatCount(campaign.counts.allowed + campaign.counts.sent)} de {formatCount(campaign.decisions.length)} pueden recibirla
             </span>
@@ -98,7 +98,7 @@ function NewCampaign({ onCreated }: { onCreated: (id: string) => void }) {
     void api.GET("/ads", { params: { query: { status: "approved", limit: 100 } } }).then(({ data }) => setAds(data?.items ?? []));
   }, []);
 
-  async function submit(event: React.FormEvent) {
+  async function submit(event: React.SubmitEvent<HTMLFormElement>) {
     event.preventDefault();
     setBusy(true);
     setMessage(null);
@@ -136,19 +136,19 @@ function NewCampaign({ onCreated }: { onCreated: (id: string) => void }) {
       <div className="grid gap-4 sm:grid-cols-2">
         <label className="space-y-1">
           <span className="block text-xs text-zinc-600">Sin comprar desde hace (días)</span>
-          <input type="number" min={1} value={days} onChange={(e) => setDays(Number(e.target.value))} className="w-full rounded-md border border-zinc-300 px-2 py-1" />
+          <input name="no_purchase_since_days" type="number" min={1} value={days} onChange={(e) => setDays(Number(e.target.value))} className="w-full rounded-md border border-zinc-300 px-2 py-1" />
         </label>
         <label className="space-y-1">
           <span className="block text-xs text-zinc-600">Máximo de contactos</span>
-          <input type="number" min={1} max={500} value={max} onChange={(e) => setMax(Number(e.target.value))} className="w-full rounded-md border border-zinc-300 px-2 py-1" />
+          <input name="max_contacts" type="number" min={1} max={500} value={max} onChange={(e) => setMax(Number(e.target.value))} className="w-full rounded-md border border-zinc-300 px-2 py-1" />
         </label>
         <label className="space-y-1">
           <span className="block text-xs text-zinc-600">Plantilla de WhatsApp aprobada</span>
-          <input required value={template} onChange={(e) => setTemplate(e.target.value)} placeholder="nombre_de_la_plantilla" className="w-full rounded-md border border-zinc-300 px-2 py-1 font-mono" />
+          <input name="template_name" required value={template} onChange={(e) => setTemplate(e.target.value)} placeholder="nombre_de_la_plantilla" className="w-full rounded-md border border-zinc-300 px-2 py-1 font-mono" />
         </label>
         <label className="space-y-1">
           <span className="block text-xs text-zinc-600">Anuncio que acompaña el mensaje</span>
-          <select value={adId} onChange={(e) => setAdId(e.target.value)} className="w-full rounded-md border border-zinc-300 px-2 py-1">
+          <select name="ad_id" value={adId} onChange={(e) => setAdId(e.target.value)} className="w-full rounded-md border border-zinc-300 px-2 py-1">
             <option value="">Según lo que le interesa a cada uno</option>
             {ads.map((ad) => (
               <option key={ad.id} value={ad.id}>
@@ -214,7 +214,7 @@ function CampaignDetail({ id, onChange }: { id: string; onChange: () => Promise<
       <div className="flex flex-wrap items-baseline gap-2">
         <h2 className="text-lg font-semibold">{CAMPAIGN_STATUS[campaign.status]}</h2>
         <span className="font-mono text-sm text-zinc-500">{campaign.template_name}</span>
-        {campaign.scheduled_for && <span className="text-sm text-zinc-500">· {new Date(campaign.scheduled_for).toLocaleString("es-CO")}</span>}
+        {campaign.scheduled_for && <span className="text-sm text-zinc-500">· {formatDateTime(campaign.scheduled_for)}</span>}
       </div>
       <dl className="grid grid-cols-2 gap-3 sm:grid-cols-5">
         {counts.map(([decision, value]) => (
@@ -252,7 +252,7 @@ function CampaignDetail({ id, onChange }: { id: string; onChange: () => Promise<
               <td className="px-3 py-2 text-zinc-700">
                 {decision.reason === "OK" ? "—" : (decision.reason_text_es ?? DECISION_REASON[decision.reason])}
                 {decision.next_allowed_at && (
-                  <span className="block text-xs text-zinc-500">Desde {new Date(decision.next_allowed_at).toLocaleString("es-CO")}</span>
+                  <span className="block text-xs text-zinc-500">Desde {formatDateTime(decision.next_allowed_at)}</span>
                 )}
               </td>
             </tr>

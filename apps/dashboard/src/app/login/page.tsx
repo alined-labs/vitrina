@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { useState, type FormEvent } from "react";
+import { useState, type SubmitEvent } from "react";
 import { browserSupabase } from "@/lib/supabase/browser";
 
 export default function LoginPage() {
@@ -11,20 +11,27 @@ export default function LoginPage() {
   const [error, setError] = useState<string | null>(null);
   const [pending, setPending] = useState(false);
 
-  async function onSubmit(event: FormEvent<HTMLFormElement>) {
+  async function onSubmit(event: SubmitEvent<HTMLFormElement>) {
     event.preventDefault();
     if (!supabase) return;
     const form = new FormData(event.currentTarget);
     setPending(true);
     setError(null);
-    const { error: signInError } = await supabase.auth.signInWithPassword({
-      email: String(form.get("email") ?? ""),
-      password: String(form.get("password") ?? ""),
-    });
-    setPending(false);
-    if (signInError) {
-      setError("Correo o contraseña incorrectos.");
+    try {
+      const { error: signInError } = await supabase.auth.signInWithPassword({
+        email: String(form.get("email") ?? ""),
+        password: String(form.get("password") ?? ""),
+      });
+      if (signInError) {
+        setError("Correo o contraseña incorrectos.");
+        return;
+      }
+    } catch {
+      // A failed request must not leave the button stuck on "Entrando…".
+      setError("No pudimos conectar. Revisa tu conexión e intenta de nuevo.");
       return;
+    } finally {
+      setPending(false);
     }
     router.replace("/");
     router.refresh();
@@ -38,7 +45,7 @@ export default function LoginPage() {
           <p className="text-sm text-zinc-600">Entra para ver tu catálogo, tus anuncios y tus conversaciones.</p>
         </div>
         {supabase ? (
-          <form onSubmit={onSubmit} className="space-y-4">
+          <form onSubmit={(event) => void onSubmit(event)} className="space-y-4">
             <label className="block space-y-1 text-sm">
               <span>Correo</span>
               <input name="email" type="email" required autoComplete="email" className="w-full rounded-md border border-zinc-300 px-3 py-2" />
