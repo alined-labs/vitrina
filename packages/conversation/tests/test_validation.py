@@ -523,6 +523,23 @@ def test_r3_a_claim_inside_a_question_is_still_a_claim(reply: str) -> None:
 
 
 @pytest.mark.parametrize(
+    "reply",
+    [
+        # Spark's greeting to a code that is no ad's (2 of 6 live tries, 2026-10-29).
+        "Hola, bienvenido a Mochilas Ana. ¿Qué producto viste y te gustaría conocer?",
+        "¡Hola! ¿Qué te gustaría ver?",
+        "¡Hola, veci! ¿Cuál te quieres llevar?",
+    ],
+)
+def test_r3_a_question_with_a_neutral_verb_needs_no_citation(reply: str) -> None:
+    output = answer(reply, confidence=0.95)
+
+    result = review(output, [], owner_name=OWNER, business_name="Mochilas Ana")
+
+    assert (result.outcome, result.final_reply) == ("accept", reply)
+
+
+@pytest.mark.parametrize(
     ("customer", "reply"),
     [
         ("¿Tienen la mochila en verde?", "Dale, listo."),

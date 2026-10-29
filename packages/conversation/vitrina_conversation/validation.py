@@ -57,15 +57,15 @@ COURTESY = frozenset({
 QUESTION_WORDS = frozenset({
     "a", "al", "algo", "algun", "alguna", "alguno", "anuncio", "anuncios", "ayudamos", "ayudar",
     "ayudo", "busca", "buscabas", "buscan", "buscas", "cantidad", "ciudad", "color", "colores",
-    "como", "compra", "comprar", "con", "cosa", "cual", "cuales", "cuando", "cuanta", "cuantas",
+    "como", "compra", "comprar", "con", "conocer", "cosa", "cual", "cuales", "cuando", "cuanta", "cuantas",
     "cuanto", "cuantos", "de", "del", "detalles", "diseno", "disponibilidad", "donde", "el", "en",
     "envio", "es", "estilo", "gustaria", "informacion", "interesa", "interesan", "la", "las", "le",
-    "les", "lo", "los", "mas", "me", "medida", "medidas", "modelo", "modelos", "necesita",
+    "les", "llevar", "lo", "los", "mas", "me", "medida", "medidas", "modelo", "modelos", "necesita",
     "necesitas", "nombre", "o", "ocasion", "otra", "otras", "otro", "otros", "para", "pedido",
     "podemos", "por", "precio", "precios", "prefiere", "prefieres", "producto", "productos",
     "puedo", "que", "quien", "quienes", "quiere", "quieren", "quieres", "referencia", "regalo",
     "saber", "sera", "seria", "sirve", "sirvo", "su", "sus", "talla", "tallas", "tamano", "te",
-    "tu", "tus", "un", "una", "vio", "viste", "y",
+    "tu", "tus", "un", "una", "ver", "vio", "viste", "y",
 })  # fmt: skip
 # A reply holding one of these answers the customer's question, so it needs a citation.
 ANSWER_WORDS = frozenset({
