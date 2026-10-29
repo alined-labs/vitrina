@@ -103,6 +103,7 @@ def test_as_8_1_the_fixtures_are_listed_with_their_message_counts() -> None:
 
     assert [fixture.fixture_id for fixture in fixtures] == [
         "anuncio-a7-envio",
+        "anuncio-a7-regateo",
         "consentimiento-mochila-roja",
         "fuera-de-tema-y-baja",
         "reserva-mochila",
@@ -179,6 +180,41 @@ async def test_as_6_1_the_consent_fixture_records_the_customers_yes(stage: Stage
     (granted,) = await stage.compliance.consents(stage.seller_id, contact_id)
     assert (granted.purpose, granted.status) == ("marketing", "granted")
     assert (granted.text_shown, granted.response_text) == (prompt, "SÍ")
+
+
+async def test_t082_the_haggle_fixture_cites_the_price_and_hands_off(stage: Stage) -> None:
+    # Shot 5, option 1: the price from the catalog, then the haggle goes to the owner unpriced.
+    fixture = replay_fixture("anuncio-a7-regateo")
+    assert fixture is not None
+    azul = stage.shop.ids["mochila-azul"]
+    stage.chat.script.extend(
+        [
+            final_answer(GREETING, confidence=0.95),
+            final_answer("La mochila azul vale $85.000.", azul),
+            final_answer(
+                "Te comunico con Ana para revisar lo del descuento.",
+                handoff_reason="policy_exception",
+            ),
+        ]
+    )
+
+    conversation_id = await start_replay(stage.store, stage.compliance, stage.seller_id, fixture)
+    outcomes = await play(
+        fixture, stage.deps, stage.seller_id, uuid4(), speed=1, sleep=stage.clock.sleep
+    )
+
+    assert [outcome.status for outcome in outcomes] == ["replied"] * 3
+    assert [message.text for message in fixture.messages][1:] == [
+        "¿Cuánto vale la mochila azul?",
+        "¿Me deja la mochila azul en 60 mil?",
+    ]
+    assert stage.outbox.texts[1:] == [
+        "La mochila azul vale $85.000.",
+        "Te comunico con Ana para revisar lo del descuento.",
+    ]
+    assert stage.store.conversations[conversation_id].mode == "human"
+    ((_, handoff),) = stage.store.handoffs
+    assert handoff.reason == "policy_exception"
 
 
 @pytest.mark.parametrize(("speed", "gaps"), [(1, [20.0, 25.0]), (10, [2.0, 2.5])])
