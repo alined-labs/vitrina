@@ -63,6 +63,18 @@ API only; the worker never needs it.
 - Create the shop's seller, with the WhatsApp business number as `whatsapp_number`, **before**
   the webhook is set. Inbound messages go to the seller with that number, `POST /v1/sellers` is
   open, and the number is not verified: whoever registers it first receives its chats.
+  `scripts/seed-demo.py` creates it with the demo shop's products, facts and photo (the shop in
+  `evals/fixtures/sellers/mochilas_ana.json`). First add the owner's sign-in in Supabase
+  (Authentication, Users), then run, from the repository root:
+
+  ```sh
+  uv run --env-file apps/dashboard/.env.production.local scripts/seed-demo.py \
+    --api https://<api address>/v1 --whatsapp-number <business number, E.164> \
+    --sign-in <owner email> --photo mochila-azul=<path to the product photo>
+  ```
+
+  The password is asked at the prompt and only the public anon key is used. A second run
+  changes nothing; a 409 means the number or the account already has a seller.
 - In the Meta app, set the WhatsApp webhook to `https://<api address>/v1/webhooks/whatsapp`
   with the same `WHATSAPP_VERIFY_TOKEN`.
 - `GET /v1/health/providers` with a seller's token shows every dependency. In production each
