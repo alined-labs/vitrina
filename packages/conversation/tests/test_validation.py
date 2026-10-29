@@ -171,6 +171,13 @@ AGREEING += [
         ("$60.000",),
     ),
     ("¿Me la deja en 60 mil?", "¡Claro que sí, veci! No dudes en escribirnos.", BAG, ("$60.000",)),
+    # A no about something else (another product) does not take back the yes either.
+    (
+        "¿Me deja la mochila azul en 60 mil?",
+        "¡Claro que sí, veci! Ya no nos quedan rojas, pero la azul sí.",
+        BAG,
+        ("$60.000",),
+    ),
 ]
 
 
@@ -213,6 +220,7 @@ def test_as_3_4_a_yes_to_the_customers_own_price_is_a_violation(
             "¿Me la deja en 60 mil?",
             "No, veci, ese precio ya no está. ¡Claro que te ayudo con otra!",
         ),
+        ("¿Es cierto que tienen 2x1 en manillas?", "¡Claro, veci! Por ahora no hay promociones."),
         (
             "¿Me deja la mochila azul en 60 mil?",
             "Claro, te entiendo. No te la puedo dejar en ese precio; le pregunto a Ana.",
