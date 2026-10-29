@@ -4,8 +4,10 @@
 the customer gets:
 
 - R2 price: every amount in the reply (``vitrina_core.money``, the normalizer that filled the
-  catalog's ``amounts_cop``) must be an amount of a cited item. A violation earns one guided
-  retry; a second one gets the fallback and a ``price_unverified`` handoff (AS-3.4).
+  catalog's ``amounts_cop``) must be an amount of a cited item. A yes to an amount or a
+  promotion the customer named ("¿Me deja la mochila en 60 mil?" → "Te la dejo en ese
+  precio") states it too, unless a cited item carries it. A violation earns one guided retry;
+  a second one gets the fallback and a ``price_unverified`` handoff (AS-3.4).
 - R3 groundedness: every cited id must be an active item of this seller; one unknown id is
   enough to count the answer as confidence 0. A reply without citations may only greet,
   thank, ask the customer something, decline an off-topic request or say the fallback
@@ -18,7 +20,7 @@ the customer gets:
 
 import re
 import unicodedata
-from collections.abc import Iterable, Sequence
+from collections.abc import Collection, Iterable, Sequence
 from dataclasses import dataclass
 from typing import Literal
 
@@ -84,14 +86,54 @@ REQUESTS = frozenset({
     "escribenos", "indicame", "mandame", "regalame",
 })  # fmt: skip
 _SENTENCE = re.compile(r"[^.!\n]+")
+# A reply agrees to the customer's own price with one of these, "sí" (with its accent: "si" is
+# "if") or an opening "si,"; it does not when it also says no. Folded, like the sets above.
+AGREEING = frozenset({
+    "claro", "correcto", "dale", "exacto", "listo", "obvio", "ok", "okay", "perfecto", "supuesto",
+})  # fmt: skip
+NEGATIONS = frozenset({"no", "ningun", "ninguna", "ninguno", "nunca", "tampoco"})
+_YES = re.compile(r"(?<!\w)sí(?!\w)|^\W*si\s*[,.!]")
+# Closings whose "no" takes nothing back: "No dudes en escribirnos", "Nunca te vas a arrepentir".
+_NOT_A_NO = re.compile(
+    r"\b(?:no|nunca) (?:hay problema|hay lio|te preocupes|se preocupe|dudes|dude|duden"
+    r"|olvides|olvide|olviden|te pierdas|se pierda|te vas a arrepentir|te arrepentiras"
+    r"|se va a arrepentir)\b"
+)
+# A price verb pointing back at the customer's amount: "te la dejo en ese precio", "sigue en
+# ese precio", "queda en eso". Folded text.
+_CONCEDES = re.compile(
+    r"\b(?:dejo|dejamos|doy|damos|vendo|vendemos|hago|hacemos|queda|quedan|sigue|siguen|sale"
+    r"|salen|esta|estan)\s+(?:en|a)\s+(?:ese|esa|eso|esos|esas)\b"
+)
+# Promotions the money reader has no amount for: "2x1", "3 por 2", "dos por uno", "10 %".
+_PROMOTION = re.compile(
+    r"\b([2-9]|dos|tres|cuatro|cinco)\s*(?:x|×|por)\s*([1-9]|uno|dos|tres|cuatro)\b"
+    r"(?!\s*(?:mil|\d))|\b(\d{1,2})\s*(?:%|por\s*ciento)"
+)
+_DIGITS = {"uno": "1", "dos": "2", "tres": "3", "cuatro": "4", "cinco": "5"}
 
 
 @dataclass(frozen=True)
 class PriceCheck:
+    """``violations``: the amounts no cited item carries, written or agreed to; ``agreed``: what
+    the reply said yes to, as the customer named it ("$60.000", "2x1")."""
+
     passed: bool
     amounts_in_reply: tuple[int, ...]
     amounts_in_citations: tuple[int, ...]
     violations: tuple[int, ...]
+    agreed: tuple[str, ...] = ()
+
+
+@dataclass(frozen=True)
+class Agreement:
+    """The customer's amounts and promotions a reply says yes to."""
+
+    amounts: tuple[int, ...] = ()
+    promotions: tuple[str, ...] = ()
+
+    def labels(self) -> tuple[str, ...]:
+        return (*(format_cop(amount) for amount in self.amounts), *self.promotions)
 
 
 @dataclass(frozen=True)
@@ -114,12 +156,74 @@ class Review:
     retried: bool
 
 
-def check_prices(reply: str, citations: Sequence[Citation]) -> PriceCheck:
-    """R2: the amounts in ``reply`` that no cited item carries are violations."""
+def check_prices(
+    reply: str,
+    citations: Sequence[Citation],
+    *,
+    customer_message: str | None = None,
+    cited_texts: Iterable[str] = (),
+    consent_prompt: str = "",
+) -> PriceCheck:
+    """R2: the amounts in ``reply`` that no cited item carries are violations, and so are the
+    customer's own amounts and promotions it says yes to (``cited_texts`` may state those)."""
     in_reply = tuple(dict.fromkeys(amounts_cop(reply)))
     allowed = sorted({amount for citation in citations for amount in citation.amounts_cop})
-    violations = tuple(amount for amount in in_reply if amount not in allowed)
-    return PriceCheck(not violations, in_reply, tuple(allowed), violations)
+    stated = tuple(amount for amount in in_reply if amount not in allowed)
+    agreement = agreed_offers(
+        reply.replace(consent_prompt, " ") if consent_prompt else reply,
+        customer_message,
+        allowed,
+        cited_texts,
+    )
+    violations = (*stated, *(amount for amount in agreement.amounts if amount not in stated))
+    agreed = agreement.labels()
+    return PriceCheck(not (violations or agreed), in_reply, tuple(allowed), violations, agreed)
+
+
+def agreed_offers(
+    reply: str,
+    customer_message: str | None,
+    allowed: Collection[int],
+    cited_texts: Iterable[str] = (),
+) -> Agreement:
+    """The amounts and promotions in ``customer_message`` that no cited item carries and that
+    ``reply`` says yes to, read sentence by sentence. A sentence without a no of its own that
+    points back at them ("te la dejo en ese precio") or repeats the promotion agrees, whatever
+    the other sentences say; a bare yes agrees when the reply quotes no amount and no sentence
+    says no ("No, veci, ese precio ya no está. ¡Claro que te ayudo!" agrees to nothing)."""
+    if not customer_message:
+        return Agreement()
+    amounts = tuple(
+        amount for amount in dict.fromkeys(amounts_cop(customer_message)) if amount not in allowed
+    )
+    supported = set().union(*(_promotions(text) for text in cited_texts))
+    promotions = tuple(sorted(_promotions(customer_message) - supported))
+    if not (amounts or promotions):
+        return Agreement()
+    statement = _QUESTION.sub(" ", reply)
+    refuses = says_yes = False
+    for sentence in _SENTENCE.findall(statement):
+        folded = _fold(sentence)
+        if set(_words(_NOT_A_NO.sub(" ", folded))) & NEGATIONS:
+            refuses = True
+            continue
+        if _CONCEDES.search(folded) or _promotions(sentence) & set(promotions):
+            return Agreement(amounts, promotions)
+        plain = unicodedata.normalize("NFC", sentence.casefold()).strip()
+        says_yes = says_yes or bool(_YES.search(plain) or set(_words(folded)) & AGREEING)
+    if says_yes and not refuses and not amounts_cop(statement):
+        return Agreement(amounts, promotions)
+    return Agreement()
+
+
+def _promotions(text: str) -> set[str]:
+    found: set[str] = set()
+    for match in _PROMOTION.finditer(_fold(text)):
+        take, pay, percent = match.groups()
+        found.add(
+            f"{int(percent)} %" if percent else f"{_DIGITS.get(take, take)}x{_DIGITS.get(pay, pay)}"
+        )
+    return found
 
 
 def check_groundedness(
@@ -196,10 +300,13 @@ def _has_number(text: str) -> bool:
     return any(char.isdigit() for char in text) or bool(amounts_cop(text))
 
 
-def _words(text: str) -> list[str]:
+def _fold(text: str) -> str:
     folded = unicodedata.normalize("NFKD", text.casefold())
-    plain = "".join(char for char in folded if not unicodedata.combining(char))
-    return re.findall(r"[a-z0-9]+", plain)
+    return "".join(char for char in folded if not unicodedata.combining(char))
+
+
+def _words(text: str) -> list[str]:
+    return re.findall(r"[a-z0-9]+", _fold(text))
 
 
 def review(
@@ -210,13 +317,21 @@ def review(
     business_name: str = "",
     customer_message: str | None = None,
     consent_prompt: str = "",
+    cited_texts: Iterable[str] = (),
     low_confidence_threshold: float = LOW_CONFIDENCE_THRESHOLD,
     low_confidence_streak: int = 0,
     retried: bool = False,
 ) -> Review:
-    """Decide on one answer. ``citations`` are what the catalog resolved for its cited ids."""
+    """Decide on one answer. ``citations`` are what the catalog resolved for its cited ids, and
+    ``cited_texts`` what the agent read about them."""
     fallback = FALLBACK_REPLY.format(owner_name=owner_name)
-    price = check_prices(output.reply, citations)
+    price = check_prices(
+        output.reply,
+        citations,
+        customer_message=customer_message,
+        cited_texts=cited_texts,
+        consent_prompt=consent_prompt,
+    )
     groundedness = check_groundedness(
         output,
         citations,
@@ -246,9 +361,21 @@ def review(
 
 def retry_instruction(result: Review) -> str:
     """The note the guided retry adds to the context (R2): what was wrong, what to do."""
-    amounts = ", ".join(format_cop(amount) for amount in result.price.violations)
-    return (
-        f"Tu respuesta anterior incluía montos que no aparecen en ningún dato citado: {amounts}. "
+    price = result.price
+    stated = ", ".join(
+        format_cop(amount) for amount in price.violations if amount in price.amounts_in_reply
+    )
+    wrong = []
+    if stated:
+        wrong.append(
+            f"Tu respuesta anterior incluía montos que no aparecen en ningún dato citado: {stated}. "
+        )
+    if price.agreed:
+        wrong.append(
+            "Tu respuesta anterior le decía que sí a un precio o una promoción del cliente que "
+            f"no está en ningún dato citado: {', '.join(price.agreed)}. "
+        )
+    return "".join(wrong) + (
         "Responde otra vez usando solo precios y montos que estén en los datos que citas en "
         "cited_fact_ids. Si no tienes el dato, di que no lo tienes y pasa la conversación al "
         "dueño del negocio."

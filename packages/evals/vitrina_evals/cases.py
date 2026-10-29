@@ -8,7 +8,7 @@ every run (AS-7.3). Contacts and numbers are synthetic (Art. V.1).
 """
 
 from collections.abc import Collection
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Literal
 from uuid import UUID, uuid5
@@ -112,12 +112,14 @@ def fixture_id(business: str, key: str) -> UUID:
 
 @dataclass(frozen=True)
 class Scene:
-    """One business, seeded: what the agent can see, and what each active item may quote."""
+    """One business, seeded: what the agent can see, what each active item may quote, and its
+    text (a promotion a cited item states may be confirmed)."""
 
     seller: SellerSettings
     catalog: InMemoryCatalog
     ids: dict[str, UUID]
     allowed: dict[UUID, frozenset[int]]
+    texts: dict[UUID, str] = field(default_factory=dict)
 
 
 async def build_scene(business: BusinessFixture) -> Scene:
@@ -131,6 +133,7 @@ async def build_scene(business: BusinessFixture) -> Scene:
     catalog = InMemoryCatalog()
     ids: dict[str, UUID] = {}
     allowed: dict[UUID, frozenset[int]] = {}
+    texts: dict[UUID, str] = {}
     for product in business.products:
         amounts = product_amounts(product.price_cop, product.description, product.attributes)
         ids[product.key] = catalog.add_product(
@@ -146,6 +149,9 @@ async def build_scene(business: BusinessFixture) -> Scene:
         )
         if product.status == "active":
             allowed[ids[product.key]] = frozenset(amounts)
+            texts[ids[product.key]] = " ".join(
+                (product.name, product.description or "", *product.attributes.values())
+            )
     for fact in business.facts:
         amounts = tuple(amounts_cop(fact.text))
         ids[fact.key] = catalog.add_fact(
@@ -158,4 +164,5 @@ async def build_scene(business: BusinessFixture) -> Scene:
         )
         if fact.status == "active":
             allowed[ids[fact.key]] = frozenset(amounts)
-    return Scene(seller=settings, catalog=catalog, ids=ids, allowed=allowed)
+            texts[ids[fact.key]] = fact.text
+    return Scene(seller=settings, catalog=catalog, ids=ids, allowed=allowed, texts=texts)

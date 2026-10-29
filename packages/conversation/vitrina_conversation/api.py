@@ -57,7 +57,7 @@ from vitrina_conversation.tools import (
     ToolCallRecord,
     TurnActions,
 )
-from vitrina_conversation.validation import FALLBACK_REPLY, Review
+from vitrina_conversation.validation import FALLBACK_REPLY, Agreement, Review, agreed_offers
 from vitrina_conversation.wiring import (
     PROCESS_INBOUND,
     BackgroundInboundQueue,
@@ -79,6 +79,7 @@ __all__ = [
     "AgentTurnOutput",
     "AgentTurnRequest",
     "AgentTurnResult",
+    "Agreement",
     "ApprovedAds",
     "Attribution",
     "BackgroundInboundQueue",
@@ -121,6 +122,7 @@ __all__ = [
     "TurnResult",
     "agent_deps",
     "agent_turn_result",
+    "agreed_offers",
     "bookings",
     "campaign_deps",
     "conversation_store",

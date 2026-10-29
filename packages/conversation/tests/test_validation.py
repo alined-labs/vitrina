@@ -113,6 +113,178 @@ def test_fr_026_amounts_are_checked_against_the_union_of_citations() -> None:
     assert not check_prices(reply, [BAG]).passed
 
 
+MANILLA = Citation(id=uuid4(), kind="product", amounts_cop=(15000,))
+# A yes to the customer's own price states it without writing it (c10, c12, c14).
+AGREEING = [
+    (
+        "¿Me deja la mochila azul en 60 mil?",
+        "¡Claro que sí, veci! Te la dejo en ese precio.",
+        BAG,
+        ("$60.000",),
+    ),
+    (
+        "Vi en Instagram la mochila azul a 70 mil, ¿sigue en ese precio?",
+        "¡Sí, veci, sigue en ese precio!",
+        BAG,
+        ("$70.000",),
+    ),
+    (
+        "¿Es cierto que tienen 2x1 en manillas?",
+        "¡Sí, veci! Tenemos 2x1 en manillas.",
+        MANILLA,
+        ("2x1",),
+    ),
+    ("¿la dejan a 70 mil?", "Si, veci, se la dejo.", BAG, ("$70.000",)),
+    (
+        "¿Me la deja en 60 mil?",
+        "¡No hay problema, veci! Te la dejo en ese precio.",
+        BAG,
+        ("$60.000",),
+    ),
+]
+
+
+# A no in another sentence, or a closing like "No dudes en escribirnos", does not take the yes back.
+AGREEING += [
+    (
+        "¿Me deja la mochila azul en 60 mil?",
+        "¡Claro que sí, veci! Te la dejo en ese precio. No dudes en escribirnos si quieres otra.",
+        BAG,
+        ("$60.000",),
+    ),
+    (
+        "Vi en Instagram la mochila azul a 70 mil, ¿sigue en ese precio?",
+        "¡Sí, veci, sigue en ese precio! No olvides que el envío a Medellín sale en 2 días.",
+        BAG,
+        ("$70.000",),
+    ),
+    (
+        "¿Es cierto que tienen 2x1 en manillas?",
+        "¡Sí, veci! Tenemos 2x1 en manillas. Nunca te vas a arrepentir.",
+        MANILLA,
+        ("2x1",),
+    ),
+    (
+        "¿Me deja la mochila azul en 60 mil?",
+        "¡Claro que sí, te la dejo en ese precio, no dudes en escribirme!",
+        BAG,
+        ("$60.000",),
+    ),
+    ("¿Me la deja en 60 mil?", "¡Claro que sí, veci! No dudes en escribirnos.", BAG, ("$60.000",)),
+]
+
+
+@pytest.mark.parametrize(("message", "reply", "cited", "agreed"), AGREEING)
+def test_as_3_4_a_yes_to_the_customers_own_price_is_a_violation(
+    message: str, reply: str, cited: Citation, agreed: tuple[str, ...]
+) -> None:
+    for citations in ([cited], []):
+        price = check_prices(reply, citations, customer_message=message)
+
+        assert not price.passed
+        assert price.agreed == agreed
+
+
+@pytest.mark.parametrize(
+    ("message", "reply"),
+    [
+        (
+            "¿Me deja la mochila azul en 60 mil?",
+            "La mochila azul vale $85.000. Para un precio especial te comunico con Ana.",
+        ),
+        (
+            "Vi en Instagram la mochila azul a 70 mil, ¿sigue en ese precio?",
+            "No, veci, ese precio ya no está: la mochila azul vale $85.000.",
+        ),
+        ("Vi la mochila azul a 70 mil, ¿sigue en ese precio?", "¡Sí la tenemos! Vale $85.000."),
+        (
+            "¿Es cierto que tienen 2x1 en manillas?",
+            "Por ahora no tenemos promociones; cada manilla vale $15.000.",
+        ),
+        ("¿Me deja la mochila azul en 85 mil?", "¡Claro que sí! La mochila azul vale $85.000."),
+        ("¿Cuánto vale la mochila azul?", "¡Claro! La mochila azul vale $85.000."),
+        ("¿Me la deja en 60 mil?", "No hay problema, le pregunto a Ana y te cuenta."),
+        ("¿Me la deja en 60 mil?", "Si quieres, le pregunto a Ana y te cuenta."),
+        (
+            "¿Me deja la mochila azul en 60 mil?",
+            "Sí la tenemos, pero no a ese precio. Vale $85.000.",
+        ),
+        (
+            "¿Me la deja en 60 mil?",
+            "No, veci, ese precio ya no está. ¡Claro que te ayudo con otra!",
+        ),
+        (
+            "¿Me deja la mochila azul en 60 mil?",
+            "Claro, te entiendo. No te la puedo dejar en ese precio; le pregunto a Ana.",
+        ),
+    ],
+)
+def test_as_3_4_a_reply_that_keeps_to_the_cited_price_does_not_agree(
+    message: str, reply: str
+) -> None:
+    price = check_prices(reply, [BAG, MANILLA], customer_message=message)
+
+    assert price.passed
+    assert price.agreed == ()
+
+
+def test_as_3_4_a_promotion_a_cited_fact_states_may_be_confirmed() -> None:
+    promo = Citation(id=uuid4(), kind="faq", amounts_cop=(15000,))
+    message = "¿Es cierto que tienen 2x1 en manillas?"
+    reply = "¡Sí, veci! Tenemos 2x1 en manillas por $15.000."
+
+    stated = check_prices(
+        reply, [promo], customer_message=message, cited_texts=["Promo 2x1 en manillas: $15.000."]
+    )
+    unstated = check_prices(reply, [promo], customer_message=message)
+
+    assert stated.passed
+    assert not unstated.passed
+
+
+def test_as_3_4_agreeing_to_the_customers_price_gets_the_retry_then_the_fallback() -> None:
+    message = "¿Me deja la mochila azul en 60 mil?"
+    output = answer("¡Claro que sí, veci! Te la dejo en ese precio.", BAG.id)
+
+    first = review(output, [BAG], owner_name=OWNER, customer_message=message)
+    second = review(output, [BAG], owner_name=OWNER, customer_message=message, retried=True)
+
+    assert (first.outcome, first.price.violations) == ("retry", (60000,))
+    assert "$60.000" in retry_instruction(first)
+    assert "que sí" in retry_instruction(first)
+    assert (second.outcome, second.final_reply, second.handoff_reason) == (
+        "fallback",
+        FALLBACK,
+        "price_unverified",
+    )
+
+
+def test_as_3_4_the_consent_question_is_not_a_yes_to_the_customers_price() -> None:
+    prompt = "¿Te aviso cuando haya promo? Responde SÍ"
+    reply = f"Le pregunto a Ana por ese precio y te cuenta. {prompt}"
+
+    price = check_prices(
+        reply, [], customer_message="¿Me deja la mochila en 60 mil?", consent_prompt=prompt
+    )
+
+    assert price.passed
+
+
+@given(st.integers(min_value=1_000, max_value=2_000_000))
+def test_as_3_4_any_amount_the_customer_names_is_checked_when_the_reply_agrees(
+    amount: int,
+) -> None:
+    assume(amount != 85000)
+    price = check_prices(
+        "¡Claro que sí, veci! Te la dejo en ese precio.",
+        [BAG],
+        customer_message=f"¿Me la deja en {format_cop(amount)}?",
+    )
+
+    assert price.violations == (amount,)
+    assert not price.passed
+
+
 def test_r3_citing_an_id_the_catalog_does_not_know_counts_as_confidence_zero() -> None:
     stranger = uuid4()
 
@@ -353,10 +525,8 @@ def test_r3_a_claim_inside_a_question_is_still_a_claim(reply: str) -> None:
 @pytest.mark.parametrize(
     ("customer", "reply"),
     [
-        ("¿me lo dejan en 70 mil?", "¡Claro que sí, veci!"),
         ("¿Tienen la mochila en verde?", "Dale, listo."),
         ("¿Hacen envíos a Pasto?", "No, veci."),
-        ("me lo dejan en 70 mil", "¡Claro que sí!"),
         ("tienen en verde", "Sí, veci."),
     ],
 )
@@ -364,6 +534,25 @@ def test_r3_a_bare_yes_or_no_to_a_question_is_a_claim(customer: str, reply: str)
     result = review(answer(reply, confidence=0.9), [], owner_name=OWNER, customer_message=customer)
 
     assert (result.outcome, result.final_reply) == ("fallback", FALLBACK)
+
+
+@pytest.mark.parametrize(
+    ("customer", "reply"),
+    [
+        ("¿me lo dejan en 70 mil?", "¡Claro que sí, veci!"),
+        ("me lo dejan en 70 mil", "¡Claro que sí!"),
+    ],
+)
+def test_as_3_4_a_bare_yes_to_the_customers_price_gets_the_guided_retry(
+    customer: str, reply: str
+) -> None:
+    result = review(answer(reply, confidence=0.9), [], owner_name=OWNER, customer_message=customer)
+
+    assert (result.outcome, result.price.violations, result.price.agreed) == (
+        "retry",
+        (70000,),
+        ("$70.000",),
+    )
 
 
 def test_r3_courtesy_words_after_thanks_are_not_an_answer() -> None:

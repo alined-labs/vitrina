@@ -12,13 +12,13 @@ Recorded inputs for the evaluation suites and replay mode (plan.md §4.5). Synth
 
 ## conversations_es.jsonl
 
-One case per line: `case_id`, `category` (`grounded`, `price_trap`, `handoff`, `off_topic`), `business` (a file in `sellers/`), `messages` (the customer's turns; the last reply is scored) and `expected`:
+One case per line: `case_id`, `category` (`grounded`, `price_trap`, `handoff`, `off_topic`), `business` (a file in `sellers/`), `messages` (the customer's turns: every reply is checked for invented prices, the last one against the rest of `expected`) and `expected`:
 
 | Field | Meaning |
 | --- | --- |
 | `cites` | fixture keys the reply must cite (groundedness, R3) |
 | `forbidden_cites` | keys it must not cite, e.g. drafts (FR-003) |
-| `forbidden_amounts` | amounts it must not state, besides any amount no cited active item carries (R2, AS-7.2) |
+| `forbidden_amounts` | amounts no reply may state, besides any amount no cited active item carries; a yes to a price or promotion the customer named counts as stating it (R2, AS-7.2) |
 | `handoff` | `false`, `true`, a `HandoffReason`, or `null` when the case is not labelled for handoff metrics (R5) |
 | `off_topic` | the reply must decline (R10) |
 
