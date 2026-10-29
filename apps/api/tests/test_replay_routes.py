@@ -39,6 +39,7 @@ def test_as_8_1_the_fixtures_are_listed(client: TestClient) -> None:
     fixtures = {item["fixture_id"]: item for item in response.json()}
     assert set(fixtures) == {
         "anuncio-a7-envio",
+        "anuncio-a7-regateo",
         "consentimiento-mochila-roja",
         "fuera-de-tema-y-baja",
         "reserva-mochila",

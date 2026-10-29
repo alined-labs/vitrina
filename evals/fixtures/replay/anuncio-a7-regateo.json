@@ -1,0 +1,123 @@
+{
+  "name": "Anuncio #A7, precio y regateo",
+  "description": "Una clienta llega desde el anuncio #A7, pregunta el precio de la mochila azul y pide que se la dejen en 60 mil: el asistente cita el precio y pasa el regateo a la due\u00f1a.",
+  "webhooks": [
+    {
+      "object": "whatsapp_business_account",
+      "entry": [
+        {
+          "id": "100000000000002",
+          "changes": [
+            {
+              "value": {
+                "messaging_product": "whatsapp",
+                "metadata": {
+                  "display_phone_number": "573000000000",
+                  "phone_number_id": "100000000000001"
+                },
+                "contacts": [
+                  {
+                    "profile": {
+                      "name": "Valentina Prueba"
+                    },
+                    "wa_id": "573000000015"
+                  }
+                ],
+                "messages": [
+                  {
+                    "from": "573000000015",
+                    "id": "wamid.VITRINA-REPLAY-05-01",
+                    "timestamp": "1793134800",
+                    "type": "text",
+                    "text": {
+                      "body": "Hola, vi el anuncio #A7"
+                    }
+                  }
+                ]
+              },
+              "field": "messages"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "object": "whatsapp_business_account",
+      "entry": [
+        {
+          "id": "100000000000002",
+          "changes": [
+            {
+              "value": {
+                "messaging_product": "whatsapp",
+                "metadata": {
+                  "display_phone_number": "573000000000",
+                  "phone_number_id": "100000000000001"
+                },
+                "contacts": [
+                  {
+                    "profile": {
+                      "name": "Valentina Prueba"
+                    },
+                    "wa_id": "573000000015"
+                  }
+                ],
+                "messages": [
+                  {
+                    "from": "573000000015",
+                    "id": "wamid.VITRINA-REPLAY-05-02",
+                    "timestamp": "1793134820",
+                    "type": "text",
+                    "text": {
+                      "body": "\u00bfCu\u00e1nto vale la mochila azul?"
+                    }
+                  }
+                ]
+              },
+              "field": "messages"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "object": "whatsapp_business_account",
+      "entry": [
+        {
+          "id": "100000000000002",
+          "changes": [
+            {
+              "value": {
+                "messaging_product": "whatsapp",
+                "metadata": {
+                  "display_phone_number": "573000000000",
+                  "phone_number_id": "100000000000001"
+                },
+                "contacts": [
+                  {
+                    "profile": {
+                      "name": "Valentina Prueba"
+                    },
+                    "wa_id": "573000000015"
+                  }
+                ],
+                "messages": [
+                  {
+                    "from": "573000000015",
+                    "id": "wamid.VITRINA-REPLAY-05-03",
+                    "timestamp": "1793134845",
+                    "type": "text",
+                    "text": {
+                      "body": "\u00bfMe deja la mochila azul en 60 mil?"
+                    }
+                  }
+                ]
+              },
+              "field": "messages"
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}
