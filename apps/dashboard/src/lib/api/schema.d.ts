@@ -1218,6 +1218,8 @@ export interface components {
             /** @default 10 */
             copy_variants: number;
             angles?: components["schemas"]["CopyAngle"][];
+            /** @description Only these hooks, e.g. from a Wonder brief */
+            hooks?: components["schemas"]["CopyHook"][];
             /** @description Optional style direction, e.g. from a Wonder brief */
             scene_brief?: string;
             /** @default false */

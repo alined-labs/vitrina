@@ -29,6 +29,10 @@ class CreativeJobCreate(BaseModel):
     scenes_per_format: Annotated[int, Field(ge=1, le=5)] = 3
     copy_variants: Annotated[int, Field(ge=1, le=20)] = 10
     angles: list[CopyAngle] | MISSING = MISSING
+    hooks: (
+        Annotated[list[CopyHook], Field(description="Only these hooks, e.g. from a Wonder brief")]
+        | MISSING
+    ) = MISSING
     scene_brief: Annotated[str, Field(max_length=500)] | MISSING = MISSING
     overlay_text: bool = False
     brief_id: UUID | None = None

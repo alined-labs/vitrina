@@ -1,19 +1,22 @@
 """I-13: ``start_job``'s snapshot applies the route's rules for any caller (T034, T071)."""
 
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Any, Literal
 from uuid import UUID
 
 import pytest
+from pydantic import ValidationError
 
 from vitrina_catalog.api import InMemoryCatalog
 from vitrina_catalog.sellers import InMemorySellerStore, SellerCreate
 from vitrina_core.http import ProblemCode, ProblemError
 from vitrina_core.ids import new_id
-from vitrina_core.storage import blob_key
+from vitrina_core.storage import LocalBlobStore, blob_key
 from vitrina_creative.assets import AssetRecord, InMemoryAssetStore
 from vitrina_creative.schemas import CreativeJobCreate
 from vitrina_creative.start import job_payload
+from vitrina_creative.tasks import load_input
 
 SELLER = UUID("00000000-0000-7000-8000-00000000003a")
 OTHER = UUID("00000000-0000-7000-8000-00000000003b")
@@ -92,6 +95,24 @@ async def test_a_brief_travels_in_the_params(shop: Shop) -> None:
 
     assert payload["params"]["brief_id"] == str(BRIEF)
     assert payload["params"]["scene_brief"] == "Feria"
+
+
+async def test_a_jobs_hooks_reach_the_pipeline_input(shop: Shop, tmp_path: Path) -> None:
+    params = CreativeJobCreate(product_id=shop.product, brief_id=BRIEF, hooks=["question"])
+    payload = await shop.payload(params)
+    storage = LocalBlobStore(tmp_path, public_url="http://storage.test")
+    for photo in payload["photos"]:
+        await storage.put(photo["key"], b"png", "image/png")
+
+    data = await load_input(payload, SELLER, storage)
+
+    assert payload["params"]["hooks"] == ["question"]
+    assert data.hooks == ("question",)
+
+
+def test_an_unknown_hook_is_refused(shop: Shop) -> None:
+    with pytest.raises(ValidationError):
+        CreativeJobCreate.model_validate({"product_id": str(shop.product), "hooks": ["meme"]})
 
 
 async def test_asset_ids_choose_among_the_products_photos(shop: Shop) -> None:

@@ -152,6 +152,7 @@ async def load_input(payload: Any, seller_id: UUID, storage: BlobStore) -> Pipel
         scenes_per_format=int(params.get("scenes_per_format", 3)),
         copy_variants=int(params.get("copy_variants", 10)),
         angles=tuple(params.get("angles") or ()),
+        hooks=tuple(params.get("hooks") or ()),
         scene_brief=params.get("scene_brief"),
     )
 

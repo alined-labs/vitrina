@@ -1,5 +1,6 @@
 """T034 pipeline: stages in order, the altered scene blocked, copy only when a scene passed."""
 
+from dataclasses import replace
 from uuid import UUID
 
 import pytest
@@ -91,6 +92,12 @@ async def test_a_photo_with_a_tiny_product_is_skipped_for_a_usable_one() -> None
         ScriptedMuse(good_scenes()[0]),
     )
     assert {scene.source_asset_id for scene in result.scenes} == {SOURCE_ID}
+
+
+async def test_a_jobs_hooks_reach_the_copy() -> None:
+    result = await run(replace(job(), hooks=("question",)), ScriptedMuse(good_scenes()[0]))
+    assert result.copy
+    assert {variant.hook for variant in result.copy} == {"question"}
 
 
 async def test_no_usable_photo_fails_the_job_with_a_reason_for_the_seller() -> None:
