@@ -95,19 +95,20 @@ async def test_until_the_engine_has_run_turn_a_run_says_so(tmp_path: Path) -> No
     assert "run_turn" in result.notes
 
 
-def test_make_evals_reports_an_error_run_without_failing_the_build(
+def test_an_error_run_fails_make_evals(
     tmp_path: Path, capsys: pytest.CaptureFixture[str], monkeypatch: pytest.MonkeyPatch
 ) -> None:
     # Not the machine's .env: without MODEL_AGENT there is no agent, so the run is an error.
+    # A suite that could not run must not pass the build as if it had passed.
     monkeypatch.setattr(cli, "get_settings", lambda: settings(tmp_path))
 
     code = cli.main(["--suite", "conversations_es", "--sample", "2", "--out", str(tmp_path)])
 
     out = capsys.readouterr().out
     report = json.loads(out[: out.rindex("}") + 1])
-    assert code == 0
+    assert code == 2
     assert report["status"] == "error"
-    assert "::warning title=evals conversations_es::" in out
+    assert "::error title=evals conversations_es::" in out
     [written] = tmp_path.glob("conversations_es-*.json")
     assert json.loads(written.read_text())["status"] == "error"
 
