@@ -13,6 +13,7 @@ from vitrina_compliance.api import (
     ConsentRecord,
     ConsentRecordCreate,
     Contact,
+    OptedOutError,
     opt_out,
     request_erasure,
 )
@@ -36,6 +37,9 @@ def compliance_store(request: Request) -> ComplianceStore:
 
 
 Store = Annotated[ComplianceStore, Depends(compliance_store)]
+OPTED_OUT_DETAIL = (
+    "Este contacto se dio de baja: no se puede registrar un nuevo permiso de marketing."
+)
 Paging = Annotated[PageQuery, Depends()]
 
 
@@ -126,11 +130,17 @@ async def record_consent_manually(
     record: ConsentRecordCreate,
     _key: IdempotencyKey = None,
 ) -> ConsentRecord:
-    """The seller's own attestation; the agent's path applies R8 in conversation instead."""
+    """The seller's own attestation; the agent's path applies R8 in conversation instead.
+
+    After an opt-out the opt-out wins: a marketing grant is a conflict and records nothing.
+    """
     try:
         return await store.append_consent(seller_id, contact_id, record, recorded_by="seller")
     except LookupError as error:
         raise _not_found(contact_id) from error
+    except OptedOutError as error:
+        # The dashboard shows a conflict's detail to the seller as written.
+        raise ProblemError(ProblemCode.CONFLICT, detail=OPTED_OUT_DETAIL) from error
 
 
 @router.post(

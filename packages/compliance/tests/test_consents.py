@@ -19,6 +19,13 @@ OTHER_SELLER = UUID("00000000-0000-7000-8000-00000000000b")
 NUMBER = "573000000001"
 PROMPT = "¿Te aviso cuando llegue tu talla o haya promo? Responde SÍ"
 NOW = datetime(2026, 10, 28, 15, 0, tzinfo=UTC)
+PAPER_FORM = ConsentRecordCreate(
+    purpose="marketing",
+    status="granted",
+    text_shown="Formulario en el local: ¿acepta recibir promociones por WhatsApp?",
+    response_text="Firmó que sí",
+    channel="in_person",
+)
 
 
 @pytest.fixture
@@ -184,6 +191,50 @@ async def test_as_6_5_opt_out_revokes_marketing_and_holds_its_first_time(
     ]
     assert history[-1].response_text == "sí"
     assert history[1].response_text == "BAJA"
+
+
+async def test_as_6_5_after_an_opt_out_a_new_yes_records_nothing(
+    store: InMemoryCompliance,
+) -> None:
+    # Q31: the opt-out wins, from the chat (R8's path) and from the seller's paper form alike.
+    contact = await store.resolve_contact(SELLER, NUMBER)
+    await record_consent(store, SELLER, contact.id, prompt_text=PROMPT, response_text="sí")
+    await opt_out(store, SELLER, contact.id, via="keyword", response_text="BAJA")
+    before = await store.consents(SELLER, contact.id)
+
+    with pytest.raises(ConsentRefusedError, match="opted out"):
+        await record_consent(store, SELLER, contact.id, prompt_text=PROMPT, response_text="sí")
+    with pytest.raises(ConsentRefusedError, match="opted out"):
+        await store.append_consent(SELLER, contact.id, PAPER_FORM, recorded_by="seller")
+
+    after = await store.contact(SELLER, contact.id)
+    assert after is not None
+    assert await store.consents(SELLER, contact.id) == before
+    assert (after.marketing_consent, after.opted_out_at) == ("revoked", NOW)
+    assert [event for event, _ in store.events] == ["consent.recorded", "consent.revoked"]
+
+
+async def test_an_opted_out_contact_still_takes_revocations_and_data_processing_records(
+    store: InMemoryCompliance,
+) -> None:
+    contact = await store.resolve_contact(SELLER, NUMBER)
+    await opt_out(store, SELLER, contact.id, via="api")
+
+    revoked = await store.append_consent(
+        SELLER,
+        contact.id,
+        PAPER_FORM.model_copy(update={"status": "revoked"}),
+        recorded_by="seller",
+    )
+    processing = await store.append_consent(
+        SELLER,
+        contact.id,
+        PAPER_FORM.model_copy(update={"purpose": "data_processing"}),
+        recorded_by="seller",
+    )
+
+    newest = [record.id for record in await store.consents(SELLER, contact.id)][:2]
+    assert newest == [processing.id, revoked.id]
 
 
 async def test_opt_out_of_an_unknown_contact_is_a_lookup_error(store: InMemoryCompliance) -> None:

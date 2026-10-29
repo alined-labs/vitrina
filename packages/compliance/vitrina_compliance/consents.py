@@ -4,7 +4,8 @@ The ledger only grows: a grant, a revocation, another grant. A contact's current
 the latest record per purpose, ``none`` before any. ``record_consent`` is the agent's path
 and applies R8 outside the model: a consent prompt must be pending and the reply must be a
 plain yes. ``opt_out`` is immediate and permanent: it stamps the contact once and appends a
-revocation each time it is asked. Each record also emits ``consent.recorded`` or
+revocation each time it is asked, and the opt-out wins over any later marketing grant, from the
+chat or from the seller (Q31). Each record also emits ``consent.recorded`` or
 ``consent.revoked``. Campaign sends pending for an opted-out contact are dropped at send time
 by ``evaluate`` (OPTED_OUT comes first), so nothing else needs cancelling here.
 """
@@ -40,6 +41,13 @@ OPT_OUT_SHOWN: dict[OptOutVia, str] = {
 
 class ConsentRefusedError(Exception):
     """R8 failed: nothing was recorded."""
+
+
+class OptedOutError(ConsentRefusedError):
+    """The contact opted out, and the opt-out wins: a new marketing grant records nothing (Q31).
+
+    Revocations and data-processing records still go in.
+    """
 
 
 class ConsentRecordCreate(BaseModel):
@@ -159,6 +167,11 @@ async def opt_out(
     contact = await store.contact(seller_id, contact_id)
     assert contact is not None
     return contact
+
+
+def _refuse_after_opt_out(contact_id: UUID, data: ConsentRecordCreate) -> None:
+    if data.purpose == "marketing" and data.status == "granted":
+        raise OptedOutError(f"contact {contact_id} opted out; a new marketing grant is refused")
 
 
 def _identity(identity: ContactIdentity | None) -> ContactIdentity:
@@ -290,7 +303,8 @@ class InMemoryCompliance:
         recorded_by: RecordedBy,
         via: OptOutVia | None = None,
     ) -> ConsentRecord:
-        self._row(seller_id, contact_id)
+        if self._row(seller_id, contact_id).opted_out_at is not None:
+            _refuse_after_opt_out(contact_id, data)
         record = ConsentRecord(
             **data.model_dump(),
             id=new_id(),
@@ -468,13 +482,18 @@ class PostgresCompliance:
             recorded_by=recorded_by,
         )
         async with self.sessions() as session, session.begin():
-            owned = await session.scalar(
-                sa.select(contacts.c.id).where(
-                    contacts.c.id == contact_id, contacts.c.seller_id == seller_id
+            # The row lock orders this against an opt-out of the same contact.
+            owned = (
+                await session.execute(
+                    sa.select(contacts.c.opted_out_at)
+                    .where(contacts.c.id == contact_id, contacts.c.seller_id == seller_id)
+                    .with_for_update()
                 )
-            )
+            ).first()
             if owned is None:
                 raise LookupError(f"no contact {contact_id} for this seller")
+            if owned.opted_out_at is not None:
+                _refuse_after_opt_out(contact_id, data)
             await session.execute(
                 sa.insert(consent_records).values(
                     seller_id=seller_id, **record.model_dump(exclude_defaults=False)

@@ -3,7 +3,8 @@
 For the conversation engine (I-12): run ``is_opt_out_request`` and ``is_erasure_request`` on
 every inbound text before anything else (R7, FR-063); ``store.resolve_contact`` gives the
 contact for a WhatsApp number; ``record_consent`` (R8 checked here) and ``opt_out`` write
-the ledger; ``store.is_opted_out`` comes before any marketing; ``request_erasure`` answers
+the ledger, and after an opt-out a marketing grant raises ``OptedOutError``, a
+``ConsentRefusedError``; ``store.is_opted_out`` comes before any marketing; ``request_erasure`` answers
 ``BORRAR MIS DATOS``, and each module erases its own part through the ``vitrina.erasure``
 entry point. For campaigns: ``evaluate(contact, at) -> SendDecision`` in the fixed order of
 FR-061 (ADR-0008) with the Ley 2300 calendar. Reactivation campaigns (T064):
@@ -41,6 +42,7 @@ from vitrina_compliance.consents import (
     ConsentRefusedError,
     ErasureReceipt,
     InMemoryCompliance,
+    OptedOutError,
     PostgresCompliance,
     opt_out,
     record_consent,
@@ -85,6 +87,7 @@ __all__ = [
     "InMemoryCampaigns",
     "InMemoryCompliance",
     "MarketingConsent",
+    "OptedOutError",
     "Outbox",
     "PostgresCampaigns",
     "PostgresCompliance",

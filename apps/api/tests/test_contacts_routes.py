@@ -114,6 +114,32 @@ async def test_as_6_5_opting_out_from_the_dashboard_is_immediate(
     ]
 
 
+async def test_after_an_opt_out_the_paper_form_cannot_grant_marketing_again(
+    app_store: tuple[TestClient, InMemoryCompliance],
+) -> None:
+    client, store = app_store
+    contact = await store.resolve_contact(SELLER, "573000000001")
+    client.post(f"/v1/contacts/{contact.id}/opt-out", headers=bearer())
+
+    response = client.post(
+        f"/v1/contacts/{contact.id}/consents",
+        json={
+            "purpose": "marketing",
+            "status": "granted",
+            "text_shown": "¿Acepta recibir promociones por WhatsApp?",
+            "response_text": "Sí, firmado en el local",
+            "channel": "in_person",
+        },
+        headers=bearer(),
+    )
+    ledger = client.get(f"/v1/contacts/{contact.id}/consents", headers=bearer()).json()
+
+    assert response.status_code == 409
+    assert response.json()["code"] == "CONFLICT"
+    assert response.json()["detail"].startswith("Este contacto se dio de baja")
+    assert [(entry["status"], entry["recorded_by"]) for entry in ledger] == [("revoked", "seller")]
+
+
 def test_a_manual_record_is_validated(app_store: tuple[TestClient, InMemoryCompliance]) -> None:
     client, _ = app_store
 
