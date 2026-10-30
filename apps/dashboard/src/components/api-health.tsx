@@ -25,9 +25,9 @@ export function ApiHealth() {
   }, []);
 
   const styles = {
-    checking: "bg-zinc-100 text-zinc-700",
-    up: "bg-emerald-50 text-emerald-800",
-    down: "bg-red-50 text-red-800",
+    checking: "notice",
+    up: "notice notice--success",
+    down: "notice notice--danger",
   } as const;
   const text = {
     checking: "Comprobando la conexión con la API…",
@@ -39,7 +39,7 @@ export function ApiHealth() {
   } as const;
 
   return (
-    <p role="status" className={`rounded-md px-4 py-3 text-sm ${styles[state.kind]}`}>
+    <p role="status" className={styles[state.kind]}>
       {text[state.kind]}
     </p>
   );

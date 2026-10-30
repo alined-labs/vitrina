@@ -31,3 +31,4 @@ A module talks to another only through its public interface (`packages/<name>/ap
 - Secrets live in `.env` (gitignored); `.env.example` lists the names with placeholders. No personal data and no real phone numbers anywhere, fixtures included; synthetic numbers are `+57300000xxxx` (Art. V).
 - One long-lived dev process (API **or** worker) per environment while agent sessions run; `pytest -n 2`.
 - Every external call has a timeout, retries for `429`/`5xx`, and a recorded fallback (Art. VIII). Customer text never goes to a model in data-sharing mode (Art. V.2).
+- **Dashboard UI:** read `apps/dashboard/DESIGN.md` first. Pages use its tokens and component classes; `pnpm run check` rejects Tailwind palette classes and raw colors.

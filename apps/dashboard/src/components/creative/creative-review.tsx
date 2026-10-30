@@ -37,12 +37,12 @@ export function CreativeReview() {
   return (
     <div className="grid gap-6 lg:grid-cols-[16rem_1fr]">
       <aside className="space-y-2">
-        <h2 className="text-sm font-semibold uppercase tracking-wide text-zinc-500">Trabajos</h2>
-        {message && <p className="text-sm text-red-700">{message}</p>}
+        <h2 className="text-sm font-semibold uppercase tracking-wide text-fg-subtle">Trabajos</h2>
+        {message && <p className="text-sm text-danger-fg">{message}</p>}
         {jobs === null ? (
-          <p className="text-sm text-zinc-500">Cargando…</p>
+          <p className="text-sm text-fg-subtle">Cargando…</p>
         ) : jobs.length === 0 ? (
-          <p className="text-sm text-zinc-500">
+          <p className="text-sm text-fg-subtle">
             Aún no hay trabajos. Empieza desde el <Link href="/catalogo" className="underline">catálogo</Link>.
           </p>
         ) : (
@@ -52,9 +52,8 @@ export function CreativeReview() {
                 <button
                   type="button"
                   onClick={() => router.replace(`/creativos?trabajo=${job.id}`)}
-                  className={`w-full rounded px-3 py-2 text-left text-sm ${
-                    job.id === selected ? "bg-zinc-900 text-white" : "hover:bg-zinc-100"
-                  }`}
+                  aria-current={job.id === selected ? "true" : undefined}
+                  className="list-item"
                 >
                   <span className="block font-medium">{names[job.product_id] ?? "Producto"}</span>
                   <span className="block text-xs opacity-75">
@@ -69,7 +68,7 @@ export function CreativeReview() {
       {selected ? (
         <JobDetail key={selected} jobId={selected} productName={names} />
       ) : (
-        <p className="text-sm text-zinc-500">Elige un trabajo para revisar sus escenas y textos.</p>
+        <p className="text-sm text-fg-subtle">Elige un trabajo para revisar sus escenas y textos.</p>
       )}
     </div>
   );
@@ -127,7 +126,7 @@ function JobDetail({ jobId, productName }: { jobId: string; productName: Record<
     }
   }
 
-  if (!job) return <p className="text-sm text-zinc-500">{message ?? "Cargando el trabajo…"}</p>;
+  if (!job) return <p className="text-sm text-fg-subtle">{message ?? "Cargando el trabajo…"}</p>;
   const running = job.status === "queued" || job.status === "running";
   const creatives = job.creatives ?? [];
   const copies = job.copy_variants ?? [];
@@ -137,14 +136,21 @@ function JobDetail({ jobId, productName }: { jobId: string; productName: Record<
     <section className="min-w-0 space-y-6">
       <header className="space-y-2">
         <h2 className="text-lg font-semibold">{productName[job.product_id] ?? "Producto"}</h2>
-        <p className="text-sm text-zinc-600">{STAGE[job.stage]}</p>
+        <p className="text-sm text-fg-muted">{STAGE[job.stage]}</p>
         {running && (
-          <div className="h-2 w-full overflow-hidden rounded bg-zinc-200" aria-label="Progreso">
-            <div className="h-full bg-zinc-900 transition-all" style={{ width: `${Math.round((job.progress ?? 0) * 100)}%` }} />
+          <div
+            className="progress"
+            role="progressbar"
+            aria-label="Progreso"
+            aria-valuemin={0}
+            aria-valuemax={100}
+            aria-valuenow={Math.round((job.progress ?? 0) * 100)}
+          >
+            <div style={{ width: `${Math.round((job.progress ?? 0) * 100)}%` }} />
           </div>
         )}
         {job.status === "failed" && (
-          <p role="alert" className="rounded-md bg-red-50 px-4 py-3 text-sm text-red-800">
+          <p role="alert" className="notice notice--danger">
             {jobErrorMessage(job.error)}
           </p>
         )}
@@ -176,23 +182,23 @@ function JobDetail({ jobId, productName }: { jobId: string; productName: Record<
         </div>
       )}
       {job.status === "succeeded" && creatives.length > 0 && copies.length === 0 && (
-        <p className="text-sm text-zinc-600">
+        <p className="text-sm text-fg-muted">
           Ninguna escena pasó la verificación, así que no escribimos textos. Prueba con otra foto del producto.
         </p>
       )}
       {canApprove && (
-        <div className="sticky bottom-0 space-y-3 border-t border-zinc-200 bg-white py-3">
+        <div className="sticky bottom-0 space-y-3 border-t border-line bg-surface py-3">
           <Notices message={message} approved={approved} />
           <div className="flex flex-wrap items-center gap-3">
           <button
             type="button"
             disabled={!creativeId || !copyId || busy}
             onClick={() => void approve()}
-            className="rounded bg-zinc-900 px-4 py-2 text-sm text-white disabled:cursor-not-allowed disabled:bg-zinc-300"
+            className="btn btn--primary"
           >
             Aprobar anuncio
           </button>
-          <span className="text-sm text-zinc-500">
+          <span className="text-sm text-fg-subtle">
             {creativeId && copyId ? "Se asigna un código y el enlace de WhatsApp." : "Elige una escena verificada y un texto."}
           </span>
           </div>
@@ -206,12 +212,12 @@ function Notices({ message, approved }: { message: string | null; approved: Ad |
   return (
     <>
       {message && (
-        <p role="alert" className="rounded-md bg-red-50 px-4 py-3 text-sm text-red-800">
+        <p role="alert" className="notice notice--danger">
           {message}
         </p>
       )}
       {approved && (
-        <div role="status" className="space-y-1 rounded-md bg-emerald-50 px-4 py-3 text-sm text-emerald-900">
+        <div role="status" className="notice notice--success space-y-1">
           <p className="font-medium">Anuncio #{approved.code} aprobado.</p>
           {approved.wa_link && <p className="break-all">{approved.wa_link}</p>}
           <Link href="/anuncios" className="underline">
@@ -226,37 +232,37 @@ function Notices({ message, approved }: { message: string | null; approved: Ad |
 function SceneCard({ creative, chosen, onChoose }: { creative: Creative; chosen: boolean; onChoose: () => void }) {
   const check = creative.verification;
   const passed = check.status === "passed";
-  const badge = { passed: "bg-emerald-100 text-emerald-900", blocked: "bg-red-100 text-red-900", pending: "bg-zinc-100 text-zinc-700" };
+  const badge = { passed: "bg-success-bg text-success-fg", blocked: "bg-danger-bg text-danger-fg", pending: "bg-sunken text-fg" };
   const label = { passed: "Verificada", blocked: "Bloqueada", pending: "Pendiente" };
   return (
-    <li className={`overflow-hidden rounded-lg border bg-white ${chosen ? "border-zinc-900 ring-2 ring-zinc-900" : "border-zinc-200"}`}>
+    <li className={`card overflow-hidden ${chosen ? "card--chosen" : ""}`}>
       {/* Signed links from the blob store; next/image would need every storage host configured. */}
       {/* eslint-disable-next-line @next/next/no-img-element */}
       <img src={creative.image_url} alt={`Escena ${FORMAT[creative.format]}`} className={`aspect-square w-full object-cover ${passed ? "" : "opacity-60 grayscale"}`} />
       <div className="space-y-2 p-3 text-sm">
         <div className="flex items-center justify-between">
-          <span className="text-zinc-600">{FORMAT[creative.format]}</span>
+          <span className="text-fg-muted">{FORMAT[creative.format]}</span>
           <span className={`rounded px-2 py-0.5 text-xs ${badge[check.status]}`}>{label[check.status]}</span>
         </div>
-        {check.reason && <p className={passed ? "text-zinc-600" : "font-medium text-red-800"}>{check.reason}</p>}
-        <dl className="grid grid-cols-2 gap-x-2 text-xs text-zinc-600">
+        {check.reason && <p className={passed ? "text-fg-muted" : "font-medium text-danger-fg"}>{check.reason}</p>}
+        <dl className="grid grid-cols-2 gap-x-2 text-xs text-fg-muted">
           <dt>Forma</dt>
           <dd className="text-right">
-            {percent(check.mask_iou)} <span className="text-zinc-400">(mín. {percent(check.thresholds.mask_iou_min)})</span>
+            {percent(check.mask_iou)} <span className="text-fg-subtle">(mín. {percent(check.thresholds.mask_iou_min)})</span>
           </dd>
           <dt>Color</dt>
           <dd className="text-right">
-            {decimal(check.color_delta)} <span className="text-zinc-400">(máx. {decimal(check.thresholds.color_delta_max)})</span>
+            {decimal(check.color_delta)} <span className="text-fg-subtle">(máx. {decimal(check.thresholds.color_delta_max)})</span>
           </dd>
           <dt>Revisión visual</dt>
           <dd className="text-right">{check.visual_review.altered ? "cambios" : "sin cambios"}</dd>
         </dl>
         {passed ? (
-          <button type="button" onClick={onChoose} className="w-full rounded border border-zinc-300 px-3 py-1.5 hover:border-zinc-500">
+          <button type="button" onClick={onChoose} className="btn btn--secondary btn--sm btn--block">
             {chosen ? "Elegida" : "Usar esta escena"}
           </button>
         ) : (
-          <p className="text-xs text-zinc-500">Se guarda para auditoría y nunca se publica.</p>
+          <p className="text-xs text-fg-subtle">Se guarda para auditoría y nunca se publica.</p>
         )}
       </div>
     </li>
@@ -266,7 +272,7 @@ function SceneCard({ creative, chosen, onChoose }: { creative: Creative; chosen:
 function CopyRow({ copy, chosen, onChoose }: { copy: Copy; chosen: boolean; onChoose: () => void }) {
   const dropped = copy.status === "dropped_low_voice" || copy.status === "rejected";
   return (
-    <li className={`flex items-start gap-3 rounded-lg border bg-white p-3 text-sm ${chosen ? "border-zinc-900 ring-2 ring-zinc-900" : "border-zinc-200"} ${dropped ? "opacity-60" : ""}`}>
+    <li className={`card flex items-start gap-3 p-3 text-sm ${chosen ? "card--chosen" : ""} ${dropped ? "opacity-60" : ""}`}>
       <input
         type="radio"
         name="copy"
@@ -278,7 +284,7 @@ function CopyRow({ copy, chosen, onChoose }: { copy: Copy; chosen: boolean; onCh
       />
       <div className="min-w-0 flex-1 space-y-1">
         <p>{copyPreview(copy.text)}</p>
-        <p className="text-xs text-zinc-500">
+        <p className="text-xs text-fg-subtle">
           {HOOK[copy.hook]} · {ANGLE[copy.angle]}
           {copy.brand_voice_score != null && ` · voz de marca ${decimal(copy.brand_voice_score, 1)}/5`}
           {dropped && " · descartado por no sonar como tu marca"}

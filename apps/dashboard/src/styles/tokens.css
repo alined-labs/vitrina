@@ -1,0 +1,144 @@
+/*
+ * Vitrina design tokens, in three layers (DESIGN.md):
+ * 1. primitives: raw values on :root, never used by pages or components directly;
+ * 2. semantic: what a value is for, as Tailwind theme variables, so `bg-canvas`, `text-fg-muted`
+ *    and `border-line` exist and nothing else does (`--color-*: initial` drops the default palette);
+ * 3. component: per-component values read by components.css.
+ * Contrast is measured in DESIGN.md; change a value there and here together.
+ */
+
+/* Layer 1 · primitives */
+:root {
+  /* Caribe: the brand teal. 700 is the primary (white on it 7.1:1); 950 is the night band. */
+  --caribe-50: #eef9fb;
+  --caribe-100: #d6f1f5;
+  --caribe-200: #a9e1e9;
+  --caribe-300: #6cc8d6;
+  --caribe-400: #2ba9be;
+  --caribe-500: #0f8da3;
+  --caribe-600: #0b7487;
+  --caribe-700: #0a6170;
+  --caribe-800: #0b4f5b;
+  --caribe-900: #0a3d46;
+  --caribe-950: #062c33;
+
+  /* Mango: the light inside the mark. Never a UI fill or text: it sits next to warning amber. */
+  --mango-300: #ffd27a;
+  --mango-500: #ffae1a;
+
+  /* Arena: warm sand neutrals. 400 is the lightest control border (3.3:1 on white). */
+  --arena-0: #ffffff;
+  --arena-50: #faf8f5;
+  --arena-100: #f3f0eb;
+  --arena-200: #e7e2da;
+  --arena-300: #d3ccc1;
+  --arena-400: #968c7f;
+  --arena-500: #736a5f;
+  --arena-600: #5e564c;
+  --arena-700: #463f37;
+  --arena-800: #302b25;
+  --arena-900: #201c18;
+
+  /* Status steps, shared with the metric charts; text uses the darker tones. */
+  --good-500: #0ca30c;
+  --good-700: #146c3a;
+  --good-50: #e6f4ec;
+  --caution-500: #fab219;
+  --caution-700: #8a5b00;
+  --caution-50: #fff4d9;
+  --critical-500: #d03b3b;
+  --critical-700: #a32424;
+  --critical-50: #fcebea;
+}
+
+/* Layer 2 · semantic */
+@theme {
+  --color-*: initial;
+
+  --color-canvas: var(--arena-50);
+  --color-surface: var(--arena-0);
+  --color-sunken: var(--arena-100);
+  --color-sunken-strong: var(--arena-200);
+  --color-night: var(--caribe-950);
+
+  --color-fg: var(--arena-900);
+  --color-fg-muted: var(--arena-600);
+  --color-fg-subtle: var(--arena-500);
+  --color-fg-inverse: var(--arena-0);
+  --color-fg-inverse-muted: var(--caribe-100);
+
+  --color-line: var(--arena-200);
+  --color-control: var(--arena-400);
+  --color-control-hover: var(--arena-600);
+
+  --color-primary: var(--caribe-700);
+  --color-primary-hover: var(--caribe-800);
+  --color-primary-soft: var(--caribe-50);
+  --color-primary-soft-hover: var(--caribe-100);
+  --color-primary-fg: var(--caribe-800);
+  --color-on-primary: var(--arena-0);
+  --color-focus: var(--caribe-600);
+
+  --color-mark-frame: var(--caribe-700);
+  --color-mark-frame-on-night: var(--caribe-400);
+  --color-mark-glass: var(--mango-500);
+
+  --color-success: var(--good-500);
+  --color-success-fg: var(--good-700);
+  --color-success-bg: var(--good-50);
+  --color-warning: var(--caution-500);
+  --color-warning-fg: var(--caution-700);
+  --color-warning-bg: var(--caution-50);
+  --color-danger: var(--critical-500);
+  --color-danger-fg: var(--critical-700);
+  --color-danger-bg: var(--critical-50);
+  --color-info-fg: var(--caribe-800);
+  --color-info-bg: var(--caribe-50);
+
+  --font-sans: var(--font-atkinson), ui-sans-serif, system-ui, sans-serif;
+  --font-display: var(--font-bricolage), var(--font-atkinson), ui-sans-serif, system-ui, sans-serif;
+
+  --radius-sm: 6px;
+  --radius-md: 10px;
+  --radius-lg: 16px;
+  --radius-xl: 20px;
+
+  --ease-out: cubic-bezier(0.22, 1, 0.36, 1);
+  --ease-in-out: cubic-bezier(0.65, 0, 0.35, 1);
+}
+
+/* Layer 3 · component */
+:root {
+  --duration-fast: 120ms;
+  --duration-base: 200ms;
+  --duration-slow: 320ms;
+  --press-scale: 0.98;
+  --target-min: 24px;
+
+  --btn-h: 2.5rem;
+  --btn-h-sm: 2rem;
+  --btn-h-lg: 3rem;
+  --btn-px: 1.125rem;
+  --btn-px-sm: 0.875rem;
+  --btn-px-lg: 1.5rem;
+  --btn-radius: 999px;
+
+  --input-h: 2.5rem;
+  --input-px: 0.75rem;
+  --input-radius: var(--radius-md);
+
+  --card-radius: var(--radius-lg);
+  --badge-radius: 999px;
+  --chip-h: 2.25rem;
+  --notice-radius: var(--radius-md);
+  --focus-ring: 0 0 0 2px var(--color-canvas), 0 0 0 4px var(--color-focus);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  :root {
+    --duration-fast: 0ms;
+    --duration-base: 0ms;
+    --duration-slow: 0ms;
+    --press-scale: 1;
+  }
+}

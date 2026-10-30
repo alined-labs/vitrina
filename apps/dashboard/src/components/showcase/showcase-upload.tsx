@@ -49,7 +49,7 @@ export function ShowcaseUpload() {
         event.preventDefault();
         void submit(event.currentTarget);
       }}
-      className="space-y-4 rounded-lg border border-zinc-200 bg-white p-6"
+      className="space-y-4 card p-6"
     >
       <label className="block space-y-1 text-sm">
         <span className="font-medium">Foto del producto</span>
@@ -57,24 +57,24 @@ export function ShowcaseUpload() {
       </label>
       <label className="block space-y-1 text-sm">
         <span className="font-medium">¿Qué vendes?</span>
-        <input name="product_name" required maxLength={80} placeholder="Bolso tejido a mano" className="w-full rounded border border-zinc-300 px-3 py-2" />
+        <input name="product_name" required maxLength={80} placeholder="Bolso tejido a mano" className="input w-full" />
       </label>
       <div className="grid gap-4 sm:grid-cols-2">
         <label className="block space-y-1 text-sm">
           <span className="font-medium">Precio en pesos (opcional)</span>
-          <input name="price_cop" type="number" min={0} step={1} placeholder="85000" className="w-full min-w-0 rounded border border-zinc-300 px-3 py-2" />
+          <input name="price_cop" type="number" min={0} step={1} placeholder="85000" className="input w-full min-w-0" />
         </label>
         <label className="block space-y-1 text-sm">
           <span className="font-medium">Ciudad (opcional)</span>
-          <input name="city" maxLength={60} placeholder="Medellín" className="w-full min-w-0 rounded border border-zinc-300 px-3 py-2" />
+          <input name="city" maxLength={60} placeholder="Medellín" className="input w-full min-w-0" />
         </label>
       </div>
       {error && (
-        <p role="alert" className="rounded-md bg-red-50 px-4 py-3 text-sm text-red-800">
+        <p role="alert" className="notice notice--danger">
           {error}
         </p>
       )}
-      <button type="submit" disabled={sending} className="w-full rounded bg-zinc-900 px-4 py-2.5 text-white disabled:bg-zinc-300">
+      <button type="submit" disabled={sending} className="btn btn--primary btn--lg btn--block">
         {sending ? "Enviando…" : "Crear mi vitrina"}
       </button>
     </form>
