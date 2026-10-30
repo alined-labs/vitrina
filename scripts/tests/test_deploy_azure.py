@@ -65,24 +65,48 @@ async def client_seen(peer: str, forwarded_for: str) -> str:
     return seen[0]
 
 
-def dry_run(tmp_path: Path, *, exists: bool = False) -> tuple[str, dict[str, str]]:
-    values = {name: f"fake-{name.lower()}-value" for name in secret_map()}
-    values["MODEL_AGENT"] = "muse-spark-1.3"
+# What production needs besides the secrets: plain values, not secrets, so not "fake-".
+PLAIN = {
+    "SUPABASE_URL": "https://example.supabase.co",
+    "MODEL_AGENT": "muse-spark-1.3",
+    "MODEL_STRATEGIST": "muse-wonder-1.0",
+    "MODEL_IMAGE": "muse-image-1.0",
+    "MODEL_SEGMENT": "sam-3.1",
+    "MODEL_TRANSCRIBE": "muse-voice-transcribe-1.0",
+    "WHATSAPP_PHONE_NUMBER_ID": "100000000000001",
+}
+
+
+def deploy(
+    tmp_path: Path, values: dict[str, str], *, dry: bool = True, exists: bool = False
+) -> subprocess.CompletedProcess[str]:
+    """The script with ``values`` as its .env; ``az`` is a stub that records any call."""
     env_file = tmp_path / ".env"
     env_file.write_text("".join(f"{name}={value}\n" for name, value in values.items()))
-    result = subprocess.run(
+    stub = tmp_path / "bin" / "az"
+    stub.parent.mkdir(exist_ok=True)
+    stub.write_text(f'#!/bin/sh\necho "$@" >> {tmp_path / "az-calls"}\nexit 97\n')
+    stub.chmod(0o755)
+    return subprocess.run(
         ["bash", str(SCRIPT), str(CONFIG)],
         env={
             **os.environ,
+            "PATH": f"{stub.parent}{os.pathsep}{os.environ['PATH']}",
             "SECRETS_FILE": str(env_file),
-            "DRY_RUN": "1",
+            "DRY_RUN": "1" if dry else "0",
             "DRY_RUN_EXISTS": "1" if exists else "0",
             "IMAGE_TAG": "test",
         },
         capture_output=True,
         text=True,
-        check=True,
     )
+
+
+def dry_run(tmp_path: Path, *, exists: bool = False) -> tuple[str, dict[str, str]]:
+    values = {name: f"fake-{name.lower()}-value" for name in secret_map()} | PLAIN
+    result = deploy(tmp_path, values, exists=exists)
+    assert result.returncode == 0, result.stderr
+    assert "missing" not in result.stderr
     return result.stdout, values
 
 
@@ -175,6 +199,38 @@ async def test_as_8_2_the_visitor_is_the_address_the_ingress_appended(peer: str)
 
 async def test_as_8_2_a_peer_outside_the_trusted_ranges_cannot_forward_an_address() -> None:
     assert await client_seen("198.51.100.7", "192.0.2.1") == "198.51.100.7"
+
+
+@pytest.mark.parametrize(
+    "absent", ["SUPABASE_URL", "SUPABASE_SERVICE_ROLE_KEY", "VISITOR_PROXY_SECRET", "MODEL_AGENT"]
+)
+def test_a_deploy_without_a_production_value_stops_before_any_az_command(
+    tmp_path: Path, absent: str
+) -> None:
+    values = {name: f"fake-{name.lower()}-value" for name in secret_map()} | PLAIN
+    del values[absent]
+
+    real = deploy(tmp_path, values, dry=False)
+    dry = deploy(tmp_path, values)
+
+    assert real.returncode == 2
+    assert absent in real.stderr.split("missing in", 1)[1]
+    assert not (tmp_path / "az-calls").exists()
+    assert "fake-" not in real.stderr
+    # A dry run lists the same names and still prints every command.
+    assert dry.returncode == 0
+    assert absent in dry.stderr
+    assert "az containerapp create" in dry.stdout
+
+
+def test_optional_values_may_be_left_out(tmp_path: Path) -> None:
+    optional = {"SUPABASE_JWT_SECRET", "BASETEN_API_KEY"}
+    values = {name: f"fake-{name.lower()}-value" for name in secret_map() if name not in optional}
+
+    result = deploy(tmp_path, values | PLAIN)
+
+    assert result.returncode == 0
+    assert "missing" not in result.stderr
 
 
 def test_without_its_config_the_script_says_what_is_missing(tmp_path: Path) -> None:
