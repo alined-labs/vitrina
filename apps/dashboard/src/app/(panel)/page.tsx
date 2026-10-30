@@ -7,7 +7,7 @@ export default function Home() {
     <div className="mx-auto max-w-4xl space-y-8">
       <section className="space-y-2">
         <h1 className="text-2xl font-semibold tracking-tight">Inicio</h1>
-        <p className="text-zinc-600">
+        <p className="text-fg-muted">
           Tus fotos se vuelven anuncios, tus anuncios se vuelven ventas, y cada conversación mejora el próximo anuncio.
         </p>
       </section>
@@ -17,10 +17,10 @@ export default function Home() {
           <li key={section.slug}>
             <Link
               href={`/${section.slug}`}
-              className="block h-full rounded-lg border border-zinc-200 bg-white p-4 hover:border-zinc-400"
+              className="card card--link block h-full p-4"
             >
               <span className="font-medium">{section.label}</span>
-              <span className="mt-1 block text-sm text-zinc-600">{section.summary}</span>
+              <span className="mt-1 block text-sm text-fg-muted">{section.summary}</span>
             </Link>
           </li>
         ))}

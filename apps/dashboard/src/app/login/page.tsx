@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useState, type SubmitEvent } from "react";
+import { Logo } from "@/components/brand/logo";
 import { browserSupabase } from "@/lib/supabase/browser";
 
 export default function LoginPage() {
@@ -39,33 +40,35 @@ export default function LoginPage() {
 
   return (
     <main className="flex min-h-screen items-center justify-center px-4">
-      <div className="w-full max-w-sm space-y-6 rounded-lg border border-zinc-200 bg-white p-6">
-        <div className="space-y-1">
-          <h1 className="text-xl font-semibold tracking-tight">Vitrina</h1>
-          <p className="text-sm text-zinc-600">Entra para ver tu catálogo, tus anuncios y tus conversaciones.</p>
+      <div className="w-full max-w-sm space-y-6 card p-6">
+        <div className="space-y-3">
+          <h1>
+            <Logo size={36} />
+          </h1>
+          <p className="text-sm text-fg-muted">Entra para ver tu catálogo, tus anuncios y tus conversaciones.</p>
         </div>
         {supabase ? (
           <form onSubmit={(event) => void onSubmit(event)} className="space-y-4">
             <label className="block space-y-1 text-sm">
               <span>Correo</span>
-              <input name="email" type="email" required autoComplete="email" className="w-full rounded-md border border-zinc-300 px-3 py-2" />
+              <input name="email" type="email" required autoComplete="email" className="input w-full" />
             </label>
             <label className="block space-y-1 text-sm">
               <span>Contraseña</span>
-              <input name="password" type="password" required autoComplete="current-password" className="w-full rounded-md border border-zinc-300 px-3 py-2" />
+              <input name="password" type="password" required autoComplete="current-password" className="input w-full" />
             </label>
             {error ? (
-              <p role="alert" className="text-sm text-red-700">
+              <p role="alert" className="text-sm text-danger-fg">
                 {error}
               </p>
             ) : null}
-            <button type="submit" disabled={pending} className="w-full rounded-md bg-zinc-900 px-3 py-2 text-sm font-medium text-white disabled:opacity-60">
+            <button type="submit" disabled={pending} className="btn btn--primary btn--block">
               {pending ? "Entrando…" : "Entrar"}
             </button>
           </form>
         ) : (
           <div className="space-y-3 text-sm">
-            <p className="rounded bg-amber-100 px-3 py-2 text-amber-900">
+            <p className="notice notice--warning">
               Inicio de sesión sin configurar: define NEXT_PUBLIC_SUPABASE_URL y NEXT_PUBLIC_SUPABASE_ANON_KEY en
               apps/dashboard/.env.local.
             </p>

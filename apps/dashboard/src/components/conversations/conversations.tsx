@@ -42,7 +42,7 @@ export function Conversations() {
 
   if (state === "not_connected") {
     return (
-      <p className="rounded-lg border border-dashed border-zinc-300 bg-white px-4 py-6 text-sm text-zinc-600">
+      <p className="empty">
         Las conversaciones aparecerán aquí cuando el agente de WhatsApp esté conectado.
       </p>
     );
@@ -58,25 +58,25 @@ export function Conversations() {
             type="button"
             aria-selected={value === filter}
             onClick={() => setFilter(value)}
-            className={`rounded-full px-4 py-1.5 text-sm ${value === filter ? "bg-zinc-900 text-white" : "bg-zinc-100 hover:bg-zinc-200"}`}
+            className="chip"
           >
             {label}
           </button>
         ))}
       </div>
       {state === "error" && (
-        <p role="alert" className="rounded-md bg-red-50 px-4 py-3 text-sm text-red-800">
+        <p role="alert" className="notice notice--danger">
           {message}
         </p>
       )}
       {items === null ? (
-        state === "ready" && <p className="text-sm text-zinc-500">Cargando…</p>
+        state === "ready" && <p className="text-sm text-fg-subtle">Cargando…</p>
       ) : items.length === 0 ? (
-        <p className="text-sm text-zinc-500">
+        <p className="text-sm text-fg-subtle">
           {filter === "attention" ? "Nadie te está esperando. El agente tiene todo bajo control." : "Aún no hay conversaciones."}
         </p>
       ) : (
-        <ul className="divide-y divide-zinc-200 rounded-lg border border-zinc-200 bg-white">
+        <ul className="card divide-y divide-line">
           {items.map((conversation) => (
             <ConversationRow key={conversation.id} conversation={conversation} />
           ))}
@@ -102,32 +102,32 @@ function ConversationRow({ conversation }: { conversation: Conversation }) {
     <li className="space-y-2 px-4 py-3 text-sm">
       <div className="flex flex-wrap items-center gap-2">
         <span className="font-medium">{who ?? "Cliente"}</span>
-        <span className={`rounded px-2 py-0.5 text-xs ${human ? "bg-amber-100 text-amber-900" : "bg-zinc-100 text-zinc-700"}`}>
+        <span className={`badge ${human ? "badge--warning" : ""}`}>
           {MODE[conversation.mode]}
         </span>
         {conversation.attributed_ad_code && (
-          <span className="rounded bg-zinc-900 px-2 py-0.5 font-mono text-xs text-white">#{conversation.attributed_ad_code}</span>
+          <span className="badge badge--code">#{conversation.attributed_ad_code}</span>
         )}
         {conversation.attribution_status === "unknown_code" && (
-          <span className="text-xs text-zinc-500">mencionó un código que no existe</span>
+          <span className="text-xs text-fg-subtle">mencionó un código que no existe</span>
         )}
-        {conversation.is_replay && <span className="rounded bg-sky-100 px-2 py-0.5 text-xs text-sky-900">Demo</span>}
+        {conversation.is_replay && <span className="badge badge--info">Demo</span>}
         {conversation.last_message_at && (
-          <span className="ml-auto text-xs text-zinc-500">
+          <span className="ml-auto text-xs text-fg-subtle">
             {formatDateTime(conversation.last_message_at)}
           </span>
         )}
       </div>
       {human && conversation.handoff?.reason && (
-        <p className="text-amber-900">{HANDOFF_REASON[conversation.handoff.reason]}</p>
+        <p className="text-warning-fg">{HANDOFF_REASON[conversation.handoff.reason]}</p>
       )}
       {(conversation.handoff?.summary ?? conversation.summary) && (
-        <p className="text-zinc-600">{conversation.handoff?.summary ?? conversation.summary}</p>
+        <p className="text-fg-muted">{conversation.handoff?.summary ?? conversation.summary}</p>
       )}
       {conversation.objection_tags && conversation.objection_tags.length > 0 && (
         <p className="flex flex-wrap gap-1">
           {conversation.objection_tags.map((tag) => (
-            <span key={tag} className="rounded bg-zinc-100 px-2 py-0.5 text-xs text-zinc-700">
+            <span key={tag} className="badge">
               Objeción: {OBJECTION[tag]}
             </span>
           ))}

@@ -1,1 +1,41 @@
 @import "tailwindcss";
+@import "../styles/tokens.css";
+@import "../styles/components.css";
+
+@layer base {
+  :root {
+    color-scheme: light;
+  }
+  body {
+    background: var(--color-canvas);
+    color: var(--color-fg);
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+  }
+  h1,
+  h2,
+  h3 {
+    font-family: var(--font-display);
+    letter-spacing: -0.01em;
+    text-wrap: balance;
+  }
+  p {
+    text-wrap: pretty;
+  }
+  a {
+    text-underline-offset: 0.18em;
+  }
+  ::selection {
+    background: var(--caribe-200);
+    color: var(--color-fg);
+  }
+  :focus-visible {
+    outline: 2px solid var(--color-focus);
+    outline-offset: 2px;
+  }
+  /* Prices and counts line up in tables and metrics. */
+  table,
+  .tabular {
+    font-variant-numeric: tabular-nums;
+  }
+}

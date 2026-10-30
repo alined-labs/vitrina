@@ -18,9 +18,9 @@ const FILTERS: { value: Filter; label: string }[] = [
 ];
 
 const CONSENT_STYLE: Record<Contact["marketing_consent"], string> = {
-  granted: "bg-emerald-100 text-emerald-900",
-  none: "bg-zinc-100 text-zinc-700",
-  revoked: "bg-red-100 text-red-900",
+  granted: "bg-success-bg text-success-fg",
+  none: "bg-sunken text-fg",
+  revoked: "bg-danger-bg text-danger-fg",
 };
 
 /** Customers and their marketing consent, with the append-only ledger behind it (US-6, FR-060..065). */
@@ -74,32 +74,32 @@ export function Contacts() {
               setFilter(value);
               setMessage(null);
             }}
-            className={`rounded-full px-4 py-1.5 text-sm ${value === filter ? "bg-zinc-900 text-white" : "bg-zinc-100 hover:bg-zinc-200"}`}
+            className="chip"
           >
             {label}
           </button>
         ))}
       </div>
       {message && (
-        <p role="alert" className="rounded-md bg-red-50 px-4 py-3 text-sm text-red-800">
+        <p role="alert" className="notice notice--danger">
           {message}
         </p>
       )}
       {items === null ? (
-        !message && <p className="text-sm text-zinc-500">Cargando…</p>
+        !message && <p className="text-sm text-fg-subtle">Cargando…</p>
       ) : items.length === 0 ? (
-        <p className="text-sm text-zinc-500">
+        <p className="text-sm text-fg-subtle">
           {filter === "all" ? "Aún no tienes contactos. Llegan cuando alguien te escribe por WhatsApp." : "Nadie en este grupo."}
         </p>
       ) : (
-        <ul className="divide-y divide-zinc-200 rounded-lg border border-zinc-200 bg-white">
+        <ul className="card divide-y divide-line">
           {items.map((contact) => (
             <ContactRow key={contact.id} contact={contact} onChange={replace} onError={setMessage} />
           ))}
         </ul>
       )}
       {cursor && (
-        <button type="button" onClick={() => void load(cursor)} className="text-sm text-zinc-600 underline">
+        <button type="button" onClick={() => void load(cursor)} className="text-sm text-fg-muted underline">
           Ver más contactos
         </button>
       )}
@@ -168,31 +168,31 @@ function ContactRow({
         className="flex w-full flex-wrap items-center gap-2 text-left"
       >
         <span className="font-medium">{name}</span>
-        {contact.display_name && contact.phone_masked && <span className="text-zinc-500">{contact.phone_masked}</span>}
+        {contact.display_name && contact.phone_masked && <span className="text-fg-subtle">{contact.phone_masked}</span>}
         <span className={`rounded px-2 py-0.5 text-xs ${CONSENT_STYLE[contact.marketing_consent]}`}>{CONSENT[contact.marketing_consent]}</span>
         {contact.last_objection_tag && (
-          <span className="rounded bg-zinc-100 px-2 py-0.5 text-xs text-zinc-700">Objeción: {OBJECTION[contact.last_objection_tag]}</span>
+          <span className="badge">Objeción: {OBJECTION[contact.last_objection_tag]}</span>
         )}
-        {erasing && <span className="rounded bg-amber-100 px-2 py-0.5 text-xs text-amber-900">Borrado en curso</span>}
-        <span className="ml-auto text-xs text-zinc-500">
+        {erasing && <span className="badge badge--warning">Borrado en curso</span>}
+        <span className="ml-auto text-xs text-fg-subtle">
           {contact.conversation_count ?? 0} {contact.conversation_count === 1 ? "conversación" : "conversaciones"}
         </span>
       </button>
       {open && (
-        <div className="space-y-3 border-l-2 border-zinc-200 pl-3">
+        <div className="space-y-3 border-l-2 border-line pl-3">
           {contact.last_marketing_sent_at && (
-            <p className="text-zinc-600">Última promoción: {formatDateTime(contact.last_marketing_sent_at)}</p>
+            <p className="text-fg-muted">Última promoción: {formatDateTime(contact.last_marketing_sent_at)}</p>
           )}
           <Ledger records={ledger} />
           {active && (
             <div className="flex flex-wrap gap-2">
               {contact.marketing_consent !== "granted" && <ManualConsent contactId={contact.id} onRecorded={refresh} onError={onError} />}
               {contact.marketing_consent !== "revoked" && (
-                <button type="button" disabled={busy} onClick={() => void optOut()} className="rounded-md border border-zinc-300 px-3 py-1.5 hover:bg-zinc-50 disabled:opacity-50">
+                <button type="button" disabled={busy} onClick={() => void optOut()} className="btn btn--secondary btn--sm">
                   Dar de baja
                 </button>
               )}
-              <button type="button" disabled={busy} onClick={() => void erase()} className="rounded-md border border-red-300 px-3 py-1.5 text-red-800 hover:bg-red-50 disabled:opacity-50">
+              <button type="button" disabled={busy} onClick={() => void erase()} className="rounded-md border border-danger px-3 py-1.5 text-danger-fg hover:bg-danger-bg disabled:opacity-50">
                 Borrar sus datos
               </button>
             </div>
@@ -205,14 +205,14 @@ function ContactRow({
 
 /** The consent ledger, newest first: what was asked, what the customer answered, and where. */
 function Ledger({ records }: { records: ConsentRecord[] | null }) {
-  if (records === null) return <p className="text-zinc-500">Cargando historial…</p>;
-  if (records.length === 0) return <p className="text-zinc-500">Nunca se le pidió autorización.</p>;
+  if (records === null) return <p className="text-fg-subtle">Cargando historial…</p>;
+  if (records.length === 0) return <p className="text-fg-subtle">Nunca se le pidió autorización.</p>;
   return (
     <ol className="space-y-2">
       {records.map((record) => (
-        <li key={record.id} className="rounded-md bg-zinc-50 px-3 py-2">
-          <p className="flex flex-wrap gap-x-2 text-xs text-zinc-500">
-            <span className={record.status === "granted" ? "text-emerald-800" : "text-red-800"}>
+        <li key={record.id} className="rounded-md bg-sunken px-3 py-2">
+          <p className="flex flex-wrap gap-x-2 text-xs text-fg-subtle">
+            <span className={record.status === "granted" ? "text-success-fg" : "text-danger-fg"}>
               {record.status === "granted" ? "Autorizó" : "Retiró la autorización"}
             </span>
             <span>· {CONSENT_PURPOSE[record.purpose]}</span>
@@ -220,8 +220,8 @@ function Ledger({ records }: { records: ConsentRecord[] | null }) {
             {record.recorded_by && <span>· {RECORDED_BY[record.recorded_by]}</span>}
             <span className="ml-auto">{formatDateTime(record.recorded_at)}</span>
           </p>
-          <p className="text-zinc-700">«{record.text_shown}»</p>
-          <p className="text-zinc-900">Respuesta: «{record.response_text}»</p>
+          <p className="text-fg">«{record.text_shown}»</p>
+          <p className="text-fg">Respuesta: «{record.response_text}»</p>
         </li>
       ))}
     </ol>
@@ -261,27 +261,27 @@ function ManualConsent({ contactId, onRecorded, onError }: { contactId: string; 
 
   if (!open) {
     return (
-      <button type="button" onClick={() => setOpen(true)} className="rounded-md border border-zinc-300 px-3 py-1.5 hover:bg-zinc-50">
+      <button type="button" onClick={() => setOpen(true)} className="btn btn--secondary btn--sm">
         Registrar autorización en persona
       </button>
     );
   }
   return (
-    <form onSubmit={(event) => void submit(event)} className="w-full space-y-2 rounded-md border border-zinc-200 p-3">
+    <form onSubmit={(event) => void submit(event)} className="w-full space-y-2 rounded-md border border-line p-3">
       <label className="block space-y-1">
-        <span className="text-xs text-zinc-600">Lo que le preguntaste</span>
-        <textarea required maxLength={500} rows={2} value={shown} onChange={(e) => setShown(e.target.value)} className="w-full rounded-md border border-zinc-300 px-2 py-1" />
+        <span className="text-xs text-fg-muted">Lo que le preguntaste</span>
+        <textarea required maxLength={500} rows={2} value={shown} onChange={(e) => setShown(e.target.value)} className="input input--sm w-full" />
       </label>
       <label className="block space-y-1">
-        <span className="text-xs text-zinc-600">Lo que respondió o firmó</span>
-        <input required maxLength={200} value={answer} onChange={(e) => setAnswer(e.target.value)} placeholder="Firmó el formulario: «Sí, acepto»" className="w-full rounded-md border border-zinc-300 px-2 py-1" />
+        <span className="text-xs text-fg-muted">Lo que respondió o firmó</span>
+        <input required maxLength={200} value={answer} onChange={(e) => setAnswer(e.target.value)} placeholder="Firmó el formulario: «Sí, acepto»" className="input input--sm w-full" />
       </label>
-      <p className="text-xs text-zinc-500">Queda guardado a tu nombre, con fecha y hora. Solo regístralo si el cliente dijo que sí.</p>
+      <p className="text-xs text-fg-subtle">Queda guardado a tu nombre, con fecha y hora. Solo regístralo si el cliente dijo que sí.</p>
       <div className="flex gap-2">
-        <button type="submit" disabled={busy} className="rounded-md bg-zinc-900 px-3 py-1.5 text-white disabled:opacity-50">
+        <button type="submit" disabled={busy} className="btn btn--primary btn--sm">
           Guardar
         </button>
-        <button type="button" onClick={() => setOpen(false)} className="rounded-md px-3 py-1.5 text-zinc-600">
+        <button type="button" onClick={() => setOpen(false)} className="rounded-md px-3 py-1.5 text-fg-muted">
           Cancelar
         </button>
       </div>

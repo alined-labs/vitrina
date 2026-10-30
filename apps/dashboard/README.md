@@ -26,6 +26,10 @@ const { data, error } = await api.GET("/products", { params: { query: { limit: 2
 
 `pnpm run check` runs the type check, ESLint and the client drift check; `pnpm build` must pass too. Dependency build scripts are off unless approved in `pnpm-workspace.yaml` (`allowBuilds`).
 
+## Design
+
+`DESIGN.md` is Vitrina's design language: color, type, components, the logo and the voice. The tokens are in `src/styles/tokens.css`, the component classes (`btn`, `input`, `card`, `notice`, `badge`, `chip`…) in `src/styles/components.css`, the logo and the loader in `src/components/brand/logo.tsx`, and the fonts in `src/fonts/`. Tailwind's default palette is switched off, and ESLint rejects a palette class or a raw color.
+
 ## Layout
 
 - `src/app/(panel)/` signed-in shell: sidebar, header, one route per section of the loop; `[seccion]` is a placeholder that real pages override.

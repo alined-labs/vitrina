@@ -6,7 +6,7 @@ export default function CatalogPage() {
     <div className="mx-auto max-w-5xl space-y-10">
       <section className="space-y-2">
         <h1 className="text-2xl font-semibold tracking-tight">Catálogo</h1>
-        <p className="text-zinc-600">
+        <p className="text-fg-muted">
           Tus productos y las respuestas del negocio. El agente solo cita lo que está aquí, con su precio exacto.
         </p>
       </section>

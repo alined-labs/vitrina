@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { useEffect, useState } from "react";
+import { Loader, Logo, LogoMark } from "@/components/brand/logo";
 import { api, type components } from "@/lib/api/client";
 import { FORMAT } from "@/lib/labels";
 
@@ -54,7 +55,8 @@ export function ShowcasePage({ slug }: { slug: string }) {
     return (
       <Frame>
         <h1 className="text-2xl font-semibold">{showcase?.product_name ?? "Tu vitrina"}</h1>
-        <p role="status" className="text-zinc-600">
+        <Loader size={48} />
+        <p role="status" className="text-fg-muted">
           Estamos creando tus escenas y verificando que muestren tu producto tal como es. Tarda un par de minutos.
         </p>
       </Frame>
@@ -64,7 +66,7 @@ export function ShowcasePage({ slug }: { slug: string }) {
     return (
       <Frame>
         <h1 className="text-2xl font-semibold">{showcase.product_name}</h1>
-        <p role="alert" className="text-red-800">
+        <p role="alert" className="text-danger-fg">
           No pudimos crear esta vitrina. Prueba con otra foto en la que el producto se vea completo.
         </p>
         <Link href="/foto" className="underline">
@@ -79,26 +81,26 @@ export function ShowcasePage({ slug }: { slug: string }) {
     <Frame>
       <header className="space-y-2">
         <h1 className="text-3xl font-semibold tracking-tight">{showcase.product_name}</h1>
-        <p className="text-sm text-zinc-600">{showcase.ai_label}. Cada escena se comparó con la foto original.</p>
+        <p className="text-sm text-fg-muted">{showcase.ai_label}. Cada escena se comparó con la foto original.</p>
       </header>
       <ul className="grid gap-4 sm:grid-cols-3">
         {showcase.scenes.map((scene, index) => (
-          <li key={index} className="overflow-hidden rounded-lg border border-zinc-200 bg-white">
+          <li key={index} className="card overflow-hidden">
             {scene.image_url ? (
               // Signed links from the blob store; next/image would need every storage host configured.
               // eslint-disable-next-line @next/next/no-img-element
               <img src={scene.image_url} alt={`${showcase.product_name}, ${scene.format ? FORMAT[scene.format] : "escena"}`} className="w-full" />
             ) : (
-              <div className="flex aspect-square items-center justify-center bg-zinc-100 p-4 text-center text-sm text-zinc-600">
+              <div className="flex aspect-square items-center justify-center bg-sunken p-4 text-center text-sm text-fg-muted">
                 Escena bloqueada: cambiaba el producto, por eso no se publica.
               </div>
             )}
-            <p className="px-3 py-2 text-xs text-zinc-500">{scene.format ? FORMAT[scene.format] : ""}</p>
+            <p className="px-3 py-2 text-xs text-fg-subtle">{scene.format ? FORMAT[scene.format] : ""}</p>
           </li>
         ))}
       </ul>
       {blocked > 0 && (
-        <p className="text-sm text-zinc-600">
+        <p className="text-sm text-fg-muted">
           El verificador bloqueó {blocked === 1 ? "una escena" : `${blocked} escenas`} que alteraba{blocked === 1 ? "" : "n"} tu
           producto. Así nadie recibe algo distinto a lo que vio.
         </p>
@@ -108,9 +110,9 @@ export function ShowcasePage({ slug }: { slug: string }) {
           <h2 className="text-lg font-semibold">Textos para WhatsApp</h2>
           <ul className="space-y-2">
             {showcase.copies.map((text, index) => (
-              <li key={index} className="flex items-start gap-3 rounded-lg border border-zinc-200 bg-white p-3 text-sm">
+              <li key={index} className="flex items-start gap-3 card p-3 text-sm">
                 <p className="min-w-0 flex-1">{text}</p>
-                <button type="button" onClick={() => void copy(text, index)} className="rounded border border-zinc-300 px-2 py-1 text-xs hover:border-zinc-500">
+                <button type="button" onClick={() => void copy(text, index)} className="btn btn--secondary btn--sm">
                   {copied === index ? "Copiado" : "Copiar"}
                 </button>
               </li>
@@ -118,22 +120,33 @@ export function ShowcasePage({ slug }: { slug: string }) {
           </ul>
         </section>
       )}
-      <section className="space-y-2 rounded-lg bg-zinc-900 p-6 text-white">
-        <p className="text-lg font-semibold">¿Quieres que también responda tus chats?</p>
-        <p className="text-sm text-zinc-300">
+      <section className="band-night space-y-3 p-6 sm:p-8">
+        <LogoMark size={40} ground="night" />
+        <p className="font-display text-xl font-bold">¿Quieres que también responda tus chats?</p>
+        <p className="text-sm text-fg-inverse-muted">
           Vitrina atiende tu WhatsApp con los precios de tu catálogo y te avisa cuando un cliente te necesita.
         </p>
         {showcase.cta_url && (
-          <a href={showcase.cta_url} className="inline-block rounded bg-white px-4 py-2 text-sm font-medium text-zinc-900">
+          <a href={showcase.cta_url} className="btn btn--inverse">
             Crear mi cuenta
           </a>
         )}
       </section>
-      <p className="text-center text-xs text-zinc-500">Hecho con Vitrina</p>
+      <p className="flex items-center justify-center gap-2 text-xs text-fg-subtle">
+        <LogoMark size={16} />
+        Hecho con Vitrina
+      </p>
     </Frame>
   );
 }
 
 function Frame({ children }: { children: React.ReactNode }) {
-  return <main className="mx-auto max-w-4xl space-y-8 px-6 py-12">{children}</main>;
+  return (
+    <main className="mx-auto max-w-4xl space-y-8 px-6 py-10">
+      <Link href="/foto" className="inline-block rounded-md">
+        <Logo size={28} />
+      </Link>
+      {children}
+    </main>
+  );
 }

@@ -12,8 +12,8 @@ export default function PanelError({ error, retry }: { error: unknown; retry: ()
   return (
     <div className="mx-auto max-w-4xl space-y-3">
       <h1 className="text-2xl font-semibold tracking-tight">Algo salió mal</h1>
-      <p className="text-zinc-600">No pudimos mostrar esta sección. Intenta de nuevo; si sigue fallando, recarga la página.</p>
-      <button type="button" onClick={() => retry()} className="rounded-md bg-zinc-900 px-4 py-2 text-sm text-white">
+      <p className="text-fg-muted">No pudimos mostrar esta sección. Intenta de nuevo; si sigue fallando, recarga la página.</p>
+      <button type="button" onClick={() => retry()} className="btn btn--primary">
         Intentar de nuevo
       </button>
     </div>

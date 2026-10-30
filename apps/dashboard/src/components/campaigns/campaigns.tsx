@@ -14,11 +14,11 @@ type Ad = components["schemas"]["Ad"];
 const TAGS = Object.keys(OBJECTION) as ObjectionTag[];
 
 const DECISION_STYLE: Record<Decision["decision"], string> = {
-  allowed: "bg-emerald-100 text-emerald-900",
-  sent: "bg-emerald-100 text-emerald-900",
-  deferred: "bg-amber-100 text-amber-900",
-  blocked: "bg-red-100 text-red-900",
-  failed: "bg-red-100 text-red-900",
+  allowed: "bg-success-bg text-success-fg",
+  sent: "bg-success-bg text-success-fg",
+  deferred: "bg-warning-bg text-warning-fg",
+  blocked: "bg-danger-bg text-danger-fg",
+  failed: "bg-danger-bg text-danger-fg",
 };
 
 /** Reactivation campaigns: a preview of who may receive a promotion and why not, then the send (US-6). */
@@ -44,7 +44,7 @@ export function Campaigns() {
 
   if (state === "not_connected") {
     return (
-      <p className="rounded-lg border border-dashed border-zinc-300 bg-white px-4 py-6 text-sm text-zinc-600">
+      <p className="empty">
         Las campañas aparecerán aquí cuando el módulo de reactivación esté conectado.
       </p>
     );
@@ -54,8 +54,8 @@ export function Campaigns() {
   return (
     <div className="grid gap-6 lg:grid-cols-[16rem_1fr]">
       <aside className="space-y-2">
-        <h2 className="text-sm font-semibold uppercase tracking-wide text-zinc-500">Campañas</h2>
-        <button type="button" onClick={() => router.push("/campanas")} className={`w-full rounded-md px-3 py-2 text-left text-sm ${selected ? "hover:bg-zinc-100" : "bg-zinc-900 text-white"}`}>
+        <h2 className="text-sm font-semibold uppercase tracking-wide text-fg-subtle">Campañas</h2>
+        <button type="button" onClick={() => router.push("/campanas")} aria-current={selected ? undefined : "true"} className="list-item">
           Nueva campaña
         </button>
         {campaigns?.map((campaign) => (
@@ -63,7 +63,8 @@ export function Campaigns() {
             key={campaign.id}
             type="button"
             onClick={() => open(campaign.id)}
-            className={`w-full rounded-md px-3 py-2 text-left text-sm ${campaign.id === selected ? "bg-zinc-900 text-white" : "hover:bg-zinc-100"}`}
+            aria-current={campaign.id === selected ? "true" : undefined}
+            className="list-item"
           >
             <span className="block">{formatDate(campaign.created_at)} · {CAMPAIGN_STATUS[campaign.status]}</span>
             <span className="block text-xs opacity-70">
@@ -74,7 +75,7 @@ export function Campaigns() {
       </aside>
       <div className="space-y-4">
         {message && (
-          <p role="alert" className="rounded-md bg-red-50 px-4 py-3 text-sm text-red-800">
+          <p role="alert" className="notice notice--danger">
             {message}
           </p>
         )}
@@ -113,12 +114,12 @@ function NewCampaign({ onCreated }: { onCreated: (id: string) => void }) {
 
   const toggle = (tag: ObjectionTag) => setTags(tags.includes(tag) ? tags.filter((item) => item !== tag) : [...tags, tag]);
   return (
-    <form onSubmit={(event) => void submit(event)} className="space-y-4 rounded-lg border border-zinc-200 bg-white p-4 text-sm">
-      <p className="text-zinc-600">
+    <form onSubmit={(event) => void submit(event)} className="space-y-4 card p-4 text-sm">
+      <p className="text-fg-muted">
         Primero ves a quién le llegaría y a quién no, con el motivo. Nada se envía hasta que lo confirmes.
       </p>
       <fieldset className="space-y-2">
-        <legend className="text-xs text-zinc-600">Clientes que se frenaron por (vacío = todos)</legend>
+        <legend className="text-xs text-fg-muted">Clientes que se frenaron por (vacío = todos)</legend>
         <div className="flex flex-wrap gap-2">
           {TAGS.map((tag) => (
             <button
@@ -126,7 +127,7 @@ function NewCampaign({ onCreated }: { onCreated: (id: string) => void }) {
               type="button"
               aria-pressed={tags.includes(tag)}
               onClick={() => toggle(tag)}
-              className={`rounded-full px-3 py-1 ${tags.includes(tag) ? "bg-zinc-900 text-white" : "bg-zinc-100 hover:bg-zinc-200"}`}
+              className="chip chip--sm"
             >
               {OBJECTION[tag]}
             </button>
@@ -135,20 +136,20 @@ function NewCampaign({ onCreated }: { onCreated: (id: string) => void }) {
       </fieldset>
       <div className="grid gap-4 sm:grid-cols-2">
         <label className="space-y-1">
-          <span className="block text-xs text-zinc-600">Sin comprar desde hace (días)</span>
-          <input name="no_purchase_since_days" type="number" min={1} value={days} onChange={(e) => setDays(Number(e.target.value))} className="w-full rounded-md border border-zinc-300 px-2 py-1" />
+          <span className="block text-xs text-fg-muted">Sin comprar desde hace (días)</span>
+          <input name="no_purchase_since_days" type="number" min={1} value={days} onChange={(e) => setDays(Number(e.target.value))} className="input input--sm w-full" />
         </label>
         <label className="space-y-1">
-          <span className="block text-xs text-zinc-600">Máximo de contactos</span>
-          <input name="max_contacts" type="number" min={1} max={500} value={max} onChange={(e) => setMax(Number(e.target.value))} className="w-full rounded-md border border-zinc-300 px-2 py-1" />
+          <span className="block text-xs text-fg-muted">Máximo de contactos</span>
+          <input name="max_contacts" type="number" min={1} max={500} value={max} onChange={(e) => setMax(Number(e.target.value))} className="input input--sm w-full" />
         </label>
         <label className="space-y-1">
-          <span className="block text-xs text-zinc-600">Plantilla de WhatsApp aprobada</span>
-          <input name="template_name" required value={template} onChange={(e) => setTemplate(e.target.value)} placeholder="nombre_de_la_plantilla" className="w-full rounded-md border border-zinc-300 px-2 py-1 font-mono" />
+          <span className="block text-xs text-fg-muted">Plantilla de WhatsApp aprobada</span>
+          <input name="template_name" required value={template} onChange={(e) => setTemplate(e.target.value)} placeholder="nombre_de_la_plantilla" className="input input--sm w-full font-mono" />
         </label>
         <label className="space-y-1">
-          <span className="block text-xs text-zinc-600">Anuncio que acompaña el mensaje</span>
-          <select name="ad_id" value={adId} onChange={(e) => setAdId(e.target.value)} className="w-full rounded-md border border-zinc-300 px-2 py-1">
+          <span className="block text-xs text-fg-muted">Anuncio que acompaña el mensaje</span>
+          <select name="ad_id" value={adId} onChange={(e) => setAdId(e.target.value)} className="input input--sm w-full">
             <option value="">Según lo que le interesa a cada uno</option>
             {ads.map((ad) => (
               <option key={ad.id} value={ad.id}>
@@ -159,11 +160,11 @@ function NewCampaign({ onCreated }: { onCreated: (id: string) => void }) {
         </label>
       </div>
       {message && (
-        <p role="alert" className="rounded-md bg-red-50 px-3 py-2 text-red-800">
+        <p role="alert" className="rounded-md bg-danger-bg px-3 py-2 text-danger-fg">
           {message}
         </p>
       )}
-      <button type="submit" disabled={busy} className="rounded-md bg-zinc-900 px-4 py-2 text-white disabled:opacity-50">
+      <button type="submit" disabled={busy} className="btn btn--primary">
         {busy ? "Revisando contactos…" : "Ver vista previa"}
       </button>
     </form>
@@ -200,7 +201,7 @@ function CampaignDetail({ id, onChange }: { id: string; onChange: () => Promise<
     } else setMessage(problemMessage(error, "No pudimos enviar la campaña."));
   }
 
-  if (!campaign) return message ? <p role="alert" className="rounded-md bg-red-50 px-4 py-3 text-sm text-red-800">{message}</p> : <p className="text-sm text-zinc-500">Cargando…</p>;
+  if (!campaign) return message ? <p role="alert" className="notice notice--danger">{message}</p> : <p className="text-sm text-fg-subtle">Cargando…</p>;
 
   const counts: [Decision["decision"], number][] = [
     ["allowed", campaign.counts.allowed],
@@ -213,46 +214,46 @@ function CampaignDetail({ id, onChange }: { id: string; onChange: () => Promise<
     <section className="space-y-4">
       <div className="flex flex-wrap items-baseline gap-2">
         <h2 className="text-lg font-semibold">{CAMPAIGN_STATUS[campaign.status]}</h2>
-        <span className="font-mono text-sm text-zinc-500">{campaign.template_name}</span>
-        {campaign.scheduled_for && <span className="text-sm text-zinc-500">· {formatDateTime(campaign.scheduled_for)}</span>}
+        <span className="font-mono text-sm text-fg-subtle">{campaign.template_name}</span>
+        {campaign.scheduled_for && <span className="text-sm text-fg-subtle">· {formatDateTime(campaign.scheduled_for)}</span>}
       </div>
       <dl className="grid grid-cols-2 gap-3 sm:grid-cols-5">
         {counts.map(([decision, value]) => (
-          <div key={decision} className="rounded-lg border border-zinc-200 bg-white px-3 py-2">
-            <dt className="text-xs text-zinc-500">{DECISION[decision]}</dt>
+          <div key={decision} className="card px-3 py-2">
+            <dt className="text-xs text-fg-subtle">{DECISION[decision]}</dt>
             <dd className="text-2xl font-semibold tabular-nums">{formatCount(value)}</dd>
           </div>
         ))}
       </dl>
       {message && (
-        <p role="alert" className="rounded-md bg-red-50 px-4 py-3 text-sm text-red-800">
+        <p role="alert" className="notice notice--danger">
           {message}
         </p>
       )}
       {campaign.status === "preview" && (
-        <button type="button" disabled={busy || campaign.counts.allowed + campaign.counts.deferred === 0} onClick={() => void send()} className="rounded-md bg-zinc-900 px-4 py-2 text-sm text-white disabled:opacity-50">
+        <button type="button" disabled={busy || campaign.counts.allowed + campaign.counts.deferred === 0} onClick={() => void send()} className="btn btn--primary">
           {busy ? "Enviando…" : "Enviar a los permitidos"}
         </button>
       )}
-      <table className="w-full overflow-hidden rounded-lg border border-zinc-200 bg-white text-sm">
-        <thead className="bg-zinc-50 text-left text-xs text-zinc-500">
+      <table className="w-full card overflow-hidden text-sm">
+        <thead className="bg-sunken text-left text-xs text-fg-subtle">
           <tr>
             <th className="px-3 py-2 font-normal">Contacto</th>
             <th className="px-3 py-2 font-normal">Decisión</th>
             <th className="px-3 py-2 font-normal">Motivo</th>
           </tr>
         </thead>
-        <tbody className="divide-y divide-zinc-200">
+        <tbody className="divide-y divide-line">
           {campaign.decisions.map((decision) => (
             <tr key={decision.id ?? decision.contact_id}>
               <td className="px-3 py-2">{names[decision.contact_id] ?? "Cliente"}</td>
               <td className="px-3 py-2">
                 <span className={`rounded px-2 py-0.5 text-xs ${DECISION_STYLE[decision.decision]}`}>{DECISION[decision.decision]}</span>
               </td>
-              <td className="px-3 py-2 text-zinc-700">
+              <td className="px-3 py-2 text-fg">
                 {decision.reason === "OK" ? "—" : (decision.reason_text_es ?? DECISION_REASON[decision.reason])}
                 {decision.next_allowed_at && (
-                  <span className="block text-xs text-zinc-500">Desde {formatDateTime(decision.next_allowed_at)}</span>
+                  <span className="block text-xs text-fg-subtle">Desde {formatDateTime(decision.next_allowed_at)}</span>
                 )}
               </td>
             </tr>

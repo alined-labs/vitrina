@@ -46,21 +46,21 @@ export function Ads() {
             aria-selected={tab === status}
             type="button"
             onClick={() => setStatus(tab)}
-            className={`rounded-full px-4 py-1.5 text-sm ${tab === status ? "bg-zinc-900 text-white" : "bg-zinc-100 hover:bg-zinc-200"}`}
+            className="chip"
           >
             {TAB_LABEL[tab]}
           </button>
         ))}
       </div>
       {message && (
-        <p role="alert" className="rounded-md bg-red-50 px-4 py-3 text-sm text-red-800">
+        <p role="alert" className="notice notice--danger">
           {message}
         </p>
       )}
       {ads === null ? (
-        <p className="text-sm text-zinc-500">Cargando…</p>
+        <p className="text-sm text-fg-subtle">Cargando…</p>
       ) : ads.length === 0 ? (
-        <p className="text-sm text-zinc-500">
+        <p className="text-sm text-fg-subtle">
           {status === "approved" ? "Aún no hay anuncios aprobados. Apruébalos desde Creativos." : "No hay anuncios aquí."}
         </p>
       ) : (
@@ -131,7 +131,7 @@ function AdCard({
 
   const stats = ad.stats;
   return (
-    <li className="overflow-hidden rounded-lg border border-zinc-200 bg-white">
+    <li className="card overflow-hidden">
       {image && (
         // Signed links from the blob store; next/image would need every storage host configured.
         // eslint-disable-next-line @next/next/no-img-element
@@ -141,17 +141,17 @@ function AdCard({
         <div className="flex items-start justify-between gap-3">
           <div>
             <p className="font-medium">{product ?? "Producto"}</p>
-            <p className="text-zinc-500">
+            <p className="text-fg-subtle">
               {AD_STATUS[ad.status]}
               {ad.angle && ` · ${ANGLE[ad.angle]}`}
             </p>
           </div>
-          {ad.code && <span className="rounded bg-zinc-900 px-2 py-1 font-mono text-white">#{ad.code}</span>}
+          {ad.code && <span className="badge badge--code">#{ad.code}</span>}
         </div>
         {ad.wa_link && (
           <div className="flex items-center gap-2">
-            <code className="min-w-0 flex-1 truncate rounded bg-zinc-100 px-2 py-1 text-xs">{ad.wa_link}</code>
-            <button type="button" onClick={() => void copyLink()} className="rounded border border-zinc-300 px-2 py-1 text-xs hover:border-zinc-500">
+            <code className="min-w-0 flex-1 truncate rounded bg-sunken px-2 py-1 text-xs">{ad.wa_link}</code>
+            <button type="button" onClick={() => void copyLink()} className="btn btn--secondary btn--sm">
               {copied ? "Copiado" : "Copiar"}
             </button>
           </div>
@@ -164,8 +164,8 @@ function AdCard({
               ["Citas", stats?.bookings],
             ] as const
           ).map(([label, value]) => (
-            <div key={label} className="rounded bg-zinc-50 py-2">
-              <dt className="text-xs text-zinc-500">{label}</dt>
+            <div key={label} className="rounded bg-sunken py-2">
+              <dt className="text-xs text-fg-subtle">{label}</dt>
               <dd className="text-base font-medium" title={value === undefined ? "Se cuenta cuando el agente registre las conversaciones" : undefined}>
                 {value ?? "—"}
               </dd>
@@ -178,13 +178,13 @@ function AdCard({
               type="button"
               disabled={busy}
               onClick={() => void act(() => api.POST("/ads/{ad_id}/approve", { params: { path: { ad_id: ad.id } } }), "No pudimos aprobarlo.")}
-              className="rounded bg-zinc-900 px-3 py-1.5 text-white disabled:bg-zinc-300"
+              className="btn btn--primary btn--sm"
             >
               Aprobar
             </button>
           )}
           {ad.code && (
-            <button type="button" disabled={busy} onClick={() => void download()} className="rounded border border-zinc-300 px-3 py-1.5 hover:border-zinc-500 disabled:opacity-50">
+            <button type="button" disabled={busy} onClick={() => void download()} className="btn btn--secondary btn--sm">
               Descargar paquete
             </button>
           )}
@@ -193,7 +193,7 @@ function AdCard({
               type="button"
               disabled={busy}
               onClick={() => void act(() => api.DELETE("/ads/{ad_id}", { params: { path: { ad_id: ad.id } } }), "No pudimos archivarlo.")}
-              className="rounded px-3 py-1.5 text-zinc-600 hover:bg-zinc-100 disabled:opacity-50"
+              className="rounded px-3 py-1.5 text-fg-muted hover:bg-sunken disabled:opacity-50"
             >
               Archivar
             </button>

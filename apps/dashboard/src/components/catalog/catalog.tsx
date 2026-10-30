@@ -64,39 +64,39 @@ export function Catalog() {
     <section className="space-y-4">
       <div className="flex items-baseline justify-between">
         <h2 className="text-lg font-semibold">Productos</h2>
-        {products && <span className="text-sm text-zinc-500">{products.length} en el catálogo</span>}
+        {products && <span className="text-sm text-fg-subtle">{products.length} en el catálogo</span>}
       </div>
       <NewProduct onCreated={load} />
       {message && (
-        <p role="alert" className="rounded-md bg-red-50 px-4 py-3 text-sm text-red-800">
+        <p role="alert" className="notice notice--danger">
           {message}
         </p>
       )}
       {products === null ? (
-        <p className="text-sm text-zinc-500">Cargando productos…</p>
+        <p className="text-sm text-fg-subtle">Cargando productos…</p>
       ) : products.length === 0 ? (
-        <p className="text-sm text-zinc-500">Aún no hay productos. Crea el primero arriba.</p>
+        <p className="text-sm text-fg-subtle">Aún no hay productos. Crea el primero arriba.</p>
       ) : (
         <ul className="grid gap-3 sm:grid-cols-2">
           {products.map((product) => {
             const photos = product.asset_ids?.length ?? 0;
             return (
-              <li key={product.id} className="space-y-3 rounded-lg border border-zinc-200 bg-white p-4">
+              <li key={product.id} className="space-y-3 card p-4">
                 <div className="flex items-start justify-between gap-3">
                   <div>
                     <p className="font-medium">{product.name}</p>
-                    <p className="text-sm text-zinc-600">
+                    <p className="text-sm text-fg-muted">
                       {formatCop(product.price_cop)}
                       {product.stock != null && ` · ${product.stock} en inventario`}
                     </p>
                   </div>
-                  <span className="rounded bg-zinc-100 px-2 py-0.5 text-xs text-zinc-700">
+                  <span className="badge">
                     {STATUS[product.status]}
                   </span>
                 </div>
-                {product.description && <p className="text-sm text-zinc-600">{product.description}</p>}
+                {product.description && <p className="text-sm text-fg-muted">{product.description}</p>}
                 <div className="flex flex-wrap items-center gap-2 text-sm">
-                  <label className="cursor-pointer rounded border border-zinc-300 px-3 py-1.5 hover:border-zinc-500">
+                  <label className="btn btn--secondary btn--sm">
                     Subir foto
                     <input
                       type="file"
@@ -114,11 +114,11 @@ export function Catalog() {
                     type="button"
                     disabled={photos === 0 || busy === product.id}
                     onClick={() => void createAds(product)}
-                    className="rounded bg-zinc-900 px-3 py-1.5 text-white disabled:cursor-not-allowed disabled:bg-zinc-300"
+                    className="btn btn--primary btn--sm"
                   >
                     Crear anuncios
                   </button>
-                  <span className="text-zinc-500">
+                  <span className="text-fg-subtle">
                     {photos === 0 ? "Sube una foto para crear anuncios" : `${photos} ${photos === 1 ? "foto" : "fotos"}`}
                   </span>
                 </div>
@@ -164,17 +164,17 @@ function NewProduct({ onCreated }: { onCreated: () => Promise<void> }) {
         event.preventDefault();
         void submit(event.currentTarget);
       }}
-      className="grid gap-3 rounded-lg border border-dashed border-zinc-300 bg-white p-4 sm:grid-cols-[minmax(0,2fr)_minmax(9rem,1fr)_minmax(7rem,1fr)_auto]"
+      className="grid gap-3 card border-dashed border-control p-4 sm:grid-cols-[minmax(0,2fr)_minmax(9rem,1fr)_minmax(7rem,1fr)_auto]"
     >
-      <input name="name" aria-label="Nombre del producto" required maxLength={120} placeholder="Nombre del producto" className="min-w-0 rounded border border-zinc-300 px-3 py-2" />
-      <input name="price_cop" aria-label="Precio en pesos" required type="number" min={1} step={1} placeholder="Precio (COP)" className="min-w-0 rounded border border-zinc-300 px-3 py-2" />
-      <input name="stock" aria-label="Inventario" type="number" min={0} step={1} placeholder="Inventario" className="min-w-0 rounded border border-zinc-300 px-3 py-2" />
-      <button type="submit" disabled={saving} className="rounded bg-zinc-900 px-4 py-2 text-white disabled:bg-zinc-300">
+      <input name="name" aria-label="Nombre del producto" required maxLength={120} placeholder="Nombre del producto" className="input min-w-0" />
+      <input name="price_cop" aria-label="Precio en pesos" required type="number" min={1} step={1} placeholder="Precio (COP)" className="input min-w-0" />
+      <input name="stock" aria-label="Inventario" type="number" min={0} step={1} placeholder="Inventario" className="input min-w-0" />
+      <button type="submit" disabled={saving} className="btn btn--primary">
         Agregar
       </button>
-      <textarea name="description" aria-label="Descripción" maxLength={2000} placeholder="Descripción (materiales, tallas, colores)" className="min-w-0 rounded border border-zinc-300 px-3 py-2 sm:col-span-4" rows={2} />
+      <textarea name="description" aria-label="Descripción" maxLength={2000} placeholder="Descripción (materiales, tallas, colores)" className="input min-w-0 sm:col-span-4" rows={2} />
       {error && (
-        <p role="alert" className="text-sm text-red-700 sm:col-span-4">
+        <p role="alert" className="text-sm text-danger-fg sm:col-span-4">
           {error}
         </p>
       )}

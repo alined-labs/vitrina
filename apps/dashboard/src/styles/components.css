@@ -1,0 +1,320 @@
+/*
+ * Vitrina component classes. Every color comes from a semantic token and every size from a
+ * component token (tokens.css), so a page writes `btn btn--primary` and never a raw value.
+ * Utilities still win over these (cascade layer order), for spacing and layout.
+ */
+@layer components {
+  /* Buttons: pills, like the arch of the mark. One primary per view. */
+  .btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 0.5rem;
+    min-height: var(--btn-h);
+    padding: 0 var(--btn-px);
+    border: 1px solid transparent;
+    border-radius: var(--btn-radius);
+    font-size: 0.875rem;
+    font-weight: 600;
+    line-height: 1.15;
+    text-align: center;
+    text-decoration: none;
+    cursor: pointer;
+    touch-action: manipulation;
+    transition:
+      background-color var(--duration-fast) var(--ease-out),
+      border-color var(--duration-fast) var(--ease-out),
+      color var(--duration-fast) var(--ease-out),
+      transform var(--duration-fast) var(--ease-out);
+  }
+  .btn:active:not(:disabled) {
+    transform: scale(var(--press-scale));
+  }
+  .btn:disabled,
+  .btn[aria-disabled="true"] {
+    opacity: 0.45;
+    cursor: not-allowed;
+  }
+  .btn--primary {
+    background: var(--color-primary);
+    color: var(--color-on-primary);
+  }
+  .btn--primary:hover:not(:disabled) {
+    background: var(--color-primary-hover);
+  }
+  .btn--secondary {
+    background: var(--color-surface);
+    color: var(--color-fg);
+    border-color: var(--color-control);
+  }
+  .btn--secondary:hover:not(:disabled) {
+    background: var(--color-sunken);
+    border-color: var(--color-control-hover);
+  }
+  .btn--ghost {
+    background: transparent;
+    color: var(--color-fg);
+  }
+  .btn--ghost:hover:not(:disabled) {
+    background: var(--color-sunken);
+  }
+  .btn--inverse {
+    background: var(--color-surface);
+    color: var(--color-night);
+  }
+  .btn--inverse:hover:not(:disabled) {
+    background: var(--color-primary-soft);
+  }
+  .btn--sm {
+    min-height: var(--btn-h-sm);
+    padding: 0 var(--btn-px-sm);
+    font-size: 0.8125rem;
+  }
+  .btn--lg {
+    min-height: var(--btn-h-lg);
+    padding: 0 var(--btn-px-lg);
+    font-size: 1rem;
+  }
+  .btn--block {
+    width: 100%;
+  }
+
+  /* Text fields and selects. */
+  .input {
+    min-height: var(--input-h);
+    padding: 0.5rem var(--input-px);
+    border: 1px solid var(--color-control);
+    border-radius: var(--input-radius);
+    background: var(--color-surface);
+    color: var(--color-fg);
+    transition:
+      border-color var(--duration-fast) var(--ease-out),
+      box-shadow var(--duration-fast) var(--ease-out);
+  }
+  .input::placeholder {
+    color: var(--color-fg-subtle);
+  }
+  .input:hover {
+    border-color: var(--color-control-hover);
+  }
+  .input:focus {
+    border-color: var(--color-focus);
+  }
+  .input--sm {
+    min-height: var(--btn-h-sm);
+    padding: 0.25rem 0.5rem;
+    font-size: 0.875rem;
+  }
+  textarea.input {
+    min-height: 5rem;
+  }
+
+  /* Surfaces. */
+  .card {
+    background: var(--color-surface);
+    border: 1px solid var(--color-line);
+    border-radius: var(--card-radius);
+  }
+  .card--link {
+    transition: border-color var(--duration-fast) var(--ease-out);
+  }
+  .card--link:hover {
+    border-color: var(--color-control);
+  }
+  .card--chosen {
+    border-color: var(--color-primary);
+    box-shadow: 0 0 0 2px var(--color-primary);
+  }
+  .empty {
+    padding: 1.5rem 1rem;
+    border: 1px dashed var(--color-control);
+    border-radius: var(--card-radius);
+    background: var(--color-surface);
+    color: var(--color-fg-muted);
+    font-size: 0.875rem;
+  }
+  .band-night {
+    background: var(--color-night);
+    color: var(--color-fg-inverse);
+    border-radius: var(--radius-xl);
+  }
+
+  /* Messages that need the seller's attention; the text says what happened. */
+  .notice {
+    padding: 0.75rem 1rem;
+    border-radius: var(--notice-radius);
+    background: var(--color-sunken);
+    color: var(--color-fg);
+    font-size: 0.875rem;
+  }
+  .notice--danger {
+    background: var(--color-danger-bg);
+    color: var(--color-danger-fg);
+  }
+  .notice--warning {
+    background: var(--color-warning-bg);
+    color: var(--color-warning-fg);
+  }
+  .notice--success {
+    background: var(--color-success-bg);
+    color: var(--color-success-fg);
+  }
+  .notice--info {
+    background: var(--color-info-bg);
+    color: var(--color-info-fg);
+  }
+
+  /* Static labels. */
+  .badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.25rem;
+    min-height: 1.375rem;
+    padding: 0.125rem 0.5rem;
+    border-radius: var(--badge-radius);
+    background: var(--color-sunken);
+    color: var(--color-fg-muted);
+    font-size: 0.75rem;
+    font-weight: 600;
+    line-height: 1.2;
+    white-space: nowrap;
+  }
+  .badge--success {
+    background: var(--color-success-bg);
+    color: var(--color-success-fg);
+  }
+  .badge--warning {
+    background: var(--color-warning-bg);
+    color: var(--color-warning-fg);
+  }
+  .badge--danger {
+    background: var(--color-danger-bg);
+    color: var(--color-danger-fg);
+  }
+  .badge--info {
+    background: var(--color-info-bg);
+    color: var(--color-info-fg);
+  }
+  .badge--code {
+    background: var(--color-night);
+    color: var(--color-fg-inverse);
+    font-variant-numeric: tabular-nums;
+    letter-spacing: 0.04em;
+  }
+
+  /* Filters and tabs: aria-pressed or aria-selected says which one is on. */
+  .chip {
+    display: inline-flex;
+    align-items: center;
+    min-height: var(--chip-h);
+    padding: 0 1rem;
+    border-radius: 999px;
+    background: var(--color-sunken);
+    color: var(--color-fg);
+    font-size: 0.875rem;
+    cursor: pointer;
+    touch-action: manipulation;
+    transition:
+      background-color var(--duration-fast) var(--ease-out),
+      color var(--duration-fast) var(--ease-out);
+  }
+  .chip:hover {
+    background: var(--color-sunken-strong);
+  }
+  .chip[aria-pressed="true"],
+  .chip[aria-selected="true"] {
+    background: var(--color-primary);
+    color: var(--color-on-primary);
+  }
+  .chip--sm {
+    min-height: 1.75rem;
+    padding: 0 0.75rem;
+  }
+
+  /* Rows of a master list and the panel navigation; aria-current marks the open one. */
+  .list-item,
+  .nav-link {
+    display: block;
+    width: 100%;
+    padding: 0.5rem 0.75rem;
+    border-radius: var(--radius-md);
+    color: var(--color-fg);
+    font-size: 0.875rem;
+    text-align: left;
+    transition:
+      background-color var(--duration-fast) var(--ease-out),
+      color var(--duration-fast) var(--ease-out);
+  }
+  .nav-link {
+    width: auto;
+    white-space: nowrap;
+    color: var(--color-fg-muted);
+  }
+  .list-item:hover,
+  .nav-link:hover {
+    background: var(--color-sunken);
+    color: var(--color-fg);
+  }
+  .list-item[aria-current="true"],
+  .nav-link[aria-current="page"] {
+    background: var(--color-primary-soft);
+    color: var(--color-primary-fg);
+    font-weight: 600;
+  }
+  /* The bar marks a row in a vertical list; the phone's navigation is a horizontal strip. */
+  .list-item[aria-current="true"] {
+    box-shadow: inset 3px 0 0 var(--color-primary);
+  }
+  @media (min-width: 48rem) {
+    .nav-link[aria-current="page"] {
+      box-shadow: inset 3px 0 0 var(--color-primary);
+    }
+  }
+
+  .progress {
+    height: 0.5rem;
+    width: 100%;
+    overflow: hidden;
+    border-radius: 999px;
+    background: var(--color-primary-soft-hover);
+  }
+  .progress > * {
+    height: 100%;
+    border-radius: inherit;
+    background: var(--color-primary);
+    transition: width var(--duration-slow) var(--ease-out);
+  }
+
+  /* The loader is the mark: the window lights up, then the V is drawn. */
+  .loader__glass {
+    animation: vitrina-light 1.4s var(--ease-in-out) infinite;
+  }
+  .loader__v {
+    stroke-dasharray: 20;
+    animation: vitrina-draw 1.4s var(--ease-out) infinite;
+  }
+  @keyframes vitrina-light {
+    0%,
+    100% {
+      opacity: 0.3;
+    }
+    50% {
+      opacity: 1;
+    }
+  }
+  @keyframes vitrina-draw {
+    0% {
+      stroke-dashoffset: 20;
+    }
+    55%,
+    100% {
+      stroke-dashoffset: 0;
+    }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .loader__glass,
+    .loader__v {
+      animation: none;
+    }
+  }
+}
