@@ -1,3 +1,10 @@
+<p>
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="docs/brand/lockup-dark.svg">
+    <img src="docs/brand/lockup-light.svg" alt="Vitrina" width="226" height="64">
+  </picture>
+</p>
+
 # Vitrina
 
 > **Tus fotos se vuelven anuncios, tus anuncios se vuelven ventas, y cada conversación mejora el próximo anuncio.**
