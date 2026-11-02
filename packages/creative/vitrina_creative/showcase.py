@@ -65,6 +65,8 @@ WINDOW = timedelta(hours=1)
 FORMATS: tuple[CreativeFormat, ...] = ("story_9x16", "catalog_1x1", "feed_4x5")
 COPIES = 10
 OWNER = NIL
+# public_showcases.price_cop is a 32-bit integer.
+PRICE_MAX = 2_147_483_647
 BUSINESS = "un negocio local"
 Row = Mapping[Any, Any]
 
@@ -230,7 +232,15 @@ class ShowcaseStore:
         await self._update(showcase_id, status="ready", scenes=scenes, copies=copies)
 
     async def fail(self, showcase_id: UUID) -> None:
-        await self._update(showcase_id, status="failed")
+        """A page already published stays published."""
+        async with self.sessions() as session, session.begin():
+            await session.execute(
+                sa.update(public_showcases)
+                .where(
+                    public_showcases.c.id == showcase_id, public_showcases.c.status == "processing"
+                )
+                .values(status="failed")
+            )
 
     async def _update(self, showcase_id: UUID, **values: Any) -> None:
         async with self.sessions() as session, session.begin():
@@ -319,11 +329,6 @@ async def run_showcase(ctx: JobContext) -> str:
         await store.fail(showcase_id)
         await _forget(ctx.storage, source_key)
         raise
-    except Exception:
-        if ctx.job.attempt >= ctx.job.max_attempts:  # the worker gives up after this attempt
-            await store.fail(showcase_id)
-            await _forget(ctx.storage, source_key)
-        raise
 
     scenes: list[dict[str, str]] = []
     for index, scene in enumerate(result.scenes):
@@ -340,6 +345,26 @@ async def run_showcase(ctx: JobContext) -> str:
     await store.finish(showcase_id, scenes, copies)
     await _forget(ctx.storage, source_key)
     return result_ref
+
+
+async def showcase_gave_up(ctx: JobContext, _code: str) -> None:
+    """The worker gave up on the job, for any reason: the visitor stops waiting for a page."""
+    if ctx.sessions is None or ctx.storage is None:
+        return
+    await close_failed_showcase(
+        ShowcaseStore(ctx.sessions),
+        ctx.storage,
+        UUID(str(ctx.payload["showcase_id"])),
+        str(ctx.payload["source_key"]),
+    )
+
+
+async def close_failed_showcase(
+    store: ShowcaseStore, storage: BlobStore, showcase_id: UUID, source_key: str
+) -> None:
+    """The upload goes first: if storage fails the row stays open, and the sweep tries again."""
+    await _forget(storage, source_key)
+    await store.fail(showcase_id)
 
 
 async def _forget(storage: BlobStore, key: str) -> None:

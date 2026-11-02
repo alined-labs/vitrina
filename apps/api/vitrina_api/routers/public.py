@@ -44,7 +44,7 @@ from vitrina_creative.api import (
     window_start,
 )
 from vitrina_creative.media import IMAGE_MAX_BYTES, prepare_upload
-from vitrina_creative.showcase import OWNER
+from vitrina_creative.showcase import OWNER, PRICE_MAX
 
 router = APIRouter(tags=["Public"])
 
@@ -137,6 +137,13 @@ async def create_showcase(
     price_cop: Annotated[int | None, Form(ge=0)] = None,
     city: Annotated[str | None, Form(max_length=60)] = None,
 ) -> ShowcaseCreated:
+    if price_cop is not None and price_cop > PRICE_MAX:
+        message = "El precio es demasiado alto. Revisa el valor."
+        raise ProblemError(
+            ProblemCode.VALIDATION_ERROR,
+            detail=message,
+            errors=[FieldError(field="price_cop", message=message)],
+        )
     store, queue = _store(request)
     settings: Settings = request.app.state.settings
     now = datetime.now(UTC)

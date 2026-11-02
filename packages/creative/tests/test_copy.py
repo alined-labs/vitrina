@@ -14,7 +14,16 @@ from vitrina_creative.api import (
     plan_grid,
     write_copy,
 )
-from vitrina_creative.copy import ANGLES, MAX_CHARS, WA_LINK, allowed_amounts, check_copy
+from vitrina_creative.copy import (
+    ANGLES,
+    MAX_CHARS,
+    NO_ANGLE_LEFT,
+    WA_LINK,
+    allowed_amounts,
+    check_copy,
+    plan_copy,
+    says_handmade,
+)
 
 BAG = CopyInput(
     business_name="Tejidos Vecina",
@@ -110,6 +119,27 @@ async def test_a_hook_or_angle_the_product_cannot_carry_fails_the_job_with_a_rea
             )
         assert caught.value.code == "VALIDATION_ERROR"
         assert word in caught.value.message
+
+
+def test_as_2_4_the_grid_is_planned_without_a_model_and_refuses_what_the_product_cannot_carry() -> (
+    None
+):
+    plain = CopyInput(
+        **{**BAG.__dict__, "product_name": "Camiseta básica", "product_description": "Algodón."}
+    )
+
+    assert {angle for _, angle in plan_copy(BAG, count=3, angles=["handmade"])} == {"handmade"}
+    with pytest.raises(CopyError) as caught:
+        plan_copy(plain, count=3, angles=["handmade"])
+    assert (caught.value.code, caught.value.message) == ("VALIDATION_ERROR", NO_ANGLE_LEFT)
+    with pytest.raises(CopyError):
+        plan_copy(CopyInput(**{**BAG.__dict__, "stock": 40}), count=3, hooks=["scarcity"])
+
+
+def test_a_handmade_claim_needs_the_words_in_the_product_data() -> None:
+    assert says_handmade("Mochila wayuu", "Tejida en Riohacha")
+    assert says_handmade("Bolso", "", "Artesanal")
+    assert not says_handmade("Camiseta básica", "Algodón.")
 
 
 async def test_scarcity_needs_a_low_known_stock() -> None:

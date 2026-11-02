@@ -39,6 +39,7 @@ from vitrina_creative.copy import (
     CopyResult,
     DroppedCell,
     plan_grid,
+    says_handmade,
     write_copy,
 )
 from vitrina_creative.jobs import CreativeJobStore, creative_view, job_view
@@ -157,6 +158,7 @@ __all__ = [
     "read_provenance",
     "run_pipeline",
     "run_showcase",
+    "says_handmade",
     "segment_photo",
     "showcase_view",
     "start_job",
