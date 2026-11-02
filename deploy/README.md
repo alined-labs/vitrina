@@ -2,11 +2,11 @@
 
 Two parts, in this order:
 
-1. **Back end** (API and worker) on Azure Container Apps, with `deploy/azure.sh`. It prints the API address.
+1. **Back end** (API and two workers) on Azure Container Apps, with `deploy/azure.sh`. It prints the API address.
 2. **Front end** (the dashboard) on Cloudflare Workers at `https://vitrina.alinedlabs.co`, with the API address built into its `/api/v1/*` proxy. Build and deploy it again whenever the API address changes.
 
 ## Back end: Azure Container Apps
-The API and the worker run as two container apps from the one image in the repository's
+The API and the two workers run as three container apps from the one image in the repository's
 `Dockerfile`. The database and file storage stay on Supabase. The dashboard is deployed
 separately and reaches the API through its own `/api/v1/*` proxy, so browsers stay
 same-origin.
@@ -15,6 +15,7 @@ same-origin.
 browser ──► dashboard (vitrina.alinedlabs.co) ──/api/v1/*──► vitrina-api  (external ingress, :8080)
 WhatsApp Cloud API ──────────────────────────────webhook──► vitrina-api
                                         jobs table (Supabase) ◄──► vitrina-worker (no ingress)
+                                                              ◄──► vitrina-worker-inbound (no ingress)
 ```
 
 ### What you need
@@ -52,15 +53,27 @@ The script is idempotent. In order, it:
    locally;
 3. migrates the production schema (`DB_SCHEMA`) to head with Alembic;
 4. creates the Container Apps environment (Consumption) if it is missing;
-5. creates the two apps or updates them to the new image, settings and secrets:
+5. creates the three apps or updates them to the new image, settings and secrets:
    - `vitrina-api`: external ingress on port 8080, one replica, so the WhatsApp webhook never
      waits for a cold start;
-   - `vitrina-worker`: no ingress, one replica, runs `vitrina-worker`;
+   - `vitrina-worker`: no ingress, one replica, runs `vitrina-worker` with
+     `WORKER_EXCLUDE_TASKS=conversation.process_inbound`: creative jobs, the showcase, replays,
+     campaigns, erasures and every other job, and the periodic sweeps;
+   - `vitrina-worker-inbound`: no ingress, one replica, runs `vitrina-worker` with
+     `WORKER_TASKS=conversation.process_inbound`: customer messages and BAJA, so they never wait
+     behind a long job, and a job that runs out of memory cannot stop replies;
 6. waits for `GET /v1/health` and prints the API address and the WhatsApp webhook URL.
 
 Every secret becomes a Container Apps secret and reaches the apps as a `secretref`. Values are
 read from `.env` and passed straight to `az`, never echoed. `VISITOR_PROXY_SECRET` goes to the
-API only; the worker never needs it.
+API only; the workers never need it.
+
+Keep each worker at one replica, and never let both claim `conversation.process_inbound`. One
+inbound replica is what keeps two messages from one customer from being answered at the same
+time. The script updates the general worker first, so on the deploy that adds the inbound
+worker the two do not claim messages together; if the inbound step fails, messages wait in the
+queue until the script runs again. While Container Apps replaces a revision, the old and the
+new replica can overlap for a moment, as they always could.
 
 ### After the first deploy
 
@@ -95,18 +108,28 @@ API only; the worker never needs it.
 
 ```sh
 az containerapp logs show --name vitrina-api --resource-group vitrina --follow
+az containerapp logs show --name vitrina-worker --resource-group vitrina --follow
+az containerapp logs show --name vitrina-worker-inbound --resource-group vitrina --follow
 az containerapp revision list --name vitrina-api --resource-group vitrina --output table
 az containerapp revision activate --revision <previous> --name vitrina-api --resource-group vitrina
 ```
 
-To roll back, activate the previous revision, or run `IMAGE_TAG=<older commit> deploy/azure.sh`
-after `git checkout <older commit>`.
+To roll back, activate the previous revision of each app, or run
+`IMAGE_TAG=<older commit> deploy/azure.sh` after `git checkout <older commit>`.
+
+A commit from before the inbound worker has a worker that claims customer messages too, and its
+script does not touch the inbound app. To roll back that far, first remove the inbound worker, so
+two workers never claim them together; the script creates it again on the next newer deploy:
+
+```sh
+az containerapp delete --name vitrina-worker-inbound --resource-group vitrina --yes
+```
 
 ### Notes
 
-- **Sizes.** The API gets the smallest Consumption size (0.25 vCPU, 0.5 GiB). The worker
-  starts at 0.5 vCPU and 1 GiB because creative jobs hold images in memory. Each pair must be
-  one of the allowed combinations (0.25/0.5Gi, 0.5/1.0Gi, 0.75/1.5Gi, …).
+- **Sizes.** The API and the inbound worker get the smallest Consumption size (0.25 vCPU,
+  0.5 GiB). The general worker starts at 0.5 vCPU and 1 GiB because creative jobs hold images in
+  memory. Each pair must be one of the allowed combinations (0.25/0.5Gi, 0.5/1.0Gi, 0.75/1.5Gi, …).
 - **Client addresses.** The ingress appends the caller's address to any `X-Forwarded-For` the
   caller sent, so only the rightmost entry comes from Azure. uvicorn trusts loopback and
   private peers (`FORWARDED_ALLOW_IPS`) and takes the rightmost entry they did not add, so

@@ -101,6 +101,11 @@ class Settings(BaseSettings):
     # 89 s, after earlier attempts at the same prompt had run past 90 s (2026-10-29). Turns keep
     # provider_timeout_s inside their own budget.
     provider_job_timeout_s: float = 180.0
+    # Which tasks this worker process claims, comma-separated. WORKER_TASKS: only these, and no
+    # sweeps. WORKER_EXCLUDE_TASKS: all but these. Neither: every task. Both, or a name no package
+    # registers, stops the worker at startup.
+    worker_tasks: str | None = None
+    worker_exclude_tasks: str | None = None
     # GET /health/providers: each check's limit, and how long a report is reused.
     health_check_timeout_s: float = 5.0
     health_cache_s: float = 30.0

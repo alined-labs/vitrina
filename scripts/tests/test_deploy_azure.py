@@ -12,7 +12,9 @@ from pydantic import SecretStr
 from starlette.types import Receive, Scope, Send
 from uvicorn.middleware.proxy_headers import ProxyHeadersMiddleware
 
+from vitrina_core.jobs import TaskRegistry, load_tasks
 from vitrina_core.settings import REPO_ROOT, Settings
+from vitrina_worker.main import worker_registry
 
 SCRIPT = REPO_ROOT / "deploy" / "azure.sh"
 CONFIG = REPO_ROOT / "deploy" / "azure.env.example"
@@ -131,8 +133,9 @@ def test_a_first_deploy_creates_everything_and_never_prints_a_secret(tmp_path: P
         "az containerapp env",
         "az containerapp create",
         "az containerapp create",
+        "az containerapp create",
     ]
-    api, worker = (line for line in commands if line.startswith("az containerapp create"))
+    api, worker, _inbound = (line for line in commands if line.startswith("az containerapp create"))
     assert "--ingress external --target-port 8080" in api
     assert "--cpu 0.25 --memory 0.5Gi" in api
     assert "--ingress" not in worker
@@ -152,9 +155,9 @@ def test_a_second_deploy_updates_the_apps_to_the_new_image(tmp_path: Path) -> No
 
     assert "az acr create" not in out
     assert "az containerapp create" not in out
-    assert out.count("az containerapp secret set") == 2
+    assert out.count("az containerapp secret set") == 3
     updates = [line for line in out.splitlines() if line.startswith("az containerapp update")]
-    assert len(updates) == 2
+    assert len(updates) == 3
     assert all("--image vitrinaregistry.azurecr.io/vitrina:test" in line for line in updates)
     assert all("--set-env-vars" in line for line in updates)
     assert not any(value in out for value in values.values() if value.startswith("fake-"))
@@ -182,6 +185,115 @@ def test_as_8_2_only_the_api_gets_the_visitor_proxy_secret(tmp_path: Path) -> No
         calls = by_app(second, command)
         assert any("visitor-proxy" in arg for arg in calls["vitrina-api"])
         assert not any("visitor-proxy" in arg for arg in calls["vitrina-worker"])
+
+
+INBOUND_TASK = "conversation.process_inbound"
+
+
+def env_of(call: list[str], flag: str) -> set[str]:
+    """The ``NAME=value`` arguments after ``flag`` in one az call."""
+    values: list[str] = []
+    for arg in call[call.index(flag) + 1 :]:
+        if arg.startswith("--"):
+            break
+        values.append(arg)
+    return set(values)
+
+
+def test_a_first_deploy_creates_the_inbound_worker_from_the_same_image(tmp_path: Path) -> None:
+    created = by_app(dry_run(tmp_path)[0], "create")
+    worker, inbound = created["vitrina-worker"], created["vitrina-worker-inbound"]
+
+    line = " ".join(inbound)
+    assert "--image vitrinaregistry.azurecr.io/vitrina:test" in line
+    assert "--cpu 0.25 --memory 0.5Gi" in line
+    assert "--min-replicas 1 --max-replicas 1" in line
+    assert "--command vitrina-worker" in line
+    assert "--ingress" not in inbound
+    assert env_of(inbound, "--secrets") == env_of(worker, "--secrets")
+    assert not any("visitor-proxy" in arg for arg in inbound)
+
+
+def test_the_two_workers_differ_only_in_the_tasks_they_claim(tmp_path: Path) -> None:
+    created = by_app(dry_run(tmp_path)[0], "create")
+    second = by_app(dry_run(tmp_path, exists=True)[0], "update")
+
+    for calls, flag in ((created, "--env-vars"), (second, "--set-env-vars")):
+        worker = env_of(calls["vitrina-worker"], flag)
+        inbound = env_of(calls["vitrina-worker-inbound"], flag)
+        assert worker - inbound == {f"WORKER_EXCLUDE_TASKS={INBOUND_TASK}"}
+        assert inbound - worker == {f"WORKER_TASKS={INBOUND_TASK}"}
+        assert not any(arg.startswith("WORKER_") for arg in env_of(calls["vitrina-api"], flag))
+
+
+def test_the_deployed_limits_name_a_real_task_and_leave_every_task_with_one_worker(
+    tmp_path: Path,
+) -> None:
+    created = by_app(dry_run(tmp_path)[0], "create")
+    settings = {
+        app: dict(arg.split("=", 1) for arg in env_of(created[app], "--env-vars"))
+        for app in ("vitrina-worker", "vitrina-worker-inbound")
+    }
+
+    general = worker_registry(
+        Settings(  # type: ignore[call-arg]
+            _env_file=None, worker_exclude_tasks=settings["vitrina-worker"]["WORKER_EXCLUDE_TASKS"]
+        )
+    )
+    inbound = worker_registry(
+        Settings(  # type: ignore[call-arg]
+            _env_file=None, worker_tasks=settings["vitrina-worker-inbound"]["WORKER_TASKS"]
+        )
+    )
+    everything = TaskRegistry()
+    load_tasks(everything)
+
+    assert inbound.names() == {INBOUND_TASK}
+    assert not general.names() & inbound.names()
+    assert general.names() | inbound.names() == everything.names()
+    assert inbound.periodic() == ()
+    assert len(general.periodic()) == len(everything.periodic()) > 0
+
+
+@pytest.mark.parametrize("exists", [False, True])
+def test_the_general_worker_stops_claiming_messages_before_the_inbound_worker_starts(
+    tmp_path: Path, exists: bool
+) -> None:
+    out = dry_run(tmp_path, exists=exists)[0]
+    verb = "update" if exists else "create"
+    names = [
+        args[args.index("--name") + 1]
+        for args in map(shlex.split, out.splitlines())
+        if args[:3] == ["az", "containerapp", verb]
+    ]
+
+    assert names == ["vitrina-api", "vitrina-worker", "vitrina-worker-inbound"]
+
+
+def test_a_config_from_before_the_inbound_worker_still_deploys_it(tmp_path: Path) -> None:
+    old = tmp_path / "azure.env"
+    old.write_text(
+        "".join(
+            line
+            for line in CONFIG.read_text().splitlines(keepends=True)
+            if not line.startswith("INBOUND_WORKER_")
+        )
+    )
+    values = {name: f"fake-{name.lower()}-value" for name in secret_map()} | PLAIN
+    env_file = tmp_path / ".env"
+    env_file.write_text("".join(f"{name}={value}\n" for name, value in values.items()))
+
+    result = subprocess.run(
+        ["bash", str(SCRIPT), str(old)],
+        env={**os.environ, "SECRETS_FILE": str(env_file), "DRY_RUN": "1", "IMAGE_TAG": "test"},
+        capture_output=True,
+        text=True,
+    )
+
+    assert result.returncode == 0, result.stderr
+    assert "--cpu 0.25 --memory 0.5Gi" in " ".join(
+        by_app(result.stdout, "create")["vitrina-worker-inbound"]
+    )
 
 
 # The Container Apps ingress appends the caller's address to any X-Forwarded-For the caller
