@@ -5,8 +5,8 @@
 
 Replay, the default, needs no key (AS-7.3). ``--record`` calls the live providers like
 ``--live`` and stores every answer as a cassette under CASSETTE_DIR, for replay later (T055).
-Exit status 0 when the run passes; 1 when it fails, which an invented price does (AS-7.2); 2
-when it could not run (no agent, missing cassettes), with a GitHub error annotation, so a
+Exit status 0 when the run passes; 1 when it fails, which an invented price (AS-7.2) or a missed
+target (spec.md §7) does; 2 when it could not run (no agent, missing cassettes), with a GitHub error annotation, so a
 suite that never ran cannot pass the build.
 """
 

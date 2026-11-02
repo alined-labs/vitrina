@@ -31,7 +31,7 @@ class TruthfulAgent:
 
 
 @pytest.mark.db
-async def test_db_as_7_1_a_worker_runs_the_suite_and_the_metrics_page_shows_it(
+async def test_db_as_7_1_a_worker_runs_the_suite_and_the_metrics_page_shows_only_full_operator_runs(
     migrated_schema: tuple[str, str],
     db_sessions: async_sessionmaker[AsyncSession],
     monkeypatch: pytest.MonkeyPatch,
@@ -62,7 +62,27 @@ async def test_db_as_7_1_a_worker_runs_the_suite_and_the_metrics_page_shows_it(
 
         finished = client.get(f"/v1/evals/runs/{run['id']}", headers=bearer()).json()
         listed = client.get("/v1/evals/runs", headers=bearer()).json()["items"]
+        partial_summary = client.get("/v1/metrics/summary", headers=bearer()).json()
+
+        # The consent suite needs no agent, so a full run takes no time here.
+        sellers_run = client.post(
+            "/v1/evals/runs", json={"suite": "consent_scheduler"}, headers=bearer()
+        )
+        assert sellers_run.status_code == 202, sellers_run.text
+        assert await worker.run_once() is True
+        sellers_summary = client.get("/v1/metrics/summary", headers=bearer()).json()
+
+        full_run = client.post(
+            "/v1/evals/runs", json={"suite": "consent_scheduler"}, headers=SERVICE
+        )
+        assert full_run.status_code == 202, full_run.text
+        assert await worker.run_once() is True
         summary = client.get("/v1/metrics/summary", headers=bearer()).json()
+
+        # A seller's run afterwards leaves what everyone sees where it was.
+        client.post("/v1/evals/runs", json={"suite": "consent_scheduler"}, headers=bearer())
+        assert await worker.run_once() is True
+        unchanged = client.get("/v1/metrics/summary", headers=bearer()).json()
 
     assert (finished["status"], finished["case_count"]) == ("passed", 1)
     assert finished["metrics"]["groundedness_rate"] == 1.0
@@ -71,5 +91,8 @@ async def test_db_as_7_1_a_worker_runs_the_suite_and_the_metrics_page_shows_it(
     assert finished["cases"][0]["passed"] is True
     assert finished["finished_at"] is not None
     assert [item["id"] for item in listed] == [run["id"]]
-    assert summary["latest_eval"]["run_id"] == run["id"]
-    assert summary["latest_eval"]["metrics"]["invented_price_rate"] == 0.0
+    assert partial_summary["latest_eval"] == {}
+    assert sellers_summary["latest_eval"] == {}
+    assert summary["latest_eval"]["run_id"] == full_run.json()["id"]
+    assert summary["latest_eval"]["metrics"]["consent_scheduler_accuracy"] == 1.0
+    assert unchanged["latest_eval"]["run_id"] == full_run.json()["id"]

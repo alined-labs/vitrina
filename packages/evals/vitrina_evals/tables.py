@@ -1,4 +1,4 @@
-"""The table the evals own, mirroring migration 0001 (data-model.md ``eval_runs``)."""
+"""The table the evals own, mirroring the migrations (data-model.md ``eval_runs``)."""
 
 import sqlalchemy as sa
 from sqlalchemy.dialects.postgresql import JSONB
@@ -16,6 +16,7 @@ eval_runs = sa.Table(
     sa.Column("metrics", JSONB, nullable=False, server_default=sa.text("'{}'::jsonb")),
     sa.Column("cases", JSONB, nullable=False, server_default=sa.text("'[]'::jsonb")),
     sa.Column("git_sha", sa.Text),
+    sa.Column("counts_as_latest", sa.Boolean, nullable=False, server_default=sa.false()),
     sa.Column(
         "started_at", sa.DateTime(timezone=True), nullable=False, server_default=sa.func.now()
     ),
