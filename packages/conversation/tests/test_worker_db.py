@@ -7,6 +7,7 @@ messenger stand in for the providers.
 import asyncio
 import dataclasses
 from pathlib import Path
+from uuid import uuid4
 
 import pytest
 import sqlalchemy as sa
@@ -23,8 +24,10 @@ from vitrina_conversation.api import (
     PostgresInboundQueue,
     sellers_on_postgres,
 )
+from vitrina_conversation.booking import PostgresBookings
 from vitrina_conversation.tables import messages
 from vitrina_conversation.testing import ScriptedChat, final_answer, webhook_fixture
+from vitrina_core.db import customer_work_lock
 from vitrina_core.jobs import PostgresJobQueue, TaskRegistry, Worker, load_tasks
 from vitrina_core.ledger import InMemoryLedger
 from vitrina_core.providers import ChatRequest, ChatResponse
@@ -174,3 +177,51 @@ async def test_db_an_erasure_requested_mid_turn_also_erases_the_reply_written_af
     assert [(row.text, row.agent_output) for row in rows] == [(None, None), (None, None)]
     outbox = MockOutbox(settings.mock_outbox_path)
     assert [entry.text for entry in outbox.entries(contact="+573000000001")] == [GREETING]
+
+
+async def test_db_a_booking_during_a_turn_does_not_wait_for_the_turns_own_lock(
+    db_sessions: async_sessionmaker[AsyncSession],
+) -> None:
+    seller_id = uuid4()
+
+    async with customer_work_lock(db_sessions, seller_id):
+        async with asyncio.timeout(5):
+            async with PostgresBookings(db_sessions).locked(seller_id):
+                pass
+
+
+async def test_db_the_lock_keeps_one_holder_per_seller_and_lets_other_sellers_through(
+    db_sessions: async_sessionmaker[AsyncSession],
+) -> None:
+    seller_id = uuid4()
+
+    async def second_holder() -> None:
+        async with customer_work_lock(db_sessions, seller_id):
+            pass
+
+    async with customer_work_lock(db_sessions, seller_id):
+        waiting = asyncio.create_task(second_holder())
+        await asyncio.sleep(0.5)
+        assert not waiting.done()
+        async with asyncio.timeout(5), customer_work_lock(db_sessions, uuid4()):
+            pass
+    async with asyncio.timeout(5):
+        await waiting
+
+
+async def test_db_a_cancelled_holder_releases_the_lock(
+    db_sessions: async_sessionmaker[AsyncSession],
+) -> None:
+    seller_id = uuid4()
+
+    async def holder() -> None:
+        async with customer_work_lock(db_sessions, seller_id):
+            await asyncio.sleep(60)
+
+    task = asyncio.create_task(holder())
+    await asyncio.sleep(0.5)
+    task.cancel()
+    await asyncio.gather(task, return_exceptions=True)
+
+    async with asyncio.timeout(5), customer_work_lock(db_sessions, seller_id):
+        pass

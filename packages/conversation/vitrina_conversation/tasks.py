@@ -15,6 +15,7 @@ from vitrina_conversation.wiring import (
     postgres_pipeline,
     process_stored_message,
 )
+from vitrina_core.db import customer_work_lock
 from vitrina_core.jobs import JobContext, JobFailedError, TaskRegistry
 from vitrina_core.ledger import PostgresLedger, SpendWatch
 from vitrina_core.providers import Messenger
@@ -51,9 +52,10 @@ async def process_inbound_job(ctx: JobContext) -> str | None:
         )
     except LookupError as error:  # MODEL_AGENT unset (Q01)
         raise JobFailedError("PROVIDER_UNAVAILABLE", str(error)) from error
-    outcome = await process_stored_message(
-        deps, seller_id, UUID(str(ctx.payload["payload_id"])), str(ctx.payload["message_id"])
-    )
+    async with customer_work_lock(ctx.sessions, seller_id):
+        outcome = await process_stored_message(
+            deps, seller_id, UUID(str(ctx.payload["payload_id"])), str(ctx.payload["message_id"])
+        )
     if outcome is None:
         raise JobFailedError("NOT_FOUND", "the webhook payload or its message is no longer kept")
     return f"/v1/conversations/{outcome.conversation_id}" if outcome.conversation_id else None

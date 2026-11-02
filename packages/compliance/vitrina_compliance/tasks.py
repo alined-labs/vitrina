@@ -5,6 +5,7 @@ from uuid import UUID
 
 from vitrina_compliance.consents import PostgresCompliance
 from vitrina_compliance.erasure import ERASURE_TASK, load_erasers
+from vitrina_core.db import customer_work_lock
 from vitrina_core.jobs import JobContext, JobFailedError, TaskRegistry
 
 
@@ -20,15 +21,16 @@ async def erase_contact(ctx: JobContext) -> str:
     requested = ctx.payload.get("requested_at")
     requested_at = datetime.fromisoformat(requested) if requested else datetime.now(UTC)
     parts = ["contact"]
-    for eraser in load_erasers():
-        parts.append(await eraser(ctx, seller_id, contact_id))
-    await ctx.progress("erasing", 0.8)
-    try:
-        await PostgresCompliance(ctx.sessions, None).erase(
-            seller_id, contact_id, requested_at=requested_at, scope=tuple(parts)
-        )
-    except LookupError as error:
-        raise JobFailedError("NOT_FOUND", str(error)) from error
+    async with customer_work_lock(ctx.sessions, seller_id):  # after any answer being written
+        for eraser in load_erasers():
+            parts.append(await eraser(ctx, seller_id, contact_id))
+        await ctx.progress("erasing", 0.8)
+        try:
+            await PostgresCompliance(ctx.sessions, None).erase(
+                seller_id, contact_id, requested_at=requested_at, scope=tuple(parts)
+            )
+        except LookupError as error:
+            raise JobFailedError("NOT_FOUND", str(error)) from error
     return f"/v1/contacts/{contact_id}"
 
 
