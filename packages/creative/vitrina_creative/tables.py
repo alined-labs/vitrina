@@ -118,11 +118,3 @@ public_showcases = sa.Table(
         "created_at", sa.DateTime(timezone=True), server_default=sa.func.now(), nullable=False
     ),
 )
-
-public_rate_limits = sa.Table(
-    "public_rate_limits",
-    metadata,
-    sa.Column("ip_hash", sa.Text, primary_key=True),
-    sa.Column("window_start", sa.DateTime(timezone=True), primary_key=True),
-    sa.Column("count", sa.Integer, nullable=False),
-)

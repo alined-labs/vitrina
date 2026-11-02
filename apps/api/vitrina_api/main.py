@@ -50,6 +50,7 @@ from vitrina_core.http import (
 from vitrina_core.jobs import PostgresJobQueue
 from vitrina_core.ledger import InMemoryLedger, PostgresLedger, SpendWatch
 from vitrina_core.providers.compose import compose
+from vitrina_core.quotas import InMemoryUsageCounter, PostgresUsageCounter
 from vitrina_core.settings import Settings, get_settings
 from vitrina_core.storage import LocalBlobStore, blob_store, create_blob_router
 from vitrina_creative.media import IMAGE_MAX_BYTES, VIDEO_MAX_BYTES
@@ -141,6 +142,9 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     watch = SpendWatch(settings.spend_limit_usd)
     app.state.ledger = (
         PostgresLedger(app.state.sessions, watch) if app.state.sessions else InMemoryLedger(watch)
+    )
+    app.state.usage = (
+        PostgresUsageCounter(app.state.sessions) if app.state.sessions else InMemoryUsageCounter()
     )
     # Replay, the default, answers from cassettes and needs no key (AS-7.3, ADR-0010).
     app.state.providers = compose(settings, app.state.ledger, lambda: live_providers(settings))

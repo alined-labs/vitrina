@@ -84,9 +84,20 @@ class Settings(BaseSettings):
     contact_encryption_key: SecretStr | None = None
 
     # Cost-ledger alert (plan.md §6), counted at the list prices per model ID
-    # (``vitrina_core.pricing``); MODEL_PRICES (JSON) replaces the whole table.
+    # (``vitrina_core.pricing``); MODEL_PRICES (JSON) replaces the whole table. At the limit the
+    # public tool also stops; customer conversations never do.
     spend_limit_usd: float = 100.0
     model_prices: dict[str, ModelPrice] = Field(default_factory=lambda: dict(META_LIST_PRICES))
+
+    # Daily limits on paid work, per UTC day (vitrina_core.quotas); 0 refuses all of it. They are
+    # product choices, not provider limits. Customer conversations and BAJA never pass through them.
+    public_showcase_daily_cap: int = Field(default=100, ge=0)  # all visitors together
+    seller_daily_agent_turns: int = Field(default=200, ge=0)  # POST /agent/turns
+    seller_daily_creative_jobs: int = Field(default=20, ge=0)  # /creative/jobs, applying a brief
+    # POST /briefs/generate, /products/import, and live /replay/sessions and /evals/runs.
+    seller_daily_paid_jobs: int = Field(default=20, ge=0)
+    # POST /agent/turns; as long as the longest message a seller can write to a customer.
+    agent_turn_max_chars: int = Field(default=4096, gt=0)
 
     # Thresholds and limits.
     mask_iou_min: float = 0.85  # FR-012

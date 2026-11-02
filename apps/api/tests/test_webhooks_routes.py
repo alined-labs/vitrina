@@ -5,7 +5,9 @@ the same pipeline the worker runs, and the local mock messenger takes the reply 
 """
 
 import dataclasses
+import json
 import time
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 from uuid import UUID
@@ -20,8 +22,10 @@ from vitrina_api.routers import webhooks
 from vitrina_catalog.sellers import SellerCreate
 from vitrina_conversation.api import BackgroundInboundQueue
 from vitrina_conversation.image import Photos
+from vitrina_conversation.pipeline import OPT_OUT_REPLY
 from vitrina_conversation.testing import ScriptedChat, final_answer, webhook_fixture
 from vitrina_conversation.voice import VoiceNotes
+from vitrina_core.quotas import day_start
 from vitrina_core.settings import Settings
 from vitrina_local_mock import MockOutbox
 from vitrina_whatsapp.signature import sign
@@ -31,6 +35,10 @@ VERIFY_TOKEN = "webhook-routes-test-verify-token"
 SELLER = UUID("00000000-0000-7000-8000-0000000000b1")
 CUSTOMER = "+573000000001"
 GREETING = "¡Hola! ¿En qué te ayudo?"
+
+
+def day() -> datetime:
+    return day_start(datetime.now(UTC))
 
 
 @dataclasses.dataclass
@@ -52,6 +60,10 @@ class Hook:
 
 @pytest.fixture
 async def hook(tmp_path: Path) -> Hook:
+    return await make_hook(tmp_path)
+
+
+async def make_hook(tmp_path: Path, **limits: Any) -> Hook:
     outbox_path = tmp_path / "mock-whatsapp.jsonl"
     app = create_app(
         Settings(  # type: ignore[call-arg]
@@ -62,6 +74,7 @@ async def hook(tmp_path: Path) -> Hook:
             mock_outbox_path=outbox_path,
             contact_hash_pepper="webhook-routes-test-pepper",
             contact_encryption_key=Fernet.generate_key().decode(),
+            **limits,
         )
     )
     await app.state.sellers.create(
@@ -139,6 +152,49 @@ def test_as_3_1_a_redelivered_message_is_answered_once(hook: Hook) -> None:
 
     assert (first.status_code, second.status_code) == (200, 200)
     assert hook.replies() == [GREETING]
+
+
+NO_ROOM_LEFT = {
+    "seller_daily_agent_turns": 0,
+    "seller_daily_creative_jobs": 0,
+    "seller_daily_paid_jobs": 0,
+    "public_showcase_daily_cap": 0,
+    "spend_limit_usd": 0.0,
+    "agent_turn_max_chars": 1,
+}
+
+
+async def test_as_3_1_a_customer_is_answered_whatever_the_limits_say(tmp_path: Path) -> None:
+    hook = await make_hook(tmp_path, **NO_ROOM_LEFT)
+    hook.chat.script.append(final_answer(GREETING, confidence=0.95))
+    body = webhook_fixture("text_ad_code_a7")
+
+    assert hook.post(body, sign(body, APP_SECRET)).status_code == 200
+
+    assert hook.replies() == [GREETING]
+
+
+async def test_r7_baja_works_whatever_the_limits_say(tmp_path: Path) -> None:
+    hook = await make_hook(tmp_path, **NO_ROOM_LEFT)
+    recorded = json.loads(webhook_fixture("text_ad_code_a7"))
+    message = recorded["entry"][0]["changes"][0]["value"]["messages"][0]
+    message["text"]["body"] = "BAJA"
+    body = json.dumps(recorded).encode()
+
+    assert hook.post(body, sign(body, APP_SECRET)).status_code == 200
+
+    assert hook.replies() == [OPT_OUT_REPLY]
+    assert hook.chat.requests == []
+
+
+async def test_as_3_1_customer_turns_take_nothing_from_the_sellers_quota(tmp_path: Path) -> None:
+    hook = await make_hook(tmp_path, seller_daily_agent_turns=1)
+    hook.chat.script.append(final_answer(GREETING, confidence=0.95))
+    body = webhook_fixture("text_ad_code_a7")
+    hook.post(body, sign(body, APP_SECRET))
+
+    assert hook.replies() == [GREETING]
+    assert await hook.app.state.usage.take(f"seller:{SELLER}:agent_turns", day(), limit=1) is True
 
 
 def test_fr_028_a_status_callback_is_acknowledged(hook: Hook) -> None:

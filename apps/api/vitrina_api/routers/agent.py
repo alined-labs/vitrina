@@ -5,6 +5,7 @@ Contract paths: /agent/turns.
 
 from fastapi import APIRouter, Request
 
+from vitrina_api.limits import take_quota
 from vitrina_catalog.api import SellerSettings
 from vitrina_conversation.api import (
     AgentDeps,
@@ -15,7 +16,13 @@ from vitrina_conversation.api import (
     run_turn,
 )
 from vitrina_core.auth import SellerId
-from vitrina_core.http import IdempotencyKey, ProblemCode, ProblemError, problem_responses
+from vitrina_core.http import (
+    FieldError,
+    IdempotencyKey,
+    ProblemCode,
+    ProblemError,
+    problem_responses,
+)
 from vitrina_core.ids import new_id
 from vitrina_core.providers.compose import ProviderMode, compose
 from vitrina_core.settings import Settings
@@ -32,7 +39,7 @@ router = APIRouter(tags=["Agent"])
         "With `dry_run=true` no tool has side effects."
     ),
     response_description="Agent turn result",
-    responses=problem_responses(400, 503),
+    responses=problem_responses(400, 429, 503),
 )
 async def run_agent_turn(
     request: Request, seller_id: SellerId, body: AgentTurnRequest, _key: IdempotencyKey = None
@@ -48,14 +55,25 @@ async def run_agent_turn(
     text = body.message.text if isinstance(body.message.text, str) else ""
     if not text.strip():
         raise ProblemError(ProblemCode.VALIDATION_ERROR, detail="a text turn needs message.text")
+    settings: Settings = request.app.state.settings
+    if len(text) > settings.agent_turn_max_chars:
+        message = (
+            f"El mensaje es demasiado largo: máximo {settings.agent_turn_max_chars} caracteres."
+        )
+        raise ProblemError(
+            ProblemCode.VALIDATION_ERROR,
+            detail=message,
+            errors=[FieldError(field="message.text", message=message)],
+        )
     seller: SellerSettings | None = await request.app.state.sellers.settings(seller_id)
     if seller is None:
         raise ProblemError(ProblemCode.VALIDATION_ERROR, detail="this seller has no settings yet")
-    settings: Settings = request.app.state.settings
     try:
         model = settings.model_id("agent")
     except LookupError as error:
         raise ProblemError(ProblemCode.PROVIDER_UNAVAILABLE, detail=str(error)) from error
+    # Recorded model outputs count too: retrieval can still call the live embedding model.
+    await take_quota(request, seller_id, "agent_turns")
     chat = (
         compose(settings, request.app.state.ledger, mode=ProviderMode.replay).chat
         if body.replay_model_outputs

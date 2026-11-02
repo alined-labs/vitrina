@@ -6,7 +6,7 @@ import sqlalchemy as sa
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from vitrina_core.db.tables import model_calls, sellers
-from vitrina_core.ledger import LedgerEntry, PostgresLedger, SpendWatch
+from vitrina_core.ledger import LedgerEntry, PostgresLedger, SpendWatch, spend_limit_reached
 
 SELLER = UUID("00000000-0000-7000-8000-00000000000a")
 OTHER = UUID("00000000-0000-7000-8000-00000000000b")
@@ -73,3 +73,18 @@ async def test_db_fr_084_the_cost_report_aggregates_one_sellers_live_calls(
         ("embed-model", 1, 100, pytest.approx(0.010)),
     ]
     assert watch.live_total_usd == pytest.approx(1.515)
+
+
+@pytest.mark.db
+async def test_db_live_spend_includes_calls_without_a_seller_and_ignores_replays(
+    db_sessions: async_sessionmaker[AsyncSession],
+) -> None:
+    ledger = PostgresLedger(db_sessions)
+    assert await ledger.live_total_usd() == 0.0
+
+    await ledger.record(entry(None, 2.5))  # a public showcase has no seller
+    await ledger.record(entry(None, 40.0, replayed=True))
+
+    assert await ledger.live_total_usd() == pytest.approx(2.5)
+    assert await spend_limit_reached(ledger, 2.5) is True
+    assert await spend_limit_reached(ledger, 2.6) is False

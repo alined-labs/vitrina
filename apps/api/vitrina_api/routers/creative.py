@@ -10,6 +10,7 @@ from uuid import UUID
 
 from fastapi import APIRouter, Depends, Request
 
+from vitrina_api.limits import return_quota, take_quota
 from vitrina_core.auth import SellerId
 from vitrina_core.http import (
     IdempotencyKey,
@@ -53,7 +54,7 @@ Paging = Annotated[PageQuery, Depends()]
     status_code=202,
     operation_id="createCreativeJob",
     summary="Run the creative pipeline for a product (segment → compose → verify → copy)",
-    responses=problem_responses(400, 404),
+    responses=problem_responses(400, 404, 429),
 )
 async def create_job(
     seller_id: SellerId,
@@ -68,15 +69,20 @@ async def create_job(
         raise ProblemError(
             ProblemCode.PROVIDER_UNAVAILABLE, detail="creative jobs need the database"
         )
-    job_id = await start_job(
-        seller_id,
-        body,
-        catalog=state.catalog,
-        sellers=state.sellers,
-        assets=assets_from_state(state),
-        queue=queue,
-        sessions=state.sessions,
-    )
+    await take_quota(request, seller_id, "creative_jobs")
+    try:
+        job_id = await start_job(
+            seller_id,
+            body,
+            catalog=state.catalog,
+            sellers=state.sellers,
+            assets=assets_from_state(state),
+            queue=queue,
+            sessions=state.sessions,
+        )
+    except ProblemError:  # refused before anything was queued
+        await return_quota(request, seller_id, "creative_jobs")
+        raise
     row = await store.get(seller_id, job_id)
     if row is None:  # pragma: no cover - the row was inserted in the same transaction
         raise ProblemError(ProblemCode.NOT_FOUND, detail=f"no creative job {job_id}")

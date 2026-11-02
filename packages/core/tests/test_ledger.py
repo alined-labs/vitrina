@@ -13,8 +13,10 @@ from vitrina_core.ledger import (
     LedgeredImageModel,
     LedgeredSegmenter,
     LedgeredTranscriber,
+    LedgerEntry,
     SpendWatch,
     period_bounds,
+    spend_limit_reached,
 )
 from vitrina_core.pricing import ModelPrice
 from vitrina_core.providers import (
@@ -35,6 +37,23 @@ from vitrina_core.providers import (
 )
 
 SELLER = UUID("00000000-0000-7000-8000-00000000000a")
+
+
+def entry_of(seller_id: UUID | None, cost: float, *, replayed: bool = False) -> LedgerEntry:
+    return LedgerEntry(
+        provider="meta_model_api",
+        model="spark",
+        purpose="agent",
+        tokens_in=1,
+        tokens_out=1,
+        latency_ms=1,
+        cost_usd=cost,
+        replayed=replayed,
+        seller_id=seller_id,
+        request_id=None,
+    )
+
+
 REQUEST = ChatRequest(
     model="agent-model", purpose="agent", messages=(ChatMessage(role="user", content="hola"),)
 )
@@ -215,6 +234,26 @@ async def test_spend_alert_fires_once_when_live_spend_crosses_the_limit(
     alerts = [record for record in caplog.records if "spend limit" in record.message]
     assert len(alerts) == 1
     assert watch.live_total_usd == pytest.approx(0.009)
+
+
+async def test_live_spend_counts_every_live_call_with_or_without_a_seller() -> None:
+    ledger = InMemoryLedger()
+    for seller_id, cost, replayed in (
+        (SELLER, 1.5, False),
+        (None, 2.0, False),  # a public showcase or an eval run has no seller
+        (None, 50.0, True),
+    ):
+        await ledger.record(entry_of(seller_id, cost, replayed=replayed))
+
+    assert await ledger.live_total_usd() == pytest.approx(3.5)
+
+
+@pytest.mark.parametrize(("limit", "reached"), [(3.6, False), (3.5, True), (3.4, True)])
+async def test_the_spend_limit_is_reached_at_the_limit_itself(limit: float, reached: bool) -> None:
+    ledger = InMemoryLedger()
+    await ledger.record(entry_of(None, 3.5))
+
+    assert await spend_limit_reached(ledger, limit) is reached
 
 
 async def test_fr_084_cost_report_counts_live_calls_by_provider_and_model() -> None:

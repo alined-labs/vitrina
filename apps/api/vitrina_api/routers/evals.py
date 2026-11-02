@@ -10,6 +10,7 @@ from uuid import UUID
 from fastapi import APIRouter, Depends, Query, Request
 from pydantic import MISSING
 
+from vitrina_api.limits import take_quota
 from vitrina_core.auth import SellerId, SellerOrService
 from vitrina_core.http import (
     FieldError,
@@ -18,6 +19,7 @@ from vitrina_core.http import (
     PageQuery,
     ProblemCode,
     ProblemError,
+    problem_responses,
 )
 from vitrina_core.jobs import PostgresJobQueue
 from vitrina_core.ledger import CostReader, CostReport
@@ -50,10 +52,11 @@ Paging = Annotated[PageQuery, Depends()]
     operation_id="createEvalRun",
     summary="Run an evaluation suite",
     response_description="Run started",
+    responses=problem_responses(429),
 )
 async def create_eval_run(
     request: Request,
-    _caller: SellerOrService,
+    caller: SellerOrService,
     runs: Runs,
     body: EvalRunCreate,
     _key: IdempotencyKey = None,
@@ -64,6 +67,8 @@ async def create_eval_run(
             ProblemCode.PROVIDER_UNAVAILABLE,
             detail="eval runs need the database (DATABASE_URL); `make evals` runs one without",
         )
+    if caller.seller_id is not None and not body.replay:  # our own workers have no quota
+        await take_quota(request, caller.seller_id, "paid_jobs")
     payload: dict[str, object] = {}
     if body.sample is not MISSING:
         payload["sample"] = body.sample
