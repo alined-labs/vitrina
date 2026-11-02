@@ -406,7 +406,8 @@ async def test_db_as_8_2_the_sweep_leaves_a_published_page_as_it_is(
     settings = showcase_settings(*migrated_schema, tmp_path)
     storage = LocalBlobStore(tmp_path, public_url=settings.public_api_url)
     with TestClient(showcase_app(settings)) as client:
-        created = upload(client).json()
+        # The scripted copy states $85.000, which only a product with that price may say.
+        created = upload(client, 85000).json()
         registry = TaskRegistry()
         load_tasks(registry)
         worker = Worker(
