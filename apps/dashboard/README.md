@@ -12,6 +12,8 @@ cp .env.example .env.local   # optional: without Supabase settings it runs in lo
 pnpm dev                     # http://localhost:3000; start the API with `make api` from the repo root
 ```
 
+To see a conversation without a database, `uv run python scripts/dev-conversations.py` from the repo root serves the API with sample chats on `:8000` and prints the token command and the chat links. Open the dashboard at `localhost`, not `127.0.0.1`: `next dev` blocks its own resources for any other host, and the page never loads.
+
 The browser calls `/api/v1/*`, which `next.config.ts` proxies to `API_PROXY_TARGET` (default `http://localhost:8000`), so the API needs no CORS settings. `API_PROXY_TARGET` and the `NEXT_PUBLIC_*` settings are read when `pnpm dev` starts and at `pnpm build`: rebuild after changing them.
 
 ## Client

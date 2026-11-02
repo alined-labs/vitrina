@@ -75,6 +75,42 @@ export const OBJECTION: Record<Schemas["ObjectionTag"], string> = {
   other: "Otro",
 };
 
+export const SENDER: Record<NonNullable<Schemas["Message"]["sender"]>, string> = {
+  customer: "Cliente",
+  agent: "Agente",
+  seller: "Tú",
+  system: "Vitrina",
+};
+
+export const DELIVERY: Record<NonNullable<Schemas["Message"]["delivery_status"]>, string> = {
+  queued: "En cola",
+  sent: "Enviado",
+  delivered: "Entregado",
+  read: "Leído",
+  failed: "No se entregó",
+  mocked: "Simulado",
+};
+
+/** What a message is when it is not plain text. */
+export const MESSAGE_TYPE: Partial<Record<Schemas["MessageType"], string>> = {
+  image: "Foto",
+  audio: "Nota de voz",
+  video: "Video",
+  document: "Documento",
+  interactive: "Respuesta con botón",
+  template: "Plantilla",
+  unsupported: "Tipo de mensaje que no podemos mostrar",
+};
+
+export const FACT_KIND: Record<Schemas["FactKind"], string> = {
+  faq: "Pregunta frecuente",
+  shipping: "Envíos",
+  payment: "Pagos",
+  policy: "Políticas",
+  hours: "Horarios",
+  other: "Otro",
+};
+
 /** 0.97 → "97 %"; 0.083 → "0,08" (Colombian decimals). */
 export function percent(value: number): string {
   return `${Math.round(value * 100)} %`;

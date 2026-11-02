@@ -78,6 +78,7 @@ const SELLER_TEXT: Partial<Record<Code, string>> = {
   CAMPAIGN_ALREADY_SENT: "Esta campaña ya se envió.",
   INSUFFICIENT_DATA: "Aún no hay suficientes conversaciones para un informe. Vuelve cuando tengas más chats.",
   BRIEF_SCHEMA_INVALID: "El informe salió incompleto. Intenta generarlo de nuevo.",
+  CONVERSATION_NOT_HUMAN: "El agente está atendiendo esta conversación. Tómala para escribirle al cliente.",
 };
 const SELLER_DETAIL: ReadonlySet<Code> = new Set(["VALIDATION_ERROR", "CONFLICT", "CREATIVE_BLOCKED"]);
 
