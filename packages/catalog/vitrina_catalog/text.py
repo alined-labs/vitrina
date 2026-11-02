@@ -6,7 +6,7 @@ from collections.abc import Mapping
 
 import snowballstemmer
 
-from vitrina_core.money import amounts_cop, format_cop
+from vitrina_core.money import amounts_cop, format_cop, marked_amounts
 
 # Function words that would otherwise match every document.
 STOPWORDS = frozenset(
@@ -96,8 +96,9 @@ def citable_text(name: str, description: str | None, attributes: Mapping[str, st
 def product_amounts(
     price_cop: int, description: str | None, attributes: Mapping[str, str] | None
 ) -> tuple[int, ...]:
-    """Every amount the agent may quote for a product: its price plus any in its text (R2)."""
-    found = {price_cop}
-    for text in (description or "", *(attributes or {}).values()):
-        found.update(amounts_cop(text))
+    """Every amount the agent may quote for a product: its price, any in its description, and any
+    an attribute marks as money (R2). A bare ``sku: 45000`` is data, not a price."""
+    found = {price_cop, *amounts_cop(description or "")}
+    for value in (attributes or {}).values():
+        found.update(marked_amounts(value))
     return tuple(sorted(found))

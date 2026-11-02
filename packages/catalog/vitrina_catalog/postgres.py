@@ -605,6 +605,7 @@ class PostgresCatalog:
                 kind="product",
                 amounts_cop=tuple(sorted(row.amounts_cop)),
                 name=row.name,
+                attributes=tuple((row.attributes or {}).values()),
                 text=citable_text(row.name, row.description, row.attributes),
             )
             for row in product_rows

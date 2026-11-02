@@ -15,10 +15,14 @@ amounts with ``mil``/``millón`` or a currency word; a plain number right after 
 ``20 €``), which no cited peso amount matches. ``45 mil 900`` is 45.900, ``medio millón``
 500.000, ``dos palos`` 2.000.000 and ``40-45 mil`` both ends.
 
-Not money: percentages; phone numbers; dates and times written as such (``27/10``, ``2:30``,
-never ``38: 85``); years, unless they stand where a price goes (``a 2000``, ``Mochila: 2000``);
-sizes, units and counts (``1200 ml``, ``1000 mochilas``); and numbers a word labels as a code
-or part of an address (``Ref 2310``, ``local 1204``, ``# 45-1020``).
+Not money: percentages; phone numbers and links; dates and times written as such (``27/10``,
+``2:30``, never ``38: 85``); years, unless they stand where a price goes (``a 2000``, ``Mochila:
+2000``); sizes, units and counts (``1200 ml``, ``1000 mochilas``); part of an address (``local
+1204``, ``# 45-1020``); and a number in a clause about a code, an order or a phone call (``Tu
+código de reserva es 58213``), unless the clause also has a price word (``Tu pedido vale 45000``).
+
+That reading is for what the shop says. What a customer wrote is read by ``marked_amounts``: only
+what is marked or cued as money, because "Mi pedido es el 58213" offers no price.
 """
 
 import re
@@ -30,20 +34,29 @@ _TOKEN = re.compile(r"\d+(?:[.,]\d+)*|[a-zñ]+|[$€#%/:\-–—]|[.,!?;](?!\d)"
 # keyboards and writers do; the number is then read as written, so it needs a money mark.
 _APOSTROPHE_MILLIONS = re.compile(r"(?<=\d)['’´`](?=\d{3}(?:[.,]\d{3})*(?!\d))")
 _SPACE_GROUPED = re.compile(r"(?<![\d.,])\d{1,3}(?: \d{3})+(?![\d.,]| \d)")
+# A link holds no price: "wa.me/573000000101", "https://tienda.co/p/45000".
+_LINK = re.compile(r"\bhttps?://\S+|\bwww\.\S+|\b[a-z0-9\-]+\.(?:me|co|com|net|org|ly)/\S*")
 # Colombian phone numbers, however they are grouped: mobile, landline, toll-free.
 _PHONE = re.compile(
     r"(?<![\d.,$])(?:\+?57[\s.\-]?)?(?:(?:3\d{2}|60\d)[\s.\-]?\d{3}[\s.\-]?\d{2}[\s.\-]?\d{2}"
-    r"|018000[\s.\-]?\d{6})(?![\d])"
+    r"|\(\d{1,3}\)\s*\d{3}[\s.\-]?\d{4}|01[\s.\-]?8000[\s.\-]?\d{6})(?![\d])"
+)
+# "Pedido No. 58213", "N° 58213", "Of. 1204": the mark says a number follows, not a sentence end.
+_NUMBER_MARK = re.compile(
+    r"\b(no|n|nro|num|of|tel|cel|ref|cod|apto|int|cra|cl|cr|kr|av|dg|tv)\s*[.°º]\s*(?=\d)"
 )
 # A code glued to a short word: "ABC1234", "XR2000". A currency or a price word is not: "COP85000".
 _CODE = re.compile(
-    r"(?<![a-z0-9])(?!cop|usd|eur|us\d|vale|son|por|sale|solo)[a-z]{2,4}\d{3,}[a-z0-9]*"
+    r"(?<![a-z0-9])(?!cop|usd|eur|us\d|vale|son|por|sale|solo|en\d)[a-z]{2,4}\d{3,}[a-z0-9]*"
 )
 # A time or a date is written without spaces: "2:30", "27/10", while "38: 85 mil" is a label.
 _TIME_OR_DATE = re.compile(
     r"(?<![\d.,:/])(?:(?:[01]?\d|2[0-4]):[0-5]\d(?::[0-5]\d)?|[0-3]?\d/[01]?\d(?:/\d{2,4})?"
     r"|[01]?\d/(?:19|20)\d{2})(?![\d:/])"
 )
+
+# A digit written as an emoji: "4️⃣" is a 4 and these two marks.
+_KEYCAP_MARKS = {0xFE0F: None, 0x20E3: None}
 
 _UNITS = {
     "cero": 0, "un": 1, "uno": 1, "una": 1, "dos": 2, "tres": 3, "cuatro": 4, "cinco": 5,
@@ -63,28 +76,32 @@ _HUNDREDS = {
 }  # fmt: skip
 _THOUSAND = {"mil"}
 _MILLION = {"millon", "millones", "mill"}
-_THOUSANDS_SLANG = {"luca", "lucas", "luka", "lukas"}
+_THOUSANDS_SLANG = {"luca", "lucas", "luka", "lukas", "luquitas"}
 # Millions, only right after a number: "dos palos", while "palo de escoba" is a stick.
 _MILLIONS_SLANG = {"palo", "palos"}
 # "cuesta un poco más": an article after a price word, not an amount.
 _ARTICLES = {"un", "una", "uno"}
 _CURRENCY_AFTER = {"pesos", "peso", "pesitos", "pesito", "cop"}
 # Another currency: reported as written, so it can only fail the check.
-_FOREIGN_AFTER = {"usd", "dolar", "dolares", "eur", "euro", "euros"}
+_FOREIGN_AFTER = {"usd", "dolar", "dolares", "dolarcitos", "eur", "euro", "euros"}
 _MARK_BEFORE = {"$", "€", "cop", "usd", "eur"}
 # Price words before a plain number. Strong: any size counts, so a short "vale 85" is reported
 # and fails the check instead of hiding a price. Via "en": "te queda en 85", while "te queda 85"
-# and "está en 85" are weak: from 1.000 up, where a year-like number counts too.
+# and "está en 85" are weak: from 1.000 up, where a year-like number counts too. A strong word a
+# few words before is distant: "el precio de la camisa es 85000".
 _STRONG_CUES = {
     "precio", "precios", "vale", "valen", "valor", "cuesta", "cuestan", "costo", "costos",
     "total", "envio", "domicilio", "cobro", "cobramos", "tarifa",
 }  # fmt: skip
 _EN_CUES = {
     "queda", "quedan", "quedaria", "quedarian", "sale", "salen", "saldria", "saldrian", "deja",
-    "dejan", "dejo", "dejamos", "vendo", "vendemos", "doy", "damos",
+    "dejan", "dejo", "dejamos", "vendo", "vendemos", "vende", "venden", "doy", "damos", "ofrezco",
 }  # fmt: skip
 _EN_LINKS = {"en", "a", "por"}
 _EN_WEAK_CUES = {"esta", "estan", "estaria"}
+# How far back a strong price word still makes a plain number from 1.000 up a price.
+_CUE_REACH = 6
+_SENTENCE_END = {".", "!", "?", ";"}
 _WEAK_CUES = {"son", "seria", "serian", "sera", "seran", "pagar", "pago", "pagas", "abono",
               "descuento"}  # fmt: skip
 _CUE_LINKS = {
@@ -99,41 +116,68 @@ _NON_MONEY_UNITS = {
     "kilo", "kilos", "gramos", "gr", "litro", "litros", "ml", "persona", "personas", "pieza",
     "piezas", "par", "pares", "cuota", "cuotas", "x", "mah", "mg", "g", "gb", "mb", "w", "watts",
     "vatios", "v", "km", "m", "mm", "cc", "oz", "onzas", "p", "dpi", "rpm", "kcal", "calorias",
+    "btu", "h", "hr", "hrs", "min", "mins", "cuadra", "cuadras",
 }  # fmt: skip
+# One of something: "1 unidad". After a bigger number it prices it: "A 45000 unidad".
+_SINGULAR_UNITS = {"unidad", "pieza", "par", "persona", "kilo", "metro", "litro"}
+# One letter may be a unit or a typo for a thousand: a strong price word settles it ("Te queda en
+# 70m"), and without one it is a unit ("Pesa 1200 g").
+_LETTER_UNITS = {"g", "m", "p", "v", "w"}
+# Where the stock of a plain number is kept: "Tengo 1200 en bodega".
+_STOCK_PLACES = {"bodega", "stock", "inventario", "existencia", "existencias"}
 # After a plain number with no price word, a plural noun says what it counts ("1000 mochilas",
 # "3500 seguidores"); these plural words say nothing of the kind ("Mochila 45000 gracias").
 _NOT_COUNTED = {
-    "ademas", "buenas", "cuantos", "dos", "entonces", "gracias", "las", "los", "mas", "menos", "nos",
-    "pues", "seis", "sus", "tres", "tus", "unas", "unos",
+    "ademas", "ambas", "ambos", "apenas", "buenas", "cuantos", "das", "dos", "entonces", "gracias",
+    "las", "llevas", "los", "mas", "menos", "nomas", "nos", "pagas", "pues", "quieres", "seis",
+    "sus", "tienes", "tres", "tus", "unas", "unos",
 }  # fmt: skip
-# A number right after one of these (a colon or "#" between them is fine) is a code or part of an
-# address.
+# A number right after one of these (a colon or "#" between them is fine) is part of an address
+# or a label of its own.
 _LABELS = {
-    "ref", "referencia", "codigo", "cod", "sku", "guia", "factura", "nit", "cedula", "cc", "serie",
-    "modelo", "version", "apto", "apartamento", "local", "oficina", "of", "piso", "interior", "int",
-    "bodega", "calle", "cl", "carrera", "cra", "cr", "kr", "avenida", "av", "diagonal", "dg",
-    "transversal", "tv", "km", "kilometro", "tel", "telefono", "cel", "celular", "whatsapp", "wa",
-    "linea", "numero", "nro",
+    "ref", "referencia", "sku", "nit", "cedula", "cc", "serie", "modelo", "version", "apto",
+    "apartamento", "local", "oficina", "of", "piso", "interior", "int", "bodega", "calle", "cl",
+    "carrera", "cra", "cr", "kr", "avenida", "av", "diagonal", "dg", "transversal", "tv", "km",
+    "kilometro", "torre", "bloque", "casa", "manzana", "mz", "cp",
 }  # fmt: skip
-# Labels shortened with a full stop: "Of. 1204". After a full word it ends a sentence.
-_SHORT_LABELS = {"ref", "cod", "of", "int", "cl", "cra", "cr", "kr", "av", "dg", "tv", "tel", "cel",
-                 "nro", "apto"}  # fmt: skip
-# Codes right after a word, without a colon: "pedido 1234". "Tu pedido: 45000" is a total.
-_ORDER_WORDS = {"pedido", "orden"}
+# A clause with one of these is about a code or a phone call: a plain number in it is no price.
+_CODE_WORDS = {
+    "codigo", "cod", "postal", "pedido", "orden", "reserva", "reservacion", "guia", "radicado",
+    "ticket", "factura", "ahorros", "corriente", "consigna", "consignar", "bancolombia",
+    "davivienda",
+}  # fmt: skip
+_PHONE_WORDS = {
+    "llamanos", "llama", "llamar", "llamame", "telefono", "tel", "celular", "cel", "whatsapp", "wa",
+    "linea", "numero", "nro", "nequi", "daviplata",
+}  # fmt: skip
+# ...unless it also has one of these: "Tu pedido vale 45000". "Envío" is left out, since a guide
+# number has it ("Tu guía de envío es 7045123"), and so is what only leads to a code ("es", "son").
+_PRICE_WORDS = {
+    "precio", "precios", "vale", "valen", "valor", "cuesta", "cuestan", "costo", "costos", "total",
+    "cobro", "cobramos", "tarifa", "sale", "salen", "queda", "quedan", "pagar", "pago", "pagas",
+    "abono", "descuento", "dejo", "dejamos", "vendo", "vendemos", "doy", "damos",
+}  # fmt: skip
+# How far back such a word still speaks for the number.
+_CODE_REACH = 7
+_CLAUSE_END = {".", ",", "!", "?", ";"}
+# Year words before a colon: "Año: 2025", while "Mochila: 2000" is a price.
+_YEAR_WORDS = {"ano", "coleccion", "modelo", "temporada", "version", "edicion", "fabricacion"}
 # Prepositions after which a year-like number is a price, not a year: "a 2000", ": 2000".
 _PRICE_POSITION = {"a", ":"}
 
 
 def _fold(text: str) -> str:
-    plain = unicodedata.normalize("NFKD", text.casefold())
-    return "".join(char for char in plain if not unicodedata.combining(char) or char == "̃")
+    plain = unicodedata.normalize("NFKD", text.casefold()).translate(_KEYCAP_MARKS)
+    return "".join(char for char in plain if not unicodedata.combining(char))
 
 
 def _normalized(text: str) -> str:
-    """Folded text without phones, times and dates, ``1'250.000`` and ``45 000`` as one number."""
-    folded = _fold(_APOSTROPHE_MILLIONS.sub(".", text))
+    """Folded text without links, phones, times and dates, with ``1'250.000`` and ``45 000`` as
+    one number each."""
+    folded = _LINK.sub(" ", _fold(_APOSTROPHE_MILLIONS.sub(".", text)))
     readable = _CODE.sub(" ", _TIME_OR_DATE.sub(" ", _PHONE.sub(" ", folded)))
-    return _SPACE_GROUPED.sub(lambda match: match.group().replace(" ", ""), readable)
+    grouped = _SPACE_GROUPED.sub(lambda match: match.group().replace(" ", ""), readable)
+    return _NUMBER_MARK.sub(r"\1 ", grouped)
 
 
 def _number(token: str) -> tuple[float, bool]:
@@ -145,6 +189,9 @@ def _number(token: str) -> tuple[float, bool]:
     for separator in ".,":
         if separator in token:
             head, *groups = token.split(separator)
+            if len(groups) >= 2 and len(groups[-1]) == 2:  # "$85.000.00": cents
+                groups = groups[:-1]
+                token = token[: token.rfind(separator)]
             if all(len(group) == 3 for group in groups) and 1 <= len(head) <= 3:
                 return float(token.replace(separator, "")), True
             return float(f"{head}.{''.join(groups)}"), False
@@ -184,7 +231,7 @@ def _words(tokens: list[str], start: int) -> tuple[int, int, bool]:
 
 
 def _price_cue(tokens: list[str], index: int) -> str | None:
-    """'strong', 'weak' or None for the price word before ``tokens[index]``."""
+    """'strong', 'weak', 'distant' or None for the price word before ``tokens[index]``."""
     position, crossed = index - 1, []
     while position >= 0 and tokens[position] in _CUE_LINKS and index - position <= 2:
         crossed.append(tokens[position])
@@ -200,6 +247,12 @@ def _price_cue(tokens: list[str], index: int) -> str | None:
         or "por" in crossed  # "2 por 85000"
     ):
         return "weak"
+    # "el precio de la camisa es 85000": a strong word earlier in the same sentence
+    for earlier in reversed(tokens[max(0, index - _CUE_REACH) : index]):
+        if earlier in _SENTENCE_END or earlier[0].isdigit() or earlier == "$":
+            break
+        if earlier in _STRONG_CUES:
+            return "distant"
     return None
 
 
@@ -216,6 +269,8 @@ def _counts_something_else(tokens: list[str], index: int, value: float) -> bool:
     ``3 x $20.000`` counts, but ``85000 x unidad`` is a price per unit. A range of counts
     climbs, so a smaller number after this one starts something else: ``85000 y 3 cuotas``.
     """
+    if value > 1 and tokens[index + 1 : index + 2] and tokens[index + 1] in _SINGULAR_UNITS:
+        return False
     for token in tokens[index + 1 : index + 4]:
         if token in _NON_MONEY_UNITS:
             return token != "x" or value < 1000
@@ -244,27 +299,47 @@ def _currency_follows(after: list[str]) -> bool:
 def _counted_by_noun(tokens: list[str], index: int) -> bool:
     """``1000 mochilas``: a plural noun right after a plain number says what it counts."""
     word = tokens[index + 1] if index + 1 < len(tokens) else ""
+    if word == "en" and tokens[index + 2 : index + 3] and tokens[index + 2] in _STOCK_PLACES:
+        return True
     return word.isalpha() and word.endswith("s") and word not in _NOT_COUNTED
 
 
 def _labelled(tokens: list[str], index: int) -> bool:
-    """``Ref 2310``, ``Ref: 2310``, ``Of. 1204``, ``#1234``, ``# 45-1020``: a code or an address."""
+    """``Ref 2310``, ``Ref: 2310``, ``Of 1204``, ``#1234``, ``# 45-1020``: a code or an address."""
     last = tokens[index - 1] if index >= 1 else ""
     prior = tokens[index - 2] if index >= 2 else ""
     if last == "#":
         return True
     if last in ("-", "–") and index >= 3 and tokens[index - 3] == "#" and prior[0].isdigit():
         return True
-    if last == ".":
-        return prior in _SHORT_LABELS
-    return prior in _LABELS if last == ":" else last in _LABELS or last in _ORDER_WORDS
+    return prior in _LABELS if last == ":" else last in _LABELS
+
+
+def _about_a_code(tokens: list[str], index: int) -> bool:
+    """``Tu código de reserva es 58213``, ``Llámanos al 444 1234``: the clause says what the number
+    is, unless it has a price word too or puts the number where a price goes (``pedido a 45000``)."""
+    start = index
+    while start > 0 and index - start < _CODE_REACH and tokens[start - 1] not in _CLAUSE_END:
+        start -= 1
+    end = index
+    while end + 1 < len(tokens) and tokens[end + 1] not in _CLAUSE_END:
+        end += 1
+    if _PRICE_WORDS & set(tokens[start : end + 1]):
+        return False
+    before = set(tokens[start:index])
+    if before & _PHONE_WORDS:
+        return True
+    return bool(before & _CODE_WORDS) and tokens[index - 1] not in ("a", "por")
 
 
 def _is_year(tokens: list[str], index: int, token: str, value: float) -> bool:
-    """``Desde 2015``, ``de 2019 a 2024``, but ``a 2000`` and ``Mochila: 2000`` are prices."""
+    """``Desde 2015``, ``de 2019 a 2024``, ``Año: 2025``, but ``a 2000`` and ``Mochila: 2000`` are
+    prices."""
     if not (token.isdigit() and len(token) == 4 and 1900 <= value <= 2099):
         return False
     before = tokens[index - 1] if index else ""
+    if before == ":" and index >= 2 and tokens[index - 2] in _YEAR_WORDS:
+        return True
     return before not in _PRICE_POSITION or (index >= 2 and tokens[index - 2][0].isdigit())
 
 
@@ -296,7 +371,17 @@ def _remainder(tokens: list[str], index: int, below: int) -> tuple[int, int]:
 
 
 def amounts_cop(text: str) -> list[int]:
-    """Every monetary amount in ``text``, as integer pesos, in order of appearance."""
+    """Every monetary amount in what the shop says, as integer pesos, in order of appearance."""
+    return _read(text, fail_closed=True)
+
+
+def marked_amounts(text: str) -> list[int]:
+    """The amounts in what a customer wrote or in a bare data value: only what is marked or cued
+    as money, so "Mi pedido es el 58213" and ``sku: 45000`` hold none."""
+    return _read(text, fail_closed=False)
+
+
+def _read(text: str, *, fail_closed: bool) -> list[int]:
     tokens = _TOKEN.findall(_normalized(text))
     found: list[int] = []
     index = 0
@@ -331,14 +416,20 @@ def amounts_cop(text: str) -> list[int]:
             phone_like = token.isdigit() and (
                 len(token) >= 11 or (len(token) == 10 and token[0] in "36")
             )
+            cue = _price_cue(tokens, index)
             counts = _counts_something_else(tokens, index, value)
-            cue = None if counts else _price_cue(tokens, index)
+            if counts and cue == "strong" and nxt in _LETTER_UNITS:
+                counts = False
+            not_a_price = (
+                counts or _labelled(tokens, index) or (not grouped and _about_a_code(tokens, index))
+            )
+            cue = None if not_a_price else cue
+            year_like = not grouped and _is_year(tokens, index, token, value)
             # Fail closed: from 1.000 up it is money unless it clearly is something else.
             something_else = (
-                counts
-                or _labelled(tokens, index)
+                not_a_price
+                or year_like
                 or (not grouped and _counted_by_noun(tokens, index))
-                or (not grouped and _is_year(tokens, index, token, value))
                 or (token.isdigit() and token[0] == "0")
             )
             is_money = (
@@ -347,7 +438,9 @@ def amounts_cop(text: str) -> list[int]:
                 or currency_after
                 or (cue == "strong" and not phone_like)
                 or (cue == "weak" and value >= 1000 and not phone_like)
-                or (value >= 1000 and not phone_like and not something_else)
+                or (cue == "distant" and value >= 1000 and not phone_like and not year_like)
+                or (grouped and value >= 1000 and not not_a_price)
+                or (fail_closed and value >= 1000 and not phone_like and not something_else)
             )
             if is_money:
                 # round first: 4.1 * 1_000_000 is 4099999.999… in binary

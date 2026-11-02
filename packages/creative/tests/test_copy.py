@@ -281,6 +281,20 @@ async def test_as_2_4_write_copy_checks_offers_against_the_facts_and_the_product
         )
 
 
+async def test_as_2_4_a_promo_the_sellers_brief_states_keeps_its_copy() -> None:
+    briefed = CopyInput(**{**BAG.__dict__, "scene_brief": "Anuncio para la promo 2x1 de este mes."})
+    stated = f"Promo 2x1 en bolsos, solo este mes. {WA_LINK}"
+
+    written = await write_copy(
+        briefed,
+        count=1,
+        writer=ScriptedWriter(lambda slots, attempt: dict.fromkeys(slots, stated)),
+        model="m",
+    )
+
+    assert [variant.text for variant in written.variants] == [stated]
+
+
 def test_as_2_4_a_number_in_the_product_name_is_no_invented_amount() -> None:
     item = CopyInput(**{**BAG.__dict__, "product_name": "Bolso Viajero 1500"})
 

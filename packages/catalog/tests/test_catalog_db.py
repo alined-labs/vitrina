@@ -208,7 +208,9 @@ async def test_db_products_page_filter_update_and_archive(
     assert [c.amounts_cop for c in await catalog.citations(SELLER, [created[1].id])] == [
         (2000, 12000)
     ]
-    assert [c.name for c in await catalog.citations(SELLER, [created[1].id])] == [created[1].name]
+    [citation] = await catalog.citations(SELLER, [created[1].id])
+    assert citation.name == created[1].name
+    assert citation.attributes == tuple(created[1].attributes.values())
     assert await catalog.archive_product(OTHER, created[0].id) is False
     assert await catalog.archive_product(SELLER, created[0].id) is True
     assert await catalog.search(SELLER, "bolso tejido", kinds=["product"]) != []

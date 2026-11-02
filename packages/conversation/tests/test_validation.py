@@ -710,6 +710,7 @@ NAMED_BAG = Citation(
     kind="product",
     amounts_cop=(85000,),
     name="Mochila tejida azul",
+    attributes=("azul", "hilo"),
     text="Mochila tejida azul. Tejida a mano, 30 cm de alto, con correa ajustable.",
 )
 NAMED_BRACELET = Citation(
@@ -717,6 +718,14 @@ NAMED_BRACELET = Citation(
 )
 NAMED_STRAP = Citation(
     id=uuid4(), kind="product", amounts_cop=(30000,), name="Correa de cuero", text="Correa."
+)
+NAMED_SHIRT = Citation(
+    id=uuid4(),
+    kind="product",
+    amounts_cop=(45000,),
+    name="Camiseta básica",
+    attributes=("negra",),
+    text="Camiseta básica en algodón.",
 )
 NAMED_SHIPPING = Citation(
     id=uuid4(),
@@ -785,16 +794,15 @@ def test_as_3_4_honest_replies_keep_passing(reply: str) -> None:
     [
         # A price on the wrong product, in every way a chat writes it
         ("La correa cuesta $85.000", (NAMED_BAG, NAMED_STRAP)),
-        ("La correa cuesta $85.000", (NAMED_BAG,)),
+        ("La negra vale $85.000", (NAMED_BAG, NAMED_SHIRT)),
         ("La manilla cuesta $85.000", (NAMED_BAG, NAMED_BRACELET)),
         ("Manilla: 85 mil", (NAMED_BAG, NAMED_BRACELET)),
-        ("Correa: $85.000", (NAMED_BAG,)),
+        ("Correa: $85.000", (NAMED_BAG, NAMED_STRAP)),
         ("Manilla $85.000, mochila $15.000", (NAMED_BAG, NAMED_BRACELET)),
         ("La mochila azul vale $15.000 y la manilla $85.000", (NAMED_BAG, NAMED_BRACELET)),
         # A shipping fee is no price for a product, and a product's price no shipping fee
         ("La mochila vale $8.000", (NAMED_BAG, NAMED_SHIPPING)),
         ("El envío cuesta $85.000", (NAMED_BAG, NAMED_SHIPPING)),
-        ("El envío cuesta $85.000", (NAMED_BAG,)),
     ],
 )
 def test_as_3_4_a_price_must_be_the_one_of_the_product_it_is_attached_to(
@@ -823,6 +831,22 @@ def test_as_3_4_a_price_must_be_the_one_of_the_product_it_is_attached_to(
         ("El total te queda en $85.000", (NAMED_BAG,)),
         ("La unidad vale $85.000", (NAMED_BAG,)),
         ("La de 30 cm cuesta $85.000", (NAMED_BAG,)),
+        # A word the citations do not know names nothing, so it cannot fail a cited price
+        ("Precio final: $85.000", (NAMED_BAG,)),
+        ("Total a pagar: $85.000", (NAMED_BAG,)),
+        ("Tu pedido: $85.000", (NAMED_BAG,)),
+        ("Perfecto: te queda en $85.000.", (NAMED_BAG,)),
+        ("La mochilita vale $85.000", (NAMED_BAG,)),
+        ("El morral cuesta $85.000.", (NAMED_BAG,)),
+        ("La última vale $85.000.", (NAMED_BAG,)),
+        ("La correa es ajustable y cuesta $85.000.", (NAMED_BAG,)),
+        ("La negra vale $45.000.", (NAMED_SHIRT,)),
+        ("Talla M: $45.000", (NAMED_SHIRT,)),
+        ("La entrega cuesta $8.000.", (NAMED_BAG, NAMED_SHIPPING)),
+        ("El transporte vale $8.000.", (NAMED_BAG, NAMED_SHIPPING)),
+        ("El almuerzo cuesta $85.000.", (NAMED_BAG,)),
+        # The known limit: a product no citation covers can carry a cited amount
+        ("La correa cuesta $85.000", (NAMED_BAG,)),
         ("Precio: $85.000", (NAMED_BAG,)),
         ("Talla 38: $85.000", (NAMED_BAG,)),
         ("Envío: $8.000", (NAMED_BAG, NAMED_SHIPPING)),
@@ -896,3 +920,68 @@ def test_r5_a_handoff_reply_that_cites_nothing_may_not_promise_a_deal() -> None:
     reply = answer("Te dejo envío gratis y te paso con Ana.", handoff_reason="customer_request")
 
     assert review(reply, [], owner_name=OWNER).price.offers == ("envío gratis",)
+
+
+@pytest.mark.parametrize(
+    ("message", "reply"),
+    [
+        ("Mi pedido es el 58213, ¿ya salió?", "Sí, ya salió."),
+        ("Vivo en el apto 1203 del bloque 1500, ¿llegan hasta allá?", "Claro, sí llegamos."),
+        ("Mi código postal es 110111, ¿envían?", "Claro, enviamos."),
+        ("Soy 1036123456 ¿me separa una?", "¡Claro! Te la separo."),
+        ("Necesito 1200 para mi empresa, ¿se puede?", "Claro, te paso con Ana."),
+        ("¿Me la deja en 60 mil?", "Es un bolso hecho a mano."),
+    ],
+)
+def test_as_3_4_a_yes_to_a_customers_plain_number_agrees_to_no_price(
+    message: str, reply: str
+) -> None:
+    assert not _rejected(reply, NAMED_BAG, customer_message=message)
+
+
+@pytest.mark.parametrize(
+    ("message", "reply"),
+    [
+        ("¿Me la deja en 60 mil?", "De una, te la aparto."),
+        ("¿Me la deja en 60 mil?", "Hecho, te la aparto."),
+        ("¿Me hace 2x1?", "De una, te la aparto."),
+    ],
+)
+def test_as_3_4_de_una_and_hecho_agree(message: str, reply: str) -> None:
+    assert _rejected(reply, NAMED_BAG, customer_message=message)
+
+
+def test_as_3_4_a_negative_fact_supports_no_yes_to_the_customers_promotion() -> None:
+    refusal = Citation(id=uuid4(), kind="faq", amounts_cop=(), text="No hacemos 2x1.")
+
+    assert _rejected("¡Claro que sí!", NAMED_BAG, refusal, customer_message="¿Me hace 2x1?")
+
+
+@pytest.mark.parametrize(
+    "reply",
+    ["Eso no lo vendemos, pero tenemos envío gratis.", "No sé de eso, pero hoy hay descuento."],
+)
+def test_r3_an_off_topic_reply_carrying_a_deal_falls_back(reply: str) -> None:
+    output = AgentTurnOutput(
+        reply=reply,
+        cited_fact_ids=(),
+        confidence=0.9,
+        handoff_reason=None,
+        objection_tag="off_topic",
+        proposed_consent_prompt=False,
+    )
+
+    assert review(output, [], owner_name=OWNER).outcome == "fallback"
+
+
+def test_r3_an_off_topic_reply_without_a_deal_still_declines() -> None:
+    output = AgentTurnOutput(
+        reply="De eso no te puedo ayudar.",
+        cited_fact_ids=(),
+        confidence=0.9,
+        handoff_reason=None,
+        objection_tag="off_topic",
+        proposed_consent_prompt=False,
+    )
+
+    assert review(output, [], owner_name=OWNER).outcome == "accept"

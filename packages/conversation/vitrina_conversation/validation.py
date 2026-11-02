@@ -5,7 +5,8 @@ the customer gets:
 
 - R2 price: every amount in the reply (``vitrina_core.money``, the normalizer that filled the
   catalog's ``amounts_cop``) must be an amount of a cited item, and of the product it is attached
-  to when the reply says which ("La correa cuesta $85.000" fails when $85.000 is the mochila's).
+  to when the reply names another cited one ("La correa cuesta $85.000" fails when a correa at
+  another price is cited and $85.000 is the mochila's).
   A deal the reply promises (``vitrina_core.offers``: 30 %, 2x1, cuotas) must be stated by a
   cited item. A yes to an amount or a promotion the customer named ("¿Me deja la mochila en 60
   mil?" → "Te la dejo en ese precio") states it too, unless a cited item carries it. A
@@ -31,8 +32,14 @@ from typing import Literal
 
 from vitrina_catalog.api import Citation
 from vitrina_conversation.contract import AgentTurnOutput, HandoffReason
-from vitrina_core.money import amounts_cop, format_cop
-from vitrina_core.offers import COURTESY_NO, promotions, unsupported_offers
+from vitrina_core.money import amounts_cop, format_cop, marked_amounts
+from vitrina_core.offers import (
+    COURTESY_NO,
+    offer_claims,
+    promotions,
+    stated_offers,
+    unsupported_offers,
+)
 
 FALLBACK_REPLY = "No tengo ese dato, te comunico con {owner_name}"
 LOW_CONFIDENCE_THRESHOLD = 0.6  # data-model.md sellers.low_confidence_threshold default
@@ -93,7 +100,8 @@ REQUESTS = frozenset({
 })  # fmt: skip
 _SENTENCE = re.compile(r"[^.!\n]+")
 # A reply agrees to the customer's own price with one of these, "sí" (with its accent: "si" is
-# "if") or an opening "si,"; it does not when it also says no. Folded, like the sets above.
+# "if"), an opening "si," or an opening "De una," or "Hecho," (never "hecho a mano"); it does not
+# when it also says no. Folded, like the sets above.
 AGREEING = frozenset({
     "claro", "correcto", "dale", "exacto", "listo", "obvio", "ok", "okay", "perfecto", "supuesto",
 })  # fmt: skip
@@ -104,7 +112,7 @@ OFFER_WORDS = frozenset({
     "descuento", "descuentos", "oferta", "ofertas", "precio", "precios", "promo", "promocion",
     "promociones", "promos", "rebaja", "rebajas", "valor",
 })  # fmt: skip
-_YES = re.compile(r"(?<!\w)sí(?!\w)|^\W*si\s*[,.!]")
+_YES = re.compile(r"(?<!\w)sí(?!\w)|^\W*si\s*[,.!]|^\W*(?:de una|hecho)\s*(?:[,.!]|$)")
 # A price verb pointing back at the customer's amount: "te la dejo en ese precio", "sigue en
 # ese precio", "queda en eso". Folded text.
 _CONCEDES = re.compile(
@@ -117,32 +125,18 @@ _REPLY_SENTENCE = re.compile(r"[.!?;\n](?!\d)")
 _REPLY_CLAUSE = re.compile(
     r",(?!\d)|\bpero\b|\by\b(?!\s+(?:un|una|uno|dos|tres|cuatro|cinco|seis|siete|ocho|nueve|medio|media)\b)"
 )
-# "La correa cuesta $85.000": a named thing, then a price verb.
-_PRICED_SUBJECT = re.compile(
-    r"\b(?:el|la|los|las)\s+((?:[a-z0-9]+\s+){1,6}?)(?:cuesta|cuestan|vale|valen|sale|salen|queda"
-    r"|quedan|esta\s+en|estan\s+en)\b"
-)
-# "Correa: $85.000": a label for a price.
-_LABELLED_SUBJECT = re.compile(r"\s*((?:[a-z0-9]+\s+){0,3}[a-z0-9]+)\s*:")
-# Subjects that name no item ("el precio es", "el total te queda", "la que te gusta vale").
-_NO_ITEM_NAMED = frozenset({
-    "a", "al", "con", "de", "del", "en", "este", "esta", "ese", "esa", "lo", "me", "mi", "para",
-    "por", "se", "su", "te", "tu", "y", "cada", "dos", "tres", "cuatro", "mas", "tambien", "ya",
-    "precio", "precios", "valor", "costo", "total", "unidad", "unidades", "pieza", "piezas", "par",
-    "producto", "productos", "referencia", "modelo", "modelos", "diseno", "color", "talla", "otra",
-    "otro", "otras", "otros", "primera", "primero", "segunda", "segundo", "mia", "mio", "tuya",
-    "tuyo", "nueva", "nuevo", "grande", "grandes", "pequena", "pequeno", "mediana", "mediano",
-    "promo", "oferta", "hoy", "solo", "ahora", "antes", "desde", "combo", "subtotal",
-})  # fmt: skip
-# Words that say nothing about what a fact is about, when comparing a clause to a fact's text.
-_NOT_A_TOPIC = _NO_ITEM_NAMED | frozenset({
-    "el", "la", "los", "las", "un", "una", "uno", "es", "son", "que", "vale", "valen", "cuesta",
-    "cuestan", "sale", "salen", "queda", "quedan", "llega", "tiene", "hay", "pesos",
+# Words that name nothing, when comparing a clause to a product's name and attributes.
+_NOT_A_NAME = frozenset({
+    "a", "al", "con", "de", "del", "el", "en", "es", "esa", "ese", "esta", "este", "hay", "la", "las",
+    "lo", "los", "para", "por", "que", "queda", "quedan", "sale", "salen", "se", "son", "su", "te",
+    "tiene", "tu", "un", "una", "uno", "vale", "valen", "cuesta", "cuestan", "y",
 })  # fmt: skip
 # These facts price something of their own: a shipping fee is not what a product costs. Any other
 # fact (a promotion, an FAQ) may state a special price for a product.
 _OWN_PRICE_KINDS = frozenset({"shipping", "payment", "hours", "policy"})
-_SHIPPING_WORDS = frozenset({"envio", "envios", "domicilio", "domicilios", "despacho", "flete"})
+_SHIPPING_WORDS = frozenset({
+    "envio", "envios", "domicilio", "domicilios", "despacho", "flete", "entrega", "transporte",
+})  # fmt: skip
 
 
 @dataclass(frozen=True)
@@ -204,15 +198,23 @@ def check_prices(
     """R2: the amounts in ``reply`` that no cited item carries are violations, and so are those on
     the wrong product and the customer's own amounts and promotions it says yes to. Deals it
     promises need a cited text that states them (``cited_texts``, and the citations' own), unless
-    ``judge_offers`` is off. A number in the shop's or a person's name (``names``) is no amount."""
+    ``judge_offers`` is off. A number in a shop's, a person's or a product's name is no amount."""
     spoken = reply.replace(consent_prompt, " ") if consent_prompt else reply
     texts = (*cited_texts, *(citation.text for citation in citations if citation.text))
     in_reply = tuple(dict.fromkeys(amounts_cop(spoken)))
+    named = (*names, *(citation.name for citation in citations))
     allowed = sorted(
         {amount for citation in citations for amount in citation.amounts_cop}
-        # A row stored under an older reading of its text may hold fewer amounts than it states.
-        | {amount for text in texts for amount in amounts_cop(text)}
-        | {amount for name in names for amount in amounts_cop(name)}
+        | {amount for name in named for amount in amounts_cop(name)}
+        # A row stored under an older reading of its text may hold fewer amounts than it states. A
+        # fact is prose; a product's text holds data too, so only what it marks as money counts.
+        | {amount for text in texts for amount in marked_amounts(text)}
+        | {
+            amount
+            for citation in citations
+            if citation.kind != "product"
+            for amount in amounts_cop(citation.text)
+        }
     )
     stated = tuple(amount for amount in in_reply if amount not in allowed)
     agreement = agreed_offers(spoken, customer_message, allowed, texts)
@@ -242,9 +244,10 @@ def check_prices(
 def _misattributed(
     reply: str, citations: Sequence[Citation], allowed: Collection[int]
 ) -> tuple[int, ...]:
-    """The cited amounts ``reply`` puts on an item they do not belong to, clause by clause. Only
-    where it can tell: with no product names to compare, or a clause that names nothing, a cited
-    amount stands, and two items named before one amount share it."""
+    """The cited amounts ``reply`` puts on another cited item, clause by clause. Only where it
+    can tell: a clause must name a cited product or the shipping and not the item holding the
+    amount. A word it does not know names nothing ("la mochilita", "el almuerzo"), so a product
+    no citation covers can carry a cited amount, and two items named before one amount share it."""
     products = [citation for citation in citations if citation.kind == "product" and citation.name]
     if not products:
         return ()
@@ -255,48 +258,46 @@ def _misattributed(
             clause = f"{clause} {part}"
             amounts = amounts_cop(clause)
             if amounts:
-                quotable = _quotable_in(clause, products, citations)
-                wrong += [
-                    amount
-                    for amount in amounts
-                    if quotable is not None and amount in allowed and amount not in quotable
-                ]
+                quotable = _quotable_in(clause, amounts, products, citations)
+                if quotable is not None:
+                    wrong += [
+                        amount for amount in amounts if amount in allowed and amount not in quotable
+                    ]
                 clause = ""
     return tuple(dict.fromkeys(wrong))
 
 
 def _quotable_in(
-    clause: str, products: Sequence[Citation], citations: Sequence[Citation]
+    clause: str,
+    amounts: Sequence[int],
+    products: Sequence[Citation],
+    citations: Sequence[Citation],
 ) -> set[int] | None:
     """What ``clause`` may quote given what it names; None when it names nothing to judge by."""
-    words = _stems(_words(clause))
-    named = _named_products(words, products)
+    named = _named_products(_stems(_words(clause)), products)
+    fees = [citation for citation in citations if citation.kind == "shipping"]
+    about_shipping = set(_words(clause)) & _SHIPPING_WORDS
     if not named:
-        folded = _fold(clause)
-        subject = _PRICED_SUBJECT.search(folded) or _LABELLED_SUBJECT.match(folded)
-        if subject is None:
-            return None
-        # "la que te gusta vale", "la de 30 cm vale": picked out, not named
-        named_words = _words(subject.group(1))
-        if "que" in named_words or named_words[0] == "de" or not _stems(named_words):
+        # "El envío cuesta $85.000", against "Vale $85.000 con envío a Medellín".
+        lead = re.split(r"[\d$]", _fold(clause), maxsplit=1)[0]
+        if not (fees and len(amounts) == 1 and set(_words(lead)) & _SHIPPING_WORDS):
             return None
     facts = [
         citation
         for citation in citations
         if citation.kind != "product"
-        and (
-            (named and citation.kind not in _OWN_PRICE_KINDS)
-            or (citation.kind == "shipping" and set(_words(clause)) & _SHIPPING_WORDS)
-            or _stems(_words(citation.text)) & words
-        )
+        and (citation.kind not in _OWN_PRICE_KINDS or (about_shipping and citation in fees))
     ]
     return {amount for citation in (*named, *facts) for amount in citation.amounts_cop}
 
 
 def _named_products(words: set[str], products: Sequence[Citation]) -> list[Citation]:
-    """The products ``words`` name: by a word only that product's name has ("manilla" against
-    "Mochila tejida"), else by one they share ("tejida" names both)."""
-    names = {citation.id: _stems(_words(citation.name)) for citation in products}
+    """The products ``words`` name, by name or attribute: by a word only that product has
+    ("manilla" against "Mochila tejida"), else by one they share ("tejida" names both)."""
+    names = {
+        citation.id: _stems(_words(" ".join((citation.name, *citation.attributes))))
+        for citation in products
+    }
     specific = [
         citation
         for citation in products
@@ -313,7 +314,7 @@ def _stems(words: Iterable[str]) -> set[str]:
     return {
         re.sub(r"[aeo]?s?$", "", word) if len(word) > 3 else word
         for word in words
-        if word.isalpha() and word not in _NOT_A_TOPIC
+        if word.isalpha() and len(word) > 2 and word not in _NOT_A_NAME
     }
 
 
@@ -332,9 +333,11 @@ def agreed_offers(
     if not customer_message:
         return Agreement()
     amounts = tuple(
-        amount for amount in dict.fromkeys(amounts_cop(customer_message)) if amount not in allowed
+        amount
+        for amount in dict.fromkeys(marked_amounts(customer_message))
+        if amount not in allowed
     )
-    supported = set().union(*(promotions(text) for text in cited_texts))
+    supported = set().union(*(stated_offers(text) for text in cited_texts))
     named = tuple(sorted(promotions(customer_message) - supported))
     if not (amounts or named):
         return Agreement()
@@ -373,8 +376,10 @@ def check_groundedness(
         if fact_id not in known
     ]
     if not output.cited_fact_ids and output.handoff_reason is None:
-        declined = output.objection_tag == "off_topic" and not _has_number(
-            _without_names(output.reply, names)
+        declined = (
+            output.objection_tag == "off_topic"
+            and not _has_number(_without_names(output.reply, names))
+            and not offer_claims(output.reply)
         )
         if not declined and makes_claim(
             output.reply,

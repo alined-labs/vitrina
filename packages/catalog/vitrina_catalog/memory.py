@@ -472,6 +472,7 @@ class InMemoryCatalog:
                         kind="product",
                         amounts_cop=product.amounts_cop,
                         name=product.name,
+                        attributes=tuple((product.attributes or {}).values()),
                         text=citable_text(product.name, product.description, product.attributes),
                     )
                 )

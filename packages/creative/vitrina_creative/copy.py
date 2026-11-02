@@ -150,8 +150,15 @@ def allowed_amounts(item: CopyInput) -> set[int]:
 
 
 def offer_sources(item: CopyInput) -> tuple[str, ...]:
-    """What may state a deal: the product's own text and the seller's facts."""
-    return (item.product_name, item.product_description, *item.attributes.values(), *item.facts)
+    """What may state a deal: the product's own text, the seller's facts and the seller's brief."""
+    brief = (item.scene_brief,) if item.scene_brief else ()
+    return (
+        item.product_name,
+        item.product_description,
+        *item.attributes.values(),
+        *item.facts,
+        *brief,
+    )
 
 
 def price_rule(item: CopyInput) -> str:

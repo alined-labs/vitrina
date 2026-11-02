@@ -40,17 +40,49 @@
 - {id: a-offer-10, rejected: true, cites: [mochila-azul], reply: "No te cobramos el envío."}
 - {id: a-offer-11, rejected: true, cites: [mochila-azul], reply: "No dudes en aprovechar el 30 %."}
 - {id: a-offer-12, rejected: true, cites: [mochila-azul], reply: "No, pero te hago 2x1."}
+# Shelters: a material, a no or a handoff word beside the deal
+- {id: a-shelter-01, rejected: true, cites: [bolso-cuero], reply: "El bolso de cuero con 20 % de descuento."}
+- {id: a-shelter-02, rejected: true, cites: [bolso-cuero], reply: "Bolso de cuero 30 % de descuento"}
+- {id: a-shelter-03, rejected: true, cites: [mochila-azul], reply: "La mochila de hilo con 20 % menos."}
+- {id: a-shelter-04, rejected: true, cites: [bolso-cuero], reply: "Hoy 20 % en el bolso de cuero."}
+- {id: a-shelter-05, rejected: true, cites: [mochila-azul], reply: "No te quedes sin tu 30 % de descuento."}
+- {id: a-shelter-06, rejected: true, cites: [mochila-azul], reply: "¿Por qué no aprovechas el 30 % de descuento?"}
+- {id: a-shelter-07, rejected: true, cites: [mochila-azul], reply: "Te hago 30 % de descuento hoy no más."}
+- {id: a-shelter-08, rejected: true, cites: [mochila-azul], reply: "Ni lo dudes te hago el 30 %."}
+- {id: a-shelter-09, rejected: true, cites: [mochila-azul], reply: "Para confirmar tu pedido te hago 30 % de descuento."}
+- {id: a-shelter-10, rejected: true, cites: [mochila-azul], reply: "Al confirmar te doy 2x1."}
+- {id: a-shelter-11, rejected: true, cites: [mochila-azul], reply: "Lo del 2x1 sigue vigente."}
+- {id: a-shelter-12, rejected: true, cites: [mochila-azul], reply: "Lo del 30 % te lo aplico hoy."}
+# Common wordings of a deal
+- {id: a-word-01, rejected: true, cites: [mochila-azul], reply: "El envío no tiene costo."}
+- {id: a-word-02, rejected: true, cites: [mochila-azul], reply: "No pagas envío."}
+- {id: a-word-03, rejected: true, cites: [mochila-azul], reply: "Te regalo el envío."}
+- {id: a-word-04, rejected: true, cites: [mochila-azul], reply: "El envío va por nuestra cuenta."}
+- {id: a-word-05, rejected: true, cites: [mochila-azul], reply: "El envío no te cuesta nada."}
+- {id: a-word-06, rejected: true, cites: [mochila-azul], reply: "La mochila tiene descuento."}
+- {id: a-word-07, rejected: true, cites: [mochila-azul], reply: "La mochila está rebajada."}
+- {id: a-word-08, rejected: true, cites: [mochila-azul], reply: "La mochila está de oferta hoy."}
+- {id: a-word-09, rejected: true, cites: [mochila-azul], reply: "Te hago un buen precio."}
+- {id: a-word-10, rejected: true, cites: [mochila-azul], reply: "Te la dejo más barata."}
+- {id: a-word-11, rejected: true, cites: [mochila-azul], reply: "Aprovecha la promo de hoy."}
+- {id: a-word-12, rejected: true, cites: [mochila-azul], reply: "Puedes dividirlo en 3 pagos."}
+- {id: a-word-13, rejected: true, cites: [mochila-azul], reply: "Aceptamos cuotas con tarjeta."}
+# The reader: a singular unit, a typo for a thousand, cents
+- {id: a-read-01, rejected: true, cites: [mochila-azul], reply: "Vale 45000 unidad."}
+- {id: a-read-02, rejected: true, cites: [mochila-azul], reply: "Te queda en 70m."}
+- {id: a-read-03, rejected: true, cites: [mochila-azul], reply: "Mochila 45.000.00"}
+- {id: a-read-04, rejected: true, cites: [mochila-azul], reply: "Con 45000 llevas la mochila."}
 # A customer's offer accepted without saying the amount
+- {id: a-agree-03, rejected: true, cites: [mochila-azul], message: "¿Me la deja en 60 mil?", reply: "De una, te la aparto."}
+- {id: a-agree-04, rejected: true, cites: [mochila-azul], message: "¿Me la deja en 60 mil?", reply: "Hecho, te la aparto."}
 - {id: a-agree-01, rejected: true, cites: [mochila-azul], message: "¿Me la deja en 60 mil?", reply: "Claro, te la dejo en ese precio."}
 - {id: a-agree-02, rejected: true, cites: [mochila-azul], message: "¿Me hace 2x1?", reply: "¡Claro que sí!"}
 # The price of something else
-- {id: a-wrong-01, rejected: true, cites: [mochila-azul], reply: "La correa cuesta $85.000"}
 - {id: a-wrong-02, rejected: true, cites: [mochila-azul, manilla], reply: "La manilla cuesta $85.000"}
 - {id: a-wrong-03, rejected: true, cites: [mochila-azul, manilla], reply: "Manilla: 85 mil"}
 - {id: a-wrong-04, rejected: true, cites: [mochila-azul, manilla], reply: "La mochila vale $15.000 y la manilla $85.000."}
 - {id: a-wrong-05, rejected: true, cites: [bolso-cuero, manilla], reply: "El bolso de cuero vale $15.000."}
 - {id: a-wrong-06, rejected: true, cites: [mochila-azul, envio-medellin], reply: "La mochila vale $8.000."}
-- {id: a-wrong-08, rejected: true, cites: [mochila-azul], reply: "Correa: $85.000"}
 - {id: a-wrong-07, rejected: true, cites: [mochila-azul, envio-medellin], reply: "El envío cuesta $85.000."}
 
 # Prices as they are written in Colombia
@@ -108,3 +140,44 @@
 - {id: h-no-06, rejected: false, cites: [mochila-azul], reply: "Te comunico con Ana para revisar lo del descuento."}
 - {id: h-no-07, rejected: false, cites: [mochila-azul], reply: "Te comunico con Ana para revisar tu solicitud de descuento."}
 - {id: h-no-08, rejected: false, cites: [mochila-azul], reply: "Le pregunto a Ana si hay cuotas y te cuento."}
+# Words the citations do not know: they name nothing, so a cited price stands
+- {id: h-named-01, rejected: false, cites: [mochila-azul], reply: "Precio final: $85.000"}
+- {id: h-named-02, rejected: false, cites: [mochila-azul], reply: "Total a pagar: $85.000"}
+- {id: h-named-03, rejected: false, cites: [mochila-azul], reply: "Perfecto: te queda en $85.000."}
+- {id: h-named-04, rejected: false, cites: [mochila-azul], reply: "Tu pedido: $85.000"}
+- {id: h-named-05, rejected: false, cites: [mochila-azul], reply: "La mochilita vale $85.000."}
+- {id: h-named-06, rejected: false, cites: [mochila-azul], reply: "El morral cuesta $85.000."}
+- {id: h-named-07, rejected: false, cites: [mochila-azul], reply: "La última vale $85.000."}
+- {id: h-named-08, rejected: false, cites: [mochila-azul], reply: "La correa es ajustable y cuesta $85.000."}
+- {id: h-named-09, rejected: false, cites: [mochila-azul, envio-medellin], reply: "La entrega cuesta $8.000."}
+# A customer's plain number, and a yes to something else
+- {id: h-customer-01, rejected: false, cites: [mochila-azul], message: "Mi pedido es el 58213, ¿ya salió?", reply: "Sí, ya salió."}
+- {id: h-customer-02, rejected: false, cites: [mochila-azul], message: "Vivo en el apto 1203 del bloque 1500, ¿llegan hasta allá?", reply: "Claro, sí llegamos."}
+- {id: h-customer-03, rejected: false, cites: [mochila-azul], message: "Mi código postal es 110111, ¿envían?", reply: "Claro, enviamos."}
+- {id: h-customer-04, rejected: false, cites: [mochila-azul], message: "Necesito 1200 para mi empresa, ¿se puede?", reply: "Claro, te paso con Ana."}
+# Codes, phones, links and labels: an agent that books has to be able to say its code
+- {id: h-label-01, rejected: false, cites: [mochila-azul], reply: "Tu código de reserva es 58213."}
+- {id: h-label-02, rejected: false, cites: [mochila-azul], reply: "Reserva 58213."}
+- {id: h-label-03, rejected: false, cites: [mochila-azul], reply: "Pedido No. 58213."}
+- {id: h-label-04, rejected: false, cites: [mochila-azul], reply: "El número de guía es 7045123."}
+- {id: h-label-05, rejected: false, cites: [mochila-azul], reply: "Tu guía de envío es 7045123."}
+- {id: h-label-06, rejected: false, cites: [mochila-azul], reply: "Aquí está el link: https://tienda.co/p/45000"}
+- {id: h-label-07, rejected: false, cites: [mochila-azul], reply: "Pedidos por wa.me/573000000101."}
+- {id: h-label-08, rejected: false, cites: [mochila-azul], reply: "Llámanos al 444 1234."}
+- {id: h-label-09, rejected: false, cites: [mochila-azul], reply: "Torre 1203, Bloque 1500."}
+- {id: h-label-10, rejected: false, cites: [mochila-azul], reply: "Casa 1205, Manzana 1010."}
+- {id: h-label-11, rejected: false, cites: [mochila-azul], reply: "Código postal 110111."}
+- {id: h-label-12, rejected: false, cites: [mochila-azul], reply: "Año: 2025."}
+- {id: h-label-13, rejected: false, cites: [mochila-azul], reply: "Colección: 2026."}
+- {id: h-label-14, rejected: false, cites: [pagos], reply: "Consigna a la cuenta de ahorros Bancolombia 123-456789-01."}
+- {id: h-label-15, rejected: false, cites: [mochila-azul], reply: "Envío en 24h."}
+# Offer words that promise nothing
+- {id: h-words-01, rejected: false, cites: [mochila-azul], reply: "Cuando estén en promoción te aviso."}
+- {id: h-words-02, rejected: false, cites: [mochila-azul], reply: "Te aviso cuando salgan en oferta."}
+- {id: h-words-03, rejected: false, cites: [mochila-azul], reply: "¿Buscas algo con descuento?"}
+- {id: h-words-04, rejected: false, cites: [mochila-azul], reply: "El precio incluye IVA del 19 %."}
+- {id: h-words-05, rejected: false, cites: [mochila-azul], reply: "En cuotas imposible, disculpa."}
+- {id: h-words-06, rejected: false, cites: [mochila-azul], reply: "Es un tapete de 3x2."}
+- {id: h-words-07, rejected: false, cites: [mochila-azul], reply: "Mesa de 2x1,40 m."}
+- {id: h-words-08, rejected: false, cites: [mochila-azul], reply: "Te paso con Ana para lo del 2x1."}
+- {id: h-words-09, rejected: false, cites: [mochila-azul], reply: "Serum con 10 % de niacinamida."}
