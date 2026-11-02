@@ -73,18 +73,6 @@ class MockOutbox:
             entry = entry.model_copy(update={"template_name": message.template_name})
         return self._append(entry)
 
-    def record_inbound(self, contact: str, text: str) -> MockEntry:
-        return self._append(
-            MockEntry(
-                id=f"mock.{uuid4().hex}",
-                direction="inbound",
-                contact=contact,
-                kind="text",
-                text=text,
-                created_at=datetime.now(UTC),
-            )
-        )
-
     def entries(self, contact: str | None = None) -> list[MockEntry]:
         if not self.path.exists():
             return []

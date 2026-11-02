@@ -4,7 +4,7 @@ from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
 from vitrina_core.providers import Blob, Messenger, OutboundImage, OutboundTemplate, OutboundText
-from vitrina_local_mock import LocalMockMessenger, MockInbound, MockOutbox, create_phone_router
+from vitrina_local_mock import LocalMockMessenger, MockOutbox, create_phone_router
 
 CUSTOMER = "+573000000001"
 OTHER = "+573000000002"
@@ -32,46 +32,58 @@ async def test_mock_messenger_keeps_outbound_messages_and_reports_mocked(tmp_pat
 
 def test_outbox_survives_a_second_process(tmp_path: Path) -> None:
     first = MockOutbox(tmp_path / "outbox.jsonl")
-    first.record_inbound(CUSTOMER, "Hola, vi el anuncio #A7")
+    first.record_outbound(OutboundText(to=CUSTOMER, text="Hola, ¿en qué te ayudo?"))
 
     second = MockOutbox(tmp_path / "outbox.jsonl")
 
-    assert [entry.text for entry in second.entries(contact=CUSTOMER)] == ["Hola, vi el anuncio #A7"]
+    assert [entry.text for entry in second.entries(contact=CUSTOMER)] == ["Hola, ¿en qué te ayudo?"]
 
 
-def test_phone_view_shows_threads_and_forwards_inbound_messages(tmp_path: Path) -> None:
-    outbox = MockOutbox(tmp_path / "outbox.jsonl")
-    received: list[MockInbound] = []
-
-    async def on_inbound(message: MockInbound) -> None:
-        received.append(message)
-
+def viewer(outbox: MockOutbox) -> TestClient:
     app = FastAPI()
-    app.include_router(create_phone_router(outbox, on_inbound))
-    client = TestClient(app)
+    app.include_router(create_phone_router(outbox))
+    return TestClient(app)
+
+
+def test_phone_view_shows_what_was_sent_to_one_customer(tmp_path: Path) -> None:
+    outbox = MockOutbox(tmp_path / "outbox.jsonl")
+    outbox.record_outbound(OutboundText(to=CUSTOMER, text="Hola, ¿en qué te ayudo?"))
+    outbox.record_outbound(OutboundText(to=OTHER, text="Otro cliente"))
+    client = viewer(outbox)
 
     page = client.get("/mock/whatsapp")
-    sent = client.post(
-        "/mock/whatsapp/inbound", json={"contact": CUSTOMER, "text": "¿Tienen talla M?"}
-    )
     thread = client.get("/mock/whatsapp/messages", params={"contact": CUSTOMER})
 
     assert page.status_code == 200
     assert "text/html" in page.headers["content-type"]
-    assert "Escribe un mensaje" in page.text
-    assert sent.status_code == 202
-    assert [message.text for message in received] == ["¿Tienen talla M?"]
     assert [(entry["direction"], entry["text"]) for entry in thread.json()] == [
-        ("inbound", "¿Tienen talla M?")
+        ("outbound", "Hola, ¿en qué te ayudo?")
     ]
 
 
-def test_phone_view_rejects_numbers_outside_the_synthetic_range(tmp_path: Path) -> None:
-    app = FastAPI()
-    app.include_router(create_phone_router(MockOutbox(tmp_path / "outbox.jsonl")))
+def test_phone_view_says_it_is_read_only_and_offers_nothing_to_type_in(tmp_path: Path) -> None:
+    page = viewer(MockOutbox(tmp_path / "outbox.jsonl")).get("/mock/whatsapp").text
 
-    response = TestClient(app).post(
-        "/mock/whatsapp/inbound", json={"contact": "+15555550100", "text": "Hola"}
+    assert "visor" in page
+    assert "Solo lectura" in page
+    assert "<form" not in page
+    assert "Escribe un mensaje" not in page
+
+
+def test_phone_view_accepts_no_customer_message(tmp_path: Path) -> None:
+    outbox = MockOutbox(tmp_path / "outbox.jsonl")
+
+    response = viewer(outbox).post(
+        "/mock/whatsapp/inbound", json={"contact": CUSTOMER, "text": "¿Tienen talla M?"}
+    )
+
+    assert response.status_code == 404
+    assert outbox.entries() == []
+
+
+def test_phone_view_rejects_numbers_outside_the_synthetic_range(tmp_path: Path) -> None:
+    response = viewer(MockOutbox(tmp_path / "outbox.jsonl")).get(
+        "/mock/whatsapp/messages", params={"contact": "+15555550100"}
     )
 
     assert response.status_code == 422

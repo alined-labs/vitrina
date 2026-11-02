@@ -105,16 +105,39 @@ The suites live in `evals/fixtures`: Spanish conversations, consent and schedule
 
 ## Run it locally (no keys needed)
 
+No `.env` and no account are needed for any of this. It takes `uv` and, for the dashboard, `pnpm`.
+
 ```
 git clone https://github.com/alined-labs/vitrina && cd vitrina
 make sync          # install the uv workspace exactly as locked
 make check         # ruff, mypy, pytest without live providers, contract drift
-make evals         # replay the suites; fails on an invented price or a consent error
-make api           # the API on :8000; with no settings it runs in replay mode on the local WhatsApp mock
-cd apps/dashboard && pnpm install && pnpm dev
+make evals         # replay the recorded suites; fails on an invented price or a consent error
 ```
 
-With `REPLAY=true` every provider answers from its recorded cassette. Live mode needs a Meta Model API key (`META_API_KEY`, `MODEL_*`), a WhatsApp Cloud API number and a Supabase project. `.env.example` lists every setting by name. `make dev-token` gives the dashboard a local seller token without Supabase.
+`make evals` sets the model IDs and request settings the recordings were made with, so a `.env` of your own causes no replay miss.
+
+The API starts with no settings, but then seller routes answer 401: it has nothing to check a token against. A local secret of 32 bytes or more is enough, and `make dev-token` signs a seller token with it. Stores are in memory, so the seller is gone when the API stops.
+
+```
+export SUPABASE_JWT_SECRET=$(openssl rand -hex 32)   # the same value in both terminals
+make api                                             # first terminal: the API on :8000
+
+# second terminal
+export TOKEN=$(make dev-token)
+curl -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" \
+  -d '{"business_name":"Tienda de prueba","owner_name":"Ana","whatsapp_number":"+573000000000","city":"Medellín"}' \
+  http://localhost:8000/v1/sellers                   # until then, seller routes answer 403
+curl -H "Authorization: Bearer $TOKEN" http://localhost:8000/v1/sellers/me
+cd apps/dashboard && pnpm install && NEXT_PUBLIC_DEV_ACCESS_TOKEN=$TOKEN pnpm dev   # on :3000
+```
+
+What this local run does not do:
+
+- **Replay answers only what was recorded.** A recording is found by a hash of the whole request, so a new customer message has none: the agent replies "No tengo ese dato" and hands off to the owner. The recorded conversations play in `make evals`.
+- **`/mock/whatsapp` is a read-only viewer.** It shows what the local messenger sent, which is nothing in these steps. You cannot type a customer message there.
+- **No jobs.** `make worker` refuses to start without a database, and replay sessions answer 503.
+
+Live mode needs a Meta Model API key (`META_API_KEY`, `MODEL_*`), a WhatsApp Cloud API number and a Supabase project. `.env.example` lists every setting by name.
 
 ## Project structure
 
