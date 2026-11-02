@@ -215,7 +215,7 @@ async def test_db_products_page_filter_update_and_archive(
         ProductCreate(name="Morral", price_cop=10000, attributes={"color": "rojo", "sku": "45000"}),
     )
     [morral] = await catalog.citations(SELLER, [coloured.id])
-    assert morral.attributes == ("rojo", "45000")
+    assert set(morral.attributes) == {"rojo", "45000"}  # JSONB keeps no key order
     assert morral.amounts_cop == (10000,)
     assert await catalog.archive_product(OTHER, created[0].id) is False
     assert await catalog.archive_product(SELLER, created[0].id) is True
