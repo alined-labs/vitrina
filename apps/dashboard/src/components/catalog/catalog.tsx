@@ -1,29 +1,67 @@
 "use client";
 
+import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { useCallback, useState } from "react";
-import { api, type components } from "@/lib/api/client";
-import { formatCop, problemMessage } from "@/lib/format";
+import { useCallback, useRef, useState } from "react";
+import { api } from "@/lib/api/client";
+import {
+  allProducts,
+  catalogProblem,
+  checkProduct,
+  NO_PRODUCT,
+  OFFLINE,
+  type Product,
+  type ProductErrors,
+  type ProductStatus,
+} from "@/lib/catalog";
+import { problemMessage } from "@/lib/format";
 import { useLoad } from "@/lib/use-load";
+import { ProductCard } from "./product-card";
+import { focusFirstError, ProductFields } from "./product-form";
 
-type Product = components["schemas"]["Product"];
+type Filter = ProductStatus | "all";
 
-const STATUS = { active: "Activo", draft: "Borrador", archived: "Archivado" } as const;
+const FILTERS: { value: Filter; label: string }[] = [
+  { value: "all", label: "Todos" },
+  { value: "draft", label: "Borradores" },
+  { value: "active", label: "Activos" },
+  { value: "archived", label: "Archivados" },
+];
+// What the seller still has to decide comes first, what left the catalog last.
+const ORDER: Record<ProductStatus, number> = { draft: 0, active: 1, archived: 2 };
 
-/** Products with their photos, and the button that turns them into ads (US-1, US-2). */
+/** Products with their photos, inline editing, and the button that turns them into ads (US-1, US-2). */
 export function Catalog() {
   const router = useRouter();
   const [products, setProducts] = useState<Product[] | null>(null);
+  const [filter, setFilter] = useState<Filter>("all");
   const [message, setMessage] = useState<string | null>(null);
+  const [note, setNote] = useState<string | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
+  const latest = useRef(0);
 
   const load = useCallback(async () => {
-    const { data, error } = await api.GET("/products", { params: { query: { limit: 100 } } });
-    if (error) setMessage(problemMessage(error, "No pudimos cargar tus productos."));
-    else setProducts(data.items ?? []);
+    const request = ++latest.current;
+    const { items, error } = await allProducts();
+    if (request !== latest.current) return; // a newer load is on its way
+    if (items) setProducts(items);
+    else setMessage(problemMessage(error, "No pudimos cargar tus productos."));
   }, []);
 
   useLoad(load);
+
+  function saved(product: Product, text?: string) {
+    latest.current++; // a load already in flight may not know about this change
+    setProducts((current) => current?.map((item) => (item.id === product.id ? product : item)) ?? null);
+    setMessage(null);
+    setNote(text ?? null);
+  }
+
+  async function archived(product: Product) {
+    setMessage(null);
+    setNote(`«${product.name}» salió del catálogo: el agente ya no lo cita. Lo encuentras en Archivados.`);
+    await load();
+  }
 
   async function upload(product: Product, file: File) {
     setBusy(product.id);
@@ -60,124 +98,186 @@ export function Catalog() {
     else router.push(`/creativos?trabajo=${data.id}`);
   }
 
+  const count = (status: ProductStatus) => products?.filter((product) => product.status === status).length ?? 0;
+  const drafts = count("draft");
+  const shown = (products ?? [])
+    .filter((product) => filter === "all" || product.status === filter)
+    .toSorted((a, b) => ORDER[a.status] - ORDER[b.status]);
+
   return (
     <section className="space-y-4">
-      <div className="flex items-baseline justify-between">
-        <h2 className="text-lg font-semibold">Productos</h2>
-        {products && <span className="text-sm text-fg-subtle">{products.length} en el catálogo</span>}
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <div className="flex items-baseline gap-3">
+          <h2 className="text-lg font-semibold">Productos</h2>
+          {products && <span className="text-sm text-fg-subtle">{products.length} en total</span>}
+        </div>
+        <Link href="/catalogo/importar" className="btn btn--secondary btn--sm">
+          Importar desde una foto
+        </Link>
       </div>
       <NewProduct onCreated={load} />
+      {drafts > 0 && filter !== "draft" && (
+        <div className="notice notice--warning flex flex-wrap items-center justify-between gap-2">
+          <p>
+            {drafts === 1
+              ? "Tienes 1 producto en borrador. El agente no lo cita hasta que lo actives."
+              : `Tienes ${drafts} productos en borrador. El agente no los cita hasta que los actives.`}
+          </p>
+          <button type="button" className="btn btn--secondary btn--sm" onClick={() => setFilter("draft")}>
+            Ver borradores
+          </button>
+        </div>
+      )}
       {message && (
         <p role="alert" className="notice notice--danger">
           {message}
         </p>
       )}
+      {note && (
+        <p role="status" className="notice notice--success">
+          {note}
+        </p>
+      )}
+      <div role="group" aria-label="Filtrar productos por estado" className="flex flex-wrap gap-2">
+        {FILTERS.map(({ value, label }) => (
+          <button key={value} type="button" aria-pressed={filter === value} onClick={() => setFilter(value)} className="chip">
+            {label}
+            {value !== "all" && products ? ` · ${count(value)}` : ""}
+          </button>
+        ))}
+      </div>
       {products === null ? (
-        <p className="text-sm text-fg-subtle">Cargando productos…</p>
+        !message && <p className="text-sm text-fg-subtle">Cargando productos…</p>
       ) : products.length === 0 ? (
         <p className="text-sm text-fg-subtle">Aún no hay productos. Crea el primero arriba.</p>
+      ) : shown.length === 0 ? (
+        <p className="empty">No hay productos en esta vista.</p>
       ) : (
         <ul className="grid gap-3 sm:grid-cols-2">
-          {products.map((product) => {
-            const photos = product.asset_ids?.length ?? 0;
-            return (
-              <li key={product.id} className="space-y-3 card p-4">
-                <div className="flex items-start justify-between gap-3">
-                  <div>
-                    <p className="font-medium">{product.name}</p>
-                    <p className="text-sm text-fg-muted">
-                      {formatCop(product.price_cop)}
-                      {product.stock != null && ` · ${product.stock} en inventario`}
-                    </p>
-                  </div>
-                  <span className="badge">
-                    {STATUS[product.status]}
-                  </span>
-                </div>
-                {product.description && <p className="text-sm text-fg-muted">{product.description}</p>}
-                <div className="flex flex-wrap items-center gap-2 text-sm">
-                  <label className="btn btn--secondary btn--sm">
-                    Subir foto
-                    <input
-                      type="file"
-                      accept="image/jpeg,image/png,image/webp,video/mp4"
-                      className="sr-only"
-                      disabled={busy === product.id}
-                      onChange={(event) => {
-                        const file = event.target.files?.[0];
-                        event.target.value = "";
-                        if (file) void upload(product, file);
-                      }}
-                    />
-                  </label>
-                  <button
-                    type="button"
-                    disabled={photos === 0 || busy === product.id}
-                    onClick={() => void createAds(product)}
-                    className="btn btn--primary btn--sm"
-                  >
-                    Crear anuncios
-                  </button>
-                  <span className="text-fg-subtle">
-                    {photos === 0 ? "Sube una foto para crear anuncios" : `${photos} ${photos === 1 ? "foto" : "fotos"}`}
-                  </span>
-                </div>
-              </li>
-            );
-          })}
+          {shown.map((product) => (
+            <ProductCard key={product.id} product={product} onSaved={saved} onArchived={archived}>
+              {product.status !== "archived" && (
+                <AdActions
+                  product={product}
+                  busy={busy === product.id}
+                  onUpload={(file) => void upload(product, file)}
+                  onCreateAds={() => void createAds(product)}
+                />
+              )}
+            </ProductCard>
+          ))}
         </ul>
       )}
     </section>
   );
 }
 
+function AdActions({
+  product,
+  busy,
+  onUpload,
+  onCreateAds,
+}: {
+  product: Product;
+  busy: boolean;
+  onUpload: (file: File) => void;
+  onCreateAds: () => void;
+}) {
+  const photos = product.asset_ids?.length ?? 0;
+  const active = product.status === "active";
+  return (
+    <div className="flex flex-wrap items-center gap-2 border-t border-line pt-3 text-sm">
+      <label className="btn btn--secondary btn--sm">
+        Subir foto
+        <input
+          type="file"
+          accept="image/jpeg,image/png,image/webp,video/mp4"
+          className="sr-only"
+          disabled={busy}
+          onChange={(event) => {
+            const file = event.target.files?.[0];
+            event.target.value = "";
+            if (file) onUpload(file);
+          }}
+        />
+      </label>
+      {active && (
+        <button type="button" disabled={photos === 0 || busy} onClick={onCreateAds} className="btn btn--primary btn--sm">
+          Crear anuncios
+        </button>
+      )}
+      <span className="text-fg-subtle">
+        {!active
+          ? "Activa el producto para crear anuncios"
+          : photos === 0
+            ? "Sube una foto para crear anuncios"
+            : `${photos} ${photos === 1 ? "foto" : "fotos"}`}
+      </span>
+    </div>
+  );
+}
+
 function NewProduct({ onCreated }: { onCreated: () => Promise<void> }) {
-  const [error, setError] = useState<string | null>(null);
+  const [values, setValues] = useState(NO_PRODUCT);
+  const [errors, setErrors] = useState<ProductErrors>({});
+  const [message, setMessage] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
 
   async function submit(form: HTMLFormElement) {
-    const fields = new FormData(form);
-    const stock = String(fields.get("stock") ?? "").trim();
-    const description = String(fields.get("description") ?? "").trim();
-    setSaving(true);
-    setError(null);
-    const { error: problem } = await api.POST("/products", {
-      body: {
-        name: String(fields.get("name") ?? "").trim(),
-        price_cop: Number(fields.get("price_cop")),
-        ...(stock ? { stock: Number(stock) } : {}),
-        ...(description ? { description } : {}),
-      },
-    });
-    setSaving(false);
-    if (problem) {
-      setError(problemMessage(problem, "No pudimos guardar el producto."));
+    const { errors: found, data } = checkProduct(values);
+    setErrors(found);
+    setMessage(null);
+    if (!data) {
+      focusFirstError(form, found);
       return;
     }
-    form.reset();
-    await onCreated();
+    setSaving(true);
+    try {
+      const { error } = await api.POST("/products", {
+        body: {
+          name: data.name,
+          price_cop: data.price_cop,
+          ...(data.stock !== null ? { stock: data.stock } : {}),
+          ...(data.description ? { description: data.description } : {}),
+        },
+      });
+      if (error) setMessage(catalogProblem(error, "No pudimos guardar el producto."));
+      else {
+        setValues(NO_PRODUCT);
+        await onCreated();
+      }
+    } catch {
+      setMessage(OFFLINE);
+    }
+    setSaving(false);
   }
 
   return (
     <form
+      noValidate
+      aria-label="Agregar un producto"
       onSubmit={(event) => {
         event.preventDefault();
         void submit(event.currentTarget);
       }}
-      className="grid gap-3 card border-dashed border-control p-4 sm:grid-cols-[minmax(0,2fr)_minmax(9rem,1fr)_minmax(7rem,1fr)_auto]"
+      className="space-y-3 card border-dashed border-control p-4"
     >
-      <input name="name" aria-label="Nombre del producto" required maxLength={120} placeholder="Nombre del producto" className="input min-w-0" />
-      <input name="price_cop" aria-label="Precio en pesos" required type="number" min={1} step={1} placeholder="Precio (COP)" className="input min-w-0" />
-      <input name="stock" aria-label="Inventario" type="number" min={0} step={1} placeholder="Inventario" className="input min-w-0" />
+      <ProductFields
+        values={values}
+        errors={errors}
+        onChange={(field, value) => {
+          setValues((current) => ({ ...current, [field]: value }));
+          setErrors((current) => ({ ...current, [field]: undefined }));
+        }}
+      />
+      {message && (
+        <p role="alert" className="notice notice--danger">
+          {message}
+        </p>
+      )}
       <button type="submit" disabled={saving} className="btn btn--primary">
         Agregar
       </button>
-      <textarea name="description" aria-label="Descripción" maxLength={2000} placeholder="Descripción (materiales, tallas, colores)" className="input min-w-0 sm:col-span-4" rows={2} />
-      {error && (
-        <p role="alert" className="text-sm text-danger-fg sm:col-span-4">
-          {error}
-        </p>
-      )}
     </form>
   );
 }

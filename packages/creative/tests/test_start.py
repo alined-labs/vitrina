@@ -8,7 +8,7 @@ from uuid import UUID
 import pytest
 from pydantic import ValidationError
 
-from vitrina_catalog.api import InMemoryCatalog
+from vitrina_catalog.api import InMemoryCatalog, ProductStatus, ProductUpdate
 from vitrina_catalog.sellers import InMemorySellerStore, SellerCreate
 from vitrina_core.http import ProblemCode, ProblemError
 from vitrina_core.ids import new_id
@@ -140,6 +140,20 @@ async def test_a_product_without_photos_or_with_foreign_ones_is_refused_on_asset
             await shop.payload(params)
         assert caught.value.status == 400
         assert [error.field for error in caught.value.errors] == ["asset_ids"]
+
+
+@pytest.mark.parametrize("status", ["draft", "archived"])
+async def test_as_2_1_a_product_that_is_not_active_gets_no_ads(
+    shop: Shop, status: ProductStatus
+) -> None:
+    await shop.catalog.update_product(SELLER, shop.product, ProductUpdate(status=status))
+
+    with pytest.raises(ProblemError) as caught:
+        await shop.payload(CreativeJobCreate(product_id=shop.product))
+
+    assert caught.value.status == 400
+    assert [error.field for error in caught.value.errors] == ["product_id"]
+    assert "Act\u00edvalo" in caught.value.errors[0].message
 
 
 async def test_a_seller_who_never_signed_up_is_not_found(shop: Shop) -> None:

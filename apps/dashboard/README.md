@@ -12,6 +12,8 @@ cp .env.example .env.local   # optional: without Supabase settings it runs in lo
 pnpm dev                     # http://localhost:3000; start the API with `make api` from the repo root
 ```
 
+To work on the catalog screens without a database, `scripts/dev-catalog.py` runs the real API routes on in-memory stores with a scripted model answer and sample photo outcomes; its docstring has the steps.
+
 The browser calls `/api/v1/*`, which `next.config.ts` proxies to `API_PROXY_TARGET` (default `http://localhost:8000`), so the API needs no CORS settings. `API_PROXY_TARGET` and the `NEXT_PUBLIC_*` settings are read when `pnpm dev` starts and at `pnpm build`: rebuild after changing them.
 
 ## Client

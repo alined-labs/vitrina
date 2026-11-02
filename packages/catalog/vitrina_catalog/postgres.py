@@ -227,6 +227,9 @@ class PostgresCatalog:
             )
             if current is None:
                 return None
+            if not changes:  # an empty SET is not SQL
+                reserved = await session.scalar(sa.select(_reserved(product_id)))
+                return _product_view({**current, "reserved": reserved or 0})
             merged = {**current, **changes}
             if {"name", "description", "price_cop", "attributes"} & changes.keys():
                 attributes = merged["attributes"] or {}

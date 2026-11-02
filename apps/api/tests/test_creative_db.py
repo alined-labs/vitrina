@@ -184,6 +184,44 @@ async def test_db_as_2_1_a_creative_job_runs_from_the_route_through_the_worker(
 
 
 @pytest.mark.db
+async def test_db_as_2_1_a_draft_product_gets_no_creative_job(
+    migrated_schema: tuple[str, str],
+    tmp_path: Path,
+) -> None:
+    url, schema = migrated_schema
+    settings = Settings(
+        _env_file=None,
+        database_url=url,
+        db_schema=schema,
+        supabase_jwt_secret=SECRET,
+        storage_dir=tmp_path,
+    )  # type: ignore[call-arg]
+    with TestClient(create_app(settings)) as client:
+        sign_up(client, OWNER, "+573000000503")
+        product_id = new_product(client, "Bolso en borrador")
+        photo = client.post(
+            "/v1/assets",
+            files={"file": ("bolso.png", source_photo().image.data, "image/png")},
+            data={"product_id": product_id},
+            headers=bearer(OWNER),
+        )
+        assert photo.status_code == 201, photo.text
+        draft = client.patch(
+            f"/v1/products/{product_id}", json={"status": "draft"}, headers=bearer(OWNER)
+        )
+        assert draft.json()["status"] == "draft"
+
+        refused = client.post(
+            "/v1/creative/jobs", json={"product_id": product_id}, headers=bearer(OWNER)
+        )
+        listed = client.get("/v1/creative/jobs", headers=bearer(OWNER))
+
+    assert refused.status_code == 400
+    assert refused.json()["errors"][0]["field"] == "product_id"
+    assert listed.json()["items"] == []
+
+
+@pytest.mark.db
 async def test_db_a_photo_without_the_product_fails_the_job_with_a_reason(
     migrated_schema: tuple[str, str],
     db_sessions: async_sessionmaker[AsyncSession],

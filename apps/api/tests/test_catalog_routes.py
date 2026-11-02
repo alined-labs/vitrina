@@ -77,6 +77,18 @@ def test_products_read_update_archive_and_404(client: TestClient) -> None:
     assert (missing.status_code, missing.json()["code"]) == (404, "NOT_FOUND")
 
 
+def test_an_empty_product_update_answers_the_product_as_it_is(client: TestClient) -> None:
+    created = client.post(
+        "/v1/products", json={"name": "Gorra", "price_cop": 30000, "stock": 2}, headers=bearer()
+    ).json()
+
+    response = client.patch(f"/v1/products/{created['id']}", json={}, headers=bearer())
+
+    assert response.status_code == 200
+    body = response.json()
+    assert (body["name"], body["price_cop"], body["stock"]) == ("Gorra", 30000, 2)
+
+
 def test_art_v_3_another_seller_cannot_see_or_change_a_product(client: TestClient) -> None:
     created = client.post(
         "/v1/products", json={"name": "Gorra", "price_cop": 30000}, headers=bearer()

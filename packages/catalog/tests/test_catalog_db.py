@@ -15,6 +15,7 @@ from vitrina_catalog.api import (
     ProductUpdate,
     expire_reservations,
 )
+from vitrina_catalog.importer import PRICE_MAX, DraftProduct, save_drafts
 from vitrina_catalog.postgres import PostgresCatalog
 from vitrina_catalog.tables import reservations
 from vitrina_catalog.text import tokens
@@ -211,6 +212,35 @@ async def test_db_products_page_filter_update_and_archive(
     assert all(
         result.id != created[0].id for result in await catalog.search(SELLER, "bolso tejido")
     )
+
+
+@pytest.mark.db
+async def test_db_an_empty_product_update_changes_nothing(
+    db_sessions: async_sessionmaker[AsyncSession],
+) -> None:
+    await setup(db_sessions)
+    catalog = PostgresCatalog(db_sessions)
+    created = await catalog.create_product(
+        SELLER, ProductCreate(name="Gorra", price_cop=30000, stock=2)
+    )
+
+    unchanged = await catalog.update_product(SELLER, created.id, ProductUpdate())
+
+    assert unchanged == created
+    assert await catalog.update_product(OTHER, created.id, ProductUpdate()) is None
+    assert await catalog.update_product(SELLER, new_id(), ProductUpdate()) is None
+
+
+@pytest.mark.db
+async def test_db_as_1_3_the_largest_price_an_import_accepts_fits_the_table(
+    db_sessions: async_sessionmaker[AsyncSession],
+) -> None:
+    await setup(db_sessions)
+    catalog = PostgresCatalog(db_sessions)
+
+    [saved] = await save_drafts(catalog, SELLER, [DraftProduct("Finca", PRICE_MAX, None)])
+
+    assert (saved.price_cop, saved.status, saved.source) == (PRICE_MAX, "draft", "image_import")
 
 
 @pytest.mark.db

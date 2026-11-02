@@ -5,6 +5,7 @@ from uuid import UUID
 import pytest
 
 from vitrina_catalog.importer import (
+    PRICE_MAX,
     DraftProduct,
     extract_products,
     parse_products,
@@ -123,6 +124,59 @@ def test_art_iii_items_without_one_clear_price_or_name_are_dropped(item: object)
     assert parse_products(products(BANDEJA, item)) == [  # type: ignore[arg-type]
         DraftProduct(name="Bandeja paisa", price_cop=25000, description="Con chicharrón")
     ]
+
+
+@pytest.mark.parametrize(
+    "price",
+    [
+        PRICE_MAX + 1,
+        99_999_999_999,
+        1e12,
+        "99999999999",
+        "$9.999.999.999",
+        "9" * 5000,
+        "\u00b2",
+    ],
+    ids=[
+        "one over",
+        "misread digits",
+        "float",
+        "digits as text",
+        "amount as text",
+        "huge",
+        "\u00b2",
+    ],
+)
+def test_as_1_3_a_price_the_table_cannot_hold_drops_only_that_item(price: object) -> None:
+    misread = {"name": "Misread", "price_cop": price, "description": ""}
+
+    assert parse_products(products(BANDEJA, misread)) == [
+        DraftProduct(name="Bandeja paisa", price_cop=25000, description="Con chicharr\u00f3n")
+    ]
+
+
+def test_as_1_3_the_largest_price_the_table_holds_is_kept() -> None:
+    assert parse_products(products({**BANDEJA, "price_cop": PRICE_MAX})) == [
+        DraftProduct(name="Bandeja paisa", price_cop=PRICE_MAX, description="Con chicharr\u00f3n")
+    ]
+
+
+@pytest.mark.parametrize(
+    "description", ["Antes $9.999.999.999", "$" + "9" * 1990], ids=["over int4", "overflow"]
+)
+def test_as_1_3_a_description_with_an_amount_the_table_cannot_hold_is_left_out(
+    description: str,
+) -> None:
+    # Every amount in a product's description is stored for the price validator, in int4 too.
+    item = {"name": "Combo", "price_cop": 25000, "description": description}
+
+    assert parse_products(products(item)) == [
+        DraftProduct(name="Combo", price_cop=25000, description=None)
+    ]
+
+
+def test_an_answer_with_a_number_python_refuses_to_read_is_unusable() -> None:
+    assert parse_products('{"products": [{"name": "x", "price_cop": ' + "9" * 5000 + "}]}") is None
 
 
 def test_repeated_items_collapse_and_fenced_json_is_read() -> None:

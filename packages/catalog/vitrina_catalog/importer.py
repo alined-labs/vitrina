@@ -31,6 +31,8 @@ from vitrina_core.providers import (
 IMPORT_TASK = "catalog.import_products"
 NAME_MAX = 120  # openapi.yaml ProductCreate.name
 DESCRIPTION_MAX = 2000  # openapi.yaml ProductCreate.description
+PRICE_MAX = 2_147_483_647  # products.price_cop and amounts_cop are int4 (migration 0001)
+PRICE_TEXT_MAX = 100
 
 PROMPT = """Lees fotos de menús, listas de precios y catálogos escritos a mano de negocios pequeños en Colombia.
 
@@ -137,7 +139,7 @@ def parse_products(content: object) -> list[DraftProduct] | None:
         return None
     try:
         data = json.loads(content[start : end + 1])
-    except json.JSONDecodeError:
+    except ValueError:  # bad JSON, or an integer too long for Python to read
         return None
     items = data.get("products") if isinstance(data, dict) else None
     if not isinstance(items, list):
@@ -158,20 +160,35 @@ def _draft(item: object) -> DraftProduct | None:
     if not name or len(name) > NAME_MAX or price is None:
         return None
     description = " ".join(str(item.get("description") or "").split())[:DESCRIPTION_MAX]
-    return DraftProduct(name=name, price_cop=price, description=description or None)
+    return DraftProduct(
+        name=name, price_cop=price, description=description if _storable(description) else None
+    )
+
+
+def _storable(description: str) -> bool:
+    """A description's amounts are stored too; if they cannot be, the seller writes it instead."""
+    try:
+        return all(amount <= PRICE_MAX for amount in amounts_cop(description)) and bool(description)
+    except OverflowError:  # digits too long for the money normalizer
+        return False
 
 
 def _price(value: object) -> int | None:
-    """A positive whole number of pesos: an integer, or text with exactly one amount."""
+    """A positive whole number of pesos the table can hold: an integer, or text with one amount.
+
+    An amount beyond that is a misread, and only that item is lost, not the whole import.
+    """
     if isinstance(value, bool):
         return None
     if isinstance(value, float) and value.is_integer():
         value = int(value)
     if isinstance(value, str):
         text = value.strip()
-        found = [int(text)] if text.isdigit() else amounts_cop(text)
+        if len(text) > PRICE_TEXT_MAX:  # int() refuses very long digits; no price is this long
+            return None
+        found = [int(text)] if text.isascii() and text.isdigit() else amounts_cop(text)
         value = found[0] if len(found) == 1 else None
-    return value if isinstance(value, int) and value > 0 else None
+    return value if isinstance(value, int) and 0 < value <= PRICE_MAX else None
 
 
 async def save_drafts(

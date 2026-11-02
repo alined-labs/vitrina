@@ -4,7 +4,8 @@
 the seller's active facts and voice from ``catalog.api``, the product's photos from the asset
 store. ``start_job`` then queues the job and its ``creative_jobs`` row in one transaction, so
 the worker never reads another module's tables. A brief passes ``brief_id`` in the params.
-The errors are the route's: 404 for an unknown product or seller, 400 on ``asset_ids``.
+The errors are the route's: 404 for an unknown product or seller, 400 on ``asset_ids`` or on a
+product that is not active.
 """
 
 from typing import Any
@@ -23,6 +24,7 @@ from vitrina_creative.tasks import CREATIVE_TASK
 MAX_FACTS = 50
 VOICE_KEYS = ("formality", "warmth", "emoji_rate", "regionalisms")
 PRODUCT_KEYS = ("name", "description", "price_cop", "stock", "attributes")
+NOT_ACTIVE = "Este producto no está activo. Actívalo antes de crear anuncios."
 
 
 async def start_job(
@@ -62,6 +64,11 @@ async def job_payload(
     if product is None:
         raise ProblemError(
             ProblemCode.NOT_FOUND, detail=f"no product {params.product_id} for this seller"
+        )
+    if product.status != "active":  # a draft is unapproved: its price may still be a misread
+        raise ProblemError(
+            ProblemCode.VALIDATION_ERROR,
+            errors=[FieldError(field="product_id", message=NOT_ACTIVE)],
         )
     return {
         "params": params.model_dump(mode="json"),
