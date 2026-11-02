@@ -57,23 +57,32 @@ The script is idempotent. In order, it:
    - `vitrina-api`: external ingress on port 8080, one replica, so the WhatsApp webhook never
      waits for a cold start;
    - `vitrina-worker`: no ingress, one replica, runs `vitrina-worker` with
-     `WORKER_EXCLUDE_TASKS=conversation.process_inbound`: creative jobs, the showcase, replays,
-     campaigns, erasures and every other job, and the periodic sweeps;
+     `WORKER_EXCLUDE_TASKS=conversation.process_inbound,compliance.erase_contact`: creative jobs,
+     the showcase, replays, campaigns and every other job, and the periodic sweeps;
    - `vitrina-worker-inbound`: no ingress, one replica, runs `vitrina-worker` with
-     `WORKER_TASKS=conversation.process_inbound`: customer messages and BAJA, so they never wait
-     behind a long job, and a job that runs out of memory cannot stop replies;
-6. waits for `GET /v1/health` and prints the API address and the WhatsApp webhook URL.
+     `WORKER_TASKS=conversation.process_inbound,compliance.erase_contact`: customer messages and
+     BAJA, so they never wait behind a long job, and a job that runs out of memory cannot stop
+     replies. Erasures share this worker so they run between answers: one that ran during an
+     answer would miss the reply written after it. A slow erasure holds replies up until it ends
+     or reaches its time limit; waiting messages stay in the queue;
+6. checks that `vitrina-worker-inbound` is running: its latest revision must read `Running*` with
+   a replica, three checks in a row, while its containers do not restart. If not, the script stops
+   with `DEPLOY FAILED` and the app's name instead of reporting success;
+7. waits for `GET /v1/health` and prints the API address and the WhatsApp webhook URL.
 
 Every secret becomes a Container Apps secret and reaches the apps as a `secretref`. Values are
 read from `.env` and passed straight to `az`, never echoed. `VISITOR_PROXY_SECRET` goes to the
 API only; the workers never need it.
 
-Keep each worker at one replica, and never let both claim `conversation.process_inbound`. One
-inbound replica is what keeps two messages from one customer from being answered at the same
-time. The script updates the general worker first, so on the deploy that adds the inbound
-worker the two do not claim messages together; if the inbound step fails, messages wait in the
-queue until the script runs again. While Container Apps replaces a revision, the old and the
-new replica can overlap for a moment, as they always could.
+Keep each worker at one replica, and never let both claim `conversation.process_inbound` or
+`compliance.erase_contact`. One inbound replica is what keeps two messages from one customer from
+being answered at the same time, and an erasure from running during an answer. Nothing else
+enforces it: a second replica would claim them too. The script updates the general worker first;
+if a later step fails, messages and erasures wait in the queue until the script runs again.
+Container Apps keeps the old revision running until the new one is ready, and `az` returning does
+not mean it has stopped, so during a deploy an old and a new replica can overlap, as they always
+could. On the deploy that adds the inbound worker, that overlap can include the old general worker,
+which still claims messages until it stops.
 
 ### After the first deploy
 
@@ -117,9 +126,12 @@ az containerapp revision activate --revision <previous> --name vitrina-api --res
 To roll back, activate the previous revision of each app, or run
 `IMAGE_TAG=<older commit> deploy/azure.sh` after `git checkout <older commit>`.
 
-A commit from before the inbound worker has a worker that claims customer messages too, and its
-script does not touch the inbound app. To roll back that far, first remove the inbound worker, so
-two workers never claim them together; the script creates it again on the next newer deploy:
+A worker from before the inbound worker claims customer messages and erasures too, and that
+commit's script does not touch the inbound app. So this applies both to activating a previous
+revision of `vitrina-worker` from before it and to deploying a commit from before it: first remove
+the inbound worker, so two workers never claim them together. From that moment nothing claims
+messages or erasures until the old deploy finishes; they wait in the queue. The script creates the
+inbound worker again on the next newer deploy:
 
 ```sh
 az containerapp delete --name vitrina-worker-inbound --resource-group vitrina --yes

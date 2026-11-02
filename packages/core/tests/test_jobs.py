@@ -47,6 +47,7 @@ def claimed(
 class FakeQueue:
     pending: list[ClaimedJob] = field(default_factory=list)
     events: list[tuple[Any, ...]] = field(default_factory=list)
+    requeued_for: list[frozenset[str]] = field(default_factory=list)
 
     async def claim(self, worker_id: str, tasks: frozenset[str]) -> ClaimedJob | None:
         for job in self.pending:
@@ -67,7 +68,8 @@ class FakeQueue:
     async def fail(self, job_id: UUID, error: dict[str, Any], retry_at: datetime | None) -> None:
         self.events.append(("fail", error, retry_at))
 
-    async def requeue_stalled(self, stalled_after: timedelta) -> int:
+    async def requeue_stalled(self, stalled_after: timedelta, tasks: frozenset[str]) -> int:
+        self.requeued_for.append(tasks)
         return 0
 
 
@@ -369,3 +371,24 @@ def test_only_and_exclude_cannot_be_combined() -> None:
 def test_excluding_every_task_is_refused() -> None:
     with pytest.raises(ValueError, match="no task left"):
         lanes_registry().narrowed(exclude={INBOUND, CAMPAIGN})
+
+
+@pytest.mark.parametrize(
+    "limits", [{"only": {INBOUND}}, {"exclude": {INBOUND}}, {}], ids=["only", "exclude", "none"]
+)
+async def test_a_worker_requeues_only_the_stalled_jobs_of_the_tasks_it_claims(
+    limits: dict[str, set[str]],
+) -> None:
+    stop = asyncio.Event()
+
+    class OneLoop(FakeQueue):
+        async def claim(self, worker_id: str, tasks: frozenset[str]) -> ClaimedJob | None:
+            stop.set()
+            return None
+
+    registry = lanes_registry().narrowed(**limits)
+    queue = OneLoop()
+
+    await worker(queue, registry).run(stop)
+
+    assert queue.requeued_for == [registry.names()]

@@ -20,9 +20,11 @@ source "$config"
 INBOUND_WORKER_APP=${INBOUND_WORKER_APP:-vitrina-worker-inbound}
 INBOUND_WORKER_CPU=${INBOUND_WORKER_CPU:-0.25}
 INBOUND_WORKER_MEMORY=${INBOUND_WORKER_MEMORY:-0.5Gi}
-# Customer messages run in their own worker, so they never wait behind a long job. One message
-# of a customer at a time needs one replica claiming this task, so no other app may claim it.
-INBOUND_WORKER_TASKS=conversation.process_inbound
+# Customer messages run in their own worker, so they never wait behind a long job. One replica
+# claiming these two tasks is what runs them one at a time: two messages of a customer never
+# overlap, and an erasure never runs while an answer is being written, which it would miss. So no
+# other app may claim them.
+INBOUND_WORKER_TASKS=conversation.process_inbound,compliance.erase_contact
 
 dry=${DRY_RUN:-0}
 tag=${IMAGE_TAG:-$(git -C "$root" rev-parse --short=12 HEAD)}
@@ -202,16 +204,24 @@ step "API $API_APP: public ingress on 8080"
 deploy_app "$API_APP" "$API_CPU" "$API_MEMORY" api_secret_args api_env_args \
   --ingress external --target-port 8080
 
-# In this order: on the deploy that adds the inbound worker, the general worker stops claiming
-# customer messages before the inbound worker starts, so the two never claim them together. If
-# the second step fails, messages wait in the queue until the script runs again.
-step "worker $WORKER_APP: no ingress, one replica takes every job but customer messages"
+# In this order: on the deploy that adds the inbound worker, the general worker gets its limit
+# first. az returning does not mean its old replica has stopped, and that replica keeps claiming
+# customer messages until it does, so for that moment both workers may claim them. If a later
+# step fails, messages and erasures wait in the queue until the script runs again.
+step "worker $WORKER_APP: no ingress, one replica takes every job but messages and erasures"
 deploy_app "$WORKER_APP" "$WORKER_CPU" "$WORKER_MEMORY" secret_args worker_env_args \
   --command vitrina-worker
 
-step "inbound worker $INBOUND_WORKER_APP: no ingress, one replica takes customer messages"
+step "inbound worker $INBOUND_WORKER_APP: no ingress, one replica takes messages and erasures"
 deploy_app "$INBOUND_WORKER_APP" "$INBOUND_WORKER_CPU" "$INBOUND_WORKER_MEMORY" \
   secret_args inbound_worker_env_args --command vitrina-worker
+
+step "is $INBOUND_WORKER_APP running?"
+if ! DRY_RUN=$dry bash "$root/deploy/check-running.sh" "$INBOUND_WORKER_APP" "$AZURE_RESOURCE_GROUP"; then
+  echo "DEPLOY FAILED: $INBOUND_WORKER_APP is not running; customer messages and erasures wait in" \
+    "the queue until it is" >&2
+  exit 1
+fi
 
 step "check"
 if [[ $dry == 1 ]]; then

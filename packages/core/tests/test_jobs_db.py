@@ -158,7 +158,7 @@ async def test_db_stalled_jobs_go_back_to_the_queue(
             .values(heartbeat_at=sa.func.now() - timedelta(minutes=10))
         )
 
-    assert await queue.requeue_stalled(timedelta(minutes=1)) == 1
+    assert await queue.requeue_stalled(timedelta(minutes=1), TASKS) == 1
     reclaimed = await queue.claim("w2", TASKS)
     assert reclaimed is not None
     assert reclaimed.attempt == 2
@@ -179,7 +179,7 @@ async def test_db_a_job_that_stalls_on_its_last_attempt_fails_instead_of_coming_
             .values(heartbeat_at=sa.func.now() - timedelta(minutes=10))
         )
 
-    assert await queue.requeue_stalled(timedelta(minutes=1)) == 0
+    assert await queue.requeue_stalled(timedelta(minutes=1), TASKS) == 0
     assert await queue.claim("w2", TASKS) is None
     view = await queue.get_for_seller(SELLER, job_id)
     assert view is not None
@@ -203,3 +203,39 @@ async def test_db_the_same_idempotency_key_enqueues_once(
     second = await enqueue(queue, db_sessions, idempotency_key="sweep:2026-10-27T15")
 
     assert first == second
+
+
+OTHER_LANE = frozenset({"conversation.process_inbound"})
+
+
+@pytest.mark.db
+@pytest.mark.parametrize(
+    ("max_attempts", "after_its_own_worker_looks"),
+    [(3, ("queued", None)), (1, ("failed", "STALLED"))],
+    ids=["attempts left", "last attempt"],
+)
+async def test_db_a_worker_leaves_the_stalled_jobs_of_other_tasks_alone(
+    db_sessions: async_sessionmaker[AsyncSession],
+    max_attempts: int,
+    after_its_own_worker_looks: tuple[str, str | None],
+) -> None:
+    await add_sellers(db_sessions)
+    queue = PostgresJobQueue(db_sessions)
+    job_id = await enqueue(queue, db_sessions, max_attempts=max_attempts)
+    await queue.claim("w1", TASKS)
+    async with db_sessions() as session, session.begin():
+        await session.execute(
+            sa.update(jobs)
+            .where(jobs.c.id == job_id)
+            .values(heartbeat_at=sa.func.now() - timedelta(minutes=10))
+        )
+
+    assert await queue.requeue_stalled(timedelta(minutes=1), OTHER_LANE) == 0
+    view = await queue.get_for_seller(SELLER, job_id)
+    assert view is not None
+    assert (view.status, view.error) == ("running", None)
+
+    await queue.requeue_stalled(timedelta(minutes=1), TASKS)
+    view = await queue.get_for_seller(SELLER, job_id)
+    assert view is not None
+    assert (view.status, view.error.code if view.error else None) == after_its_own_worker_looks

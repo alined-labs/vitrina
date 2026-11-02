@@ -21,6 +21,8 @@ def test_the_worker_gives_chat_calls_the_job_timeout() -> None:
 
 
 INBOUND = "conversation.process_inbound"
+ERASURE = "compliance.erase_contact"
+INBOUND_LANE = f"{INBOUND},{ERASURE}"
 
 
 def everything() -> TaskRegistry:
@@ -48,25 +50,39 @@ def test_a_blank_setting_means_unset_as_in_a_copy_of_the_env_example() -> None:
 
 
 def test_the_production_lanes_split_the_tasks_with_nothing_shared_or_left_out() -> None:
-    general = lane(worker_exclude_tasks=INBOUND)
-    inbound = lane(worker_tasks=INBOUND)
+    general = lane(worker_exclude_tasks=INBOUND_LANE)
+    inbound = lane(worker_tasks=INBOUND_LANE)
 
-    assert inbound.names() == {INBOUND}
+    assert inbound.names() == {INBOUND, ERASURE}
     assert not general.names() & inbound.names()
     assert general.names() | inbound.names() == everything().names()
 
 
 def test_exactly_one_production_lane_runs_the_sweeps() -> None:
-    assert lane(worker_tasks=INBOUND).periodic() == ()
-    assert {item.name for item in lane(worker_exclude_tasks=INBOUND).periodic()} == {
+    assert lane(worker_tasks=INBOUND_LANE).periodic() == ()
+    assert {item.name for item in lane(worker_exclude_tasks=INBOUND_LANE).periodic()} == {
         item.name for item in everything().periodic()
     }
 
 
 def test_several_task_names_are_comma_separated() -> None:
-    names = lane(worker_tasks=f"{INBOUND}, compliance.erase_contact").names()
+    assert lane(worker_tasks=f"{INBOUND}, {ERASURE}").names() == {INBOUND, ERASURE}
+    assert lane(worker_tasks=f"{INBOUND},{ERASURE},").names() == {INBOUND, ERASURE}
 
-    assert names == {INBOUND, "compliance.erase_contact"}
+
+@pytest.mark.parametrize("setting", ["worker_tasks", "worker_exclude_tasks"])
+@pytest.mark.parametrize("value", [",", " , ", ",,"])
+def test_only_separators_stop_the_worker_instead_of_claiming_every_task(
+    setting: str, value: str
+) -> None:
+    with pytest.raises(SystemExit, match="names no task"):
+        lane(**{setting: value})
+
+
+@pytest.mark.parametrize("setting", ["worker_tasks", "worker_exclude_tasks"])
+@pytest.mark.parametrize("value", ["", "   "])
+def test_blank_settings_stay_unset(setting: str, value: str) -> None:
+    assert lane(**{setting: value}).names() == everything().names()
 
 
 @pytest.mark.parametrize("setting", ["worker_tasks", "worker_exclude_tasks"])

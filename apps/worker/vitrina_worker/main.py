@@ -24,7 +24,13 @@ def job_providers(settings: Settings) -> LiveProviders:
 
 
 def _names(setting: str | None) -> frozenset[str]:
-    return frozenset(name.strip() for name in (setting or "").split(",") if name.strip())
+    """Blank means unset; only separators is a typo that must not read as "every task"."""
+    if setting is None or not setting.strip():
+        return frozenset()
+    names = frozenset(name.strip() for name in setting.split(",") if name.strip())
+    if not names:
+        raise ValueError(f"{setting!r} names no task")
+    return names
 
 
 def worker_registry(settings: Settings) -> TaskRegistry:

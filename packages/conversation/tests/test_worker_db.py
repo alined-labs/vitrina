@@ -192,8 +192,12 @@ async def test_db_an_erasure_requested_mid_turn_waits_in_the_lane_and_leaves_no_
     running = asyncio.create_task(lane.run(stop))
     try:
         async with asyncio.timeout(60):
-            while len(done := await finished_jobs()) < 2:
+            done = await finished_jobs()
+            for _ in range(600):
+                if len(done) == 2:
+                    break
                 await asyncio.sleep(0.1)
+                done = await finished_jobs()
     finally:
         stop.set()
         await running

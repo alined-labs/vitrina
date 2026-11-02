@@ -197,13 +197,15 @@ class Worker:
         self._next_sweep: dict[str, float] = {}
 
     async def run(self, stop: asyncio.Event) -> None:
-        """Process jobs one at a time until ``stop`` is set (one dev process per machine)."""
+        """Process jobs one at a time until ``stop`` is set."""
         next_sweep = 0.0
         while not stop.is_set():
             ran = False
             try:
                 if time.monotonic() >= next_sweep:
-                    await self.queue.requeue_stalled(timedelta(seconds=self.stalled_after_s))
+                    await self.queue.requeue_stalled(
+                        timedelta(seconds=self.stalled_after_s), self.registry.names()
+                    )
                     next_sweep = time.monotonic() + self.stalled_after_s / 3
                 await self.run_sweeps()
                 ran = await self.run_once()

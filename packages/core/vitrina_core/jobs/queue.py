@@ -46,7 +46,7 @@ class JobQueue(Protocol):
         self, job_id: UUID, error: dict[str, Any], retry_at: datetime | None
     ) -> None: ...
 
-    async def requeue_stalled(self, stalled_after: timedelta) -> int: ...
+    async def requeue_stalled(self, stalled_after: timedelta, tasks: frozenset[str]) -> int: ...
 
 
 class JobReader(Protocol):
@@ -189,14 +189,18 @@ class PostgresJobQueue:
             ).one()
         return int(due), float(longest)
 
-    async def requeue_stalled(self, stalled_after: timedelta) -> int:
-        """Requeue the running jobs whose worker stopped heart-beating; how many went back.
+    async def requeue_stalled(self, stalled_after: timedelta, tasks: frozenset[str]) -> int:
+        """Requeue the running jobs of ``tasks`` whose worker stopped heart-beating; how many went
+        back. A worker passes the tasks it claims, so it never judges another worker's job: that
+        one may be alive with a busy event loop, and failing it could make a seller pay twice.
 
         A job that stalled on its last attempt fails instead: one that kills its worker (out of
         memory, for one) would otherwise come back forever and hold up every job behind it.
         """
         stalled = sa.and_(
-            jobs.c.status == "running", jobs.c.heartbeat_at < sa.func.now() - stalled_after
+            jobs.c.status == "running",
+            jobs.c.task.in_(sorted(tasks)),
+            jobs.c.heartbeat_at < sa.func.now() - stalled_after,
         )
         error = {
             "code": "STALLED",
