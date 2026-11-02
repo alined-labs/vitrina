@@ -1,16 +1,22 @@
 """T030 upload inspection: kinds from bytes, FR-010 limits, MP4 duration without ffmpeg."""
 
+import threading
+import time
+from concurrent.futures import ThreadPoolExecutor
 from io import BytesIO
 
 import pytest
 from PIL import Image
 
+from vitrina_creative import media
 from vitrina_creative.media import (
     IMAGE_MAX_BYTES,
     IMAGE_MAX_PIXELS,
     MediaRejectedError,
     inspect_media,
     mp4_duration,
+    prepare_upload,
+    upright,
 )
 
 
@@ -113,3 +119,103 @@ def test_a_photo_over_40_megapixels_is_refused_however_few_bytes_it_has() -> Non
 def test_a_photo_at_40_megapixels_is_accepted() -> None:
     info = inspect_media(bilevel_png(8_000, IMAGE_MAX_PIXELS // 8_000))
     assert (info.width, info.height) == (8_000, 5_000)
+
+
+RED, BLUE = (220, 20, 20), (20, 20, 220)
+ORIENTATION = 0x0112
+
+
+def portrait() -> Image.Image:
+    """30x40, red on top: a mistake in the rotation moves the red to another side."""
+    image = Image.new("RGB", (30, 40), RED)
+    image.paste(BLUE, (0, 20, 30, 40))
+    return image
+
+
+def sideways(fmt: str = "JPEG", *, icc: bytes | None = None, **params: object) -> bytes:
+    """The portrait as a phone stores it: landscape pixels and orientation 6 (rotate to display)."""
+    exif = Image.Exif()
+    exif[ORIENTATION] = 6
+    buffer = BytesIO()
+    stored = portrait().transpose(Image.Transpose.ROTATE_90)
+    extra = {"icc_profile": icc} if icc else {}
+    stored.save(buffer, format=fmt, exif=exif, **extra, **params)
+    return buffer.getvalue()
+
+
+def looks_like(pixel: tuple[int, ...], colour: tuple[int, int, int]) -> bool:
+    return all(abs(a - b) < 40 for a, b in zip(pixel, colour, strict=True))
+
+
+@pytest.mark.parametrize(
+    ("fmt", "reads_as"), [("JPEG", "JPEG"), ("PNG", "PNG"), ("WEBP", "WEBP"), ("MPO", "JPEG")]
+)
+def test_fr_010_a_photo_stored_sideways_is_kept_upright(fmt: str, reads_as: str) -> None:
+    params = {"save_all": True, "append_images": [portrait()]} if fmt == "MPO" else {}
+    data, info = prepare_upload(sideways(fmt, **params))
+
+    with Image.open(BytesIO(data)) as image:
+        assert image.format == reads_as
+        assert image.size == (30, 40)
+        assert ORIENTATION not in image.getexif()
+        rgb = image.convert("RGB")
+        assert looks_like(rgb.getpixel((15, 5)), RED)  # type: ignore[arg-type]
+        assert looks_like(rgb.getpixel((15, 35)), BLUE)  # type: ignore[arg-type]
+    assert (info.width, info.height) == (30, 40)
+
+
+def test_fr_010_turning_a_photo_keeps_its_colour_profile() -> None:
+    profile = b"fake-profile-bytes" * 8
+    data, _ = prepare_upload(sideways(icc=profile))
+    with Image.open(BytesIO(data)) as image:
+        assert image.info["icc_profile"] == profile
+
+
+@pytest.mark.parametrize("fmt", ["JPEG", "PNG", "WEBP"])
+def test_fr_010_a_photo_already_upright_keeps_its_exact_bytes(fmt: str) -> None:
+    plain = photo(fmt)
+    assert prepare_upload(plain)[0] is plain
+    assert upright(plain) is plain
+    exif = Image.Exif()
+    exif[ORIENTATION] = 1
+    buffer = BytesIO()
+    Image.new("RGB", (64, 48)).save(buffer, format=fmt, exif=exif)
+    tagged = buffer.getvalue()
+    assert upright(tagged) is tagged
+
+
+def test_fr_010_uploads_turn_one_photo_at_a_time(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Turning holds two full frames in memory, and the API's limit fits only one such photo."""
+    real = media.ImageOps.exif_transpose
+    running, most = 0, 0
+    guard = threading.Lock()
+
+    def counting(image: Image.Image) -> Image.Image:
+        nonlocal running, most
+        with guard:
+            running += 1
+            most = max(most, running)
+        time.sleep(0.05)
+        try:
+            return real(image)
+        finally:
+            with guard:
+                running -= 1
+
+    monkeypatch.setattr(media.ImageOps, "exif_transpose", counting)
+    data = sideways()
+    with ThreadPoolExecutor(max_workers=4) as pool:
+        list(pool.map(upright, [data] * 4))
+    assert most == 1
+
+
+def test_fr_010_a_video_passes_through_untouched() -> None:
+    video = mp4(10)
+    data, info = prepare_upload(video)
+    assert data is video
+    assert info.kind == "video"
+
+
+def test_fr_010_a_damaged_photo_that_cannot_be_turned_is_refused_in_spanish() -> None:
+    with pytest.raises(MediaRejectedError, match="dañada"):
+        prepare_upload(sideways()[:400])

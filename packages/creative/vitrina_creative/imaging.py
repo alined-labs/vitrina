@@ -2,6 +2,10 @@
 
 Masks are boolean arrays (True where the product is); images are RGB ``uint8`` arrays. Every
 function here is pure, so the fidelity suite runs without any provider (AS-7.3).
+
+The verifier compares at a working resolution (``long_edge``): a 40-megapixel frame does not fit
+in the worker's memory as floats, and neither signal needs it. The crops the models see are cut
+from the full frame.
 """
 
 from io import BytesIO
@@ -32,17 +36,34 @@ class TooManyPixelsError(ValueError):
     """An image with more pixels than the worker can decode (``media.IMAGE_MAX_PIXELS``)."""
 
 
-def decode_rgb(blob: Blob) -> Pixels:
+def decode_rgb(blob: Blob, *, long_edge: int | None = None) -> Pixels:
+    """The image as RGB; with ``long_edge``, averaged down so its longer side is at most that."""
     with Image.open(BytesIO(blob.data)) as image:
         _check_pixels(image)
-        return np.asarray(image.convert("RGB"), dtype=np.uint8)
+        size = _working_size(image.size, long_edge)
+        if size != image.size:
+            image.draft("RGB", size)  # a JPEG decodes directly at 1/2, 1/4 or 1/8 of its size
+        rgb = image if image.mode == "RGB" else image.convert("RGB")
+        if rgb.size != size:
+            rgb = rgb.resize(size, Image.Resampling.BOX)
+        return np.asarray(rgb, dtype=np.uint8)
 
 
-def decode_mask(blob: Blob) -> Mask:
+def decode_mask(blob: Blob, *, long_edge: int | None = None) -> Mask:
     """A mask image in any mode, as booleans: True where the product is."""
     with Image.open(BytesIO(blob.data)) as image:
         _check_pixels(image)
-        return np.asarray(image.convert("L"), dtype=np.uint8) > 127
+        size = _working_size(image.size, long_edge)
+        grey = image if image.mode == "L" else image.convert("L")
+        if grey.size != size:
+            grey = grey.resize(size, Image.Resampling.NEAREST)
+        return np.asarray(grey, dtype=np.uint8) > 127
+
+
+def check_pixels(blob: Blob) -> None:
+    """``TooManyPixelsError`` from the file's header alone, nothing is decoded."""
+    with Image.open(BytesIO(blob.data)) as image:
+        _check_pixels(image)
 
 
 def _check_pixels(image: Image.Image) -> None:
@@ -50,6 +71,14 @@ def _check_pixels(image: Image.Image) -> None:
     width, height = image.size
     if width * height > IMAGE_MAX_PIXELS:
         raise TooManyPixelsError(f"{width}x{height} is more than {IMAGE_MAX_PIXELS} pixels")
+
+
+def _working_size(size: tuple[int, int], long_edge: int | None) -> tuple[int, int]:
+    width, height = size
+    if long_edge is None or max(width, height) <= long_edge:
+        return size
+    scale = long_edge / max(width, height)
+    return max(1, round(width * scale)), max(1, round(height * scale))
 
 
 def encode_png(array: Pixels | Mask) -> Blob:
@@ -100,7 +129,9 @@ def color_histogram(pixels: Pixels, mask: Mask) -> Histogram:
     region = _erode(mask, EDGE_PX)
     if int(region.sum()) < 64:  # a tiny product: erosion would leave nothing to compare
         region = mask
-    hsv = np.asarray(Image.fromarray(pixels).convert("HSV"), dtype=np.float64)[region] / 255.0
+    # Only the product's pixels become floats, in single precision: this is the costly step.
+    hsv = np.asarray(Image.fromarray(pixels).convert("HSV"))[region].astype(np.float32)
+    hsv /= 255.0
     hue, sat, val = hsv[:, 0], hsv[:, 1], hsv[:, 2]
     coloured = (sat >= MIN_SATURATION) & (val >= MIN_VALUE)
     hue_bin = np.minimum((hue[coloured] * HUE_BINS).astype(np.int64), HUE_BINS - 1)
@@ -137,8 +168,7 @@ def product_crop(pixels: Pixels, mask: Mask, margin: int = 8) -> Blob:
     height, width = mask.shape
     x0, y0 = max(0, x0 - margin), max(0, y0 - margin)
     x1, y1 = min(width, x1 + margin), min(height, y1 + margin)
-    cut = np.where(mask[..., None], pixels, np.uint8(255)).astype(np.uint8)
-    return encode_png(cut[y0:y1, x0:x1])
+    return encode_png(np.where(mask[y0:y1, x0:x1, None], pixels[y0:y1, x0:x1], np.uint8(255)))
 
 
 def product_cutout(pixels: Pixels, mask: Mask) -> Blob:
@@ -147,8 +177,7 @@ def product_cutout(pixels: Pixels, mask: Mask) -> Blob:
     if box is None:
         raise ValueError("the mask is empty: there is no product to cut out")
     x0, y0, x1, y1 = box
-    rgba = np.dstack([pixels, mask.astype(np.uint8) * 255])[y0:y1, x0:x1]
-    return encode_png(np.ascontiguousarray(rgba))
+    return encode_png(np.dstack([pixels[y0:y1, x0:x1], mask[y0:y1, x0:x1].astype(np.uint8) * 255]))
 
 
 def _crop(mask: Mask, box: Box) -> Mask:

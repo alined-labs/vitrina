@@ -6,6 +6,7 @@ twice by one seller is one asset (``sha256`` is unique per seller). Every read i
 seller (Art. V.3).
 """
 
+import asyncio
 import hashlib
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
@@ -20,7 +21,7 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 from vitrina_core.db import SellerScopedRepository
 from vitrina_core.ids import new_id
 from vitrina_core.storage import BlobStore, blob_key
-from vitrina_creative.media import inspect_media
+from vitrina_creative.media import prepare_upload
 from vitrina_creative.tables import assets
 
 
@@ -164,7 +165,8 @@ async def upload_asset(
     *, seller_id: UUID, product_id: UUID, data: bytes, store: AssetStore, blobs: BlobStore
 ) -> AssetRecord:
     """Inspect, store the file, record the asset; the same file twice is one asset (FR-010)."""
-    info = inspect_media(data)  # MediaRejectedError for anything outside FR-010
+    # MediaRejectedError for anything outside FR-010. Off the event loop: it decodes the photo.
+    data, info = await asyncio.to_thread(prepare_upload, data)
     digest = hashlib.sha256(data).hexdigest()
     existing = await store.by_sha256(seller_id, digest)
     if existing is not None:

@@ -12,6 +12,7 @@ from vitrina_core.jobs import JobFailedError
 from vitrina_core.providers import Blob, Box, Segmenter, SegmentRequest, with_backoff
 from vitrina_creative.imaging import (
     TooManyPixelsError,
+    check_pixels,
     decode_mask,
     decode_rgb,
     encode_png,
@@ -19,7 +20,7 @@ from vitrina_creative.imaging import (
     mask_bbox,
     product_cutout,
 )
-from vitrina_creative.media import TOO_MANY_PIXELS
+from vitrina_creative.media import TOO_MANY_PIXELS, upright
 from vitrina_creative.verifier import SourceProduct
 
 MIN_AREA = 0.05
@@ -51,14 +52,20 @@ async def segment_photo(
 ) -> SegmentedPhoto:
     """SAM on one source photo: the best-scoring product segment, or a SegmentationError."""
     try:
-        pixels = decode_rgb(photo)
+        check_pixels(photo)
     except TooManyPixelsError as error:
         raise SegmentationError("PHOTO_TOO_LARGE", TOO_MANY_PIXELS) from error
+    # Uploads are stored upright (media.prepare_upload); this covers a photo stored before that.
+    data = upright(photo.data)
+    if data is not photo.data:
+        photo = Blob(data=data, mime_type=photo.mime_type)
     request = SegmentRequest(model=model, purpose="segment", image=photo, prompt=label)
     response = await with_backoff(lambda: segmenter.segment(request))
     if not response.segments:
         raise _not_found()
     best = max(response.segments, key=lambda segment: segment.score)
+    # Decoded only now, so the full frame is not held during the call to SAM.
+    pixels = decode_rgb(photo)
     mask = fit_mask(decode_mask(best.mask), *pixels.shape[:2])
     box = mask_bbox(mask)
     if box is None:
