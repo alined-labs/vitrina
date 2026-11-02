@@ -314,3 +314,54 @@ async def test_fr_064_an_unsigned_template_event_changes_nothing(
         await with_templates(store, queue, statuses).receive(template_event(), "sha256=00")
 
     assert statuses.written == []
+
+
+def message_and_template_event() -> bytes:
+    """One delivery holding a customer's message and a template event, as Meta may batch them."""
+    delivery = json.loads(webhook_fixture("text_ad_code_a7"))
+    delivery["entry"].extend(json.loads(template_event())["entry"])
+    return json.dumps(delivery).encode()
+
+
+async def test_as_3_1_a_mixed_delivery_queues_the_message_and_applies_the_template(
+    store: InMemoryConversationStore, queue: RecordingQueue
+) -> None:
+    statuses = TemplateStatuses()
+    body = message_and_template_event()
+
+    result = await with_templates(store, queue, statuses).receive(body, sign(body, SECRET))
+
+    assert len(result.queued) == 1
+    assert [job[2] for job in queue.jobs] == list(result.queued)
+    assert statuses.written == [(SELLER, "vitrina_reactivacion", "approved")]
+    assert result.templates == 1
+
+
+async def test_as_3_1_an_unreadable_template_event_does_not_lose_the_message(
+    store: InMemoryConversationStore, queue: RecordingQueue
+) -> None:
+    statuses = TemplateStatuses()
+    delivery = json.loads(message_and_template_event())
+    del delivery["entry"][-1]["changes"][0]["value"]["message_template_name"]
+    body = json.dumps(delivery).encode()
+
+    result = await with_templates(store, queue, statuses).receive(body, sign(body, SECRET))
+
+    assert len(result.queued) == 1
+    assert (statuses.written, result.templates) == ([], 0)
+
+
+async def test_as_3_1_a_template_write_that_fails_asks_meta_to_deliver_again(
+    store: InMemoryConversationStore, queue: RecordingQueue
+) -> None:
+    class DatabaseDown(TemplateStatuses):
+        async def __call__(self, seller_id: UUID, template_name: str, status: str) -> None:
+            raise RuntimeError("the database went away")
+
+    body = message_and_template_event()
+    ingest_down = with_templates(store, queue, DatabaseDown())
+
+    with pytest.raises(RuntimeError):
+        await ingest_down.receive(body, sign(body, SECRET))
+
+    assert len(queue.jobs) == 1  # already queued; the job's message id stops a second answer

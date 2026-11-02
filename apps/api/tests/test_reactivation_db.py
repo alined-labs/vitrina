@@ -137,6 +137,18 @@ async def test_db_as_6_7_a_campaign_from_preview_to_the_worker(
         assert delivered.status_code == 200
         me = client.get("/v1/sellers/me", headers=bearer())
         assert me.json()["marketing_template_status"] == "approved"
+        another = client.post(
+            "/v1/reactivation/campaigns",
+            json={"template_name": "otra_plantilla"},
+            headers=bearer(),
+        ).json()
+        not_this_one = client.post(
+            f"/v1/reactivation/campaigns/{another['id']}/send", headers=bearer()
+        )
+        assert (not_this_one.status_code, not_this_one.json()["code"]) == (
+            409,
+            "TEMPLATE_NOT_APPROVED",
+        )
         accepted = client.post(
             f"/v1/reactivation/campaigns/{campaign['id']}/send", headers=bearer()
         )

@@ -88,6 +88,15 @@ class SellerSettings(BaseModel):
     ai_label_enabled: bool
     handoff_summary_enabled: bool
     consent_prompt_text: str
+    marketing_template_name: str | None = None
+    marketing_template_status: MarketingTemplateStatus = "none"
+
+    @property
+    def approved_template(self) -> str | None:
+        """The template Meta has approved for this seller, if any."""
+        return (
+            self.marketing_template_name if self.marketing_template_status == "approved" else None
+        )
 
 
 def _settings(row: dict[str, Any]) -> SellerSettings:
@@ -106,6 +115,8 @@ def _settings(row: dict[str, Any]) -> SellerSettings:
         ai_label_enabled=bool(row["ai_label_enabled"]),
         handoff_summary_enabled=bool(row["handoff_summary_enabled"]),
         consent_prompt_text=row["consent_prompt_text"],
+        marketing_template_name=row.get("marketing_template_name"),
+        marketing_template_status=row.get("marketing_template_status", "none"),
     )
 
 

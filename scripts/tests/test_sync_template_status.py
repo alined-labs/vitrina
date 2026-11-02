@@ -137,7 +137,7 @@ def test_fr_064_a_refusal_from_meta_prints_its_code_and_no_secret(
     )
     monkeypatch.setattr(sync.httpx2, "Client", lambda **_settings: refused)
 
-    assert sync.main(["--api", "http://testserver/v1"]) == 1
+    assert sync.main(["--api", "https://api.example/v1"]) == 1
 
     printed = capsys.readouterr()
     assert "Meta answered 403 (code 200)" in printed.err
@@ -151,6 +151,45 @@ def test_fr_064_a_missing_setting_is_named(
     for name in ("WHATSAPP_BUSINESS_ACCOUNT_ID", "WHATSAPP_ACCESS_TOKEN", "WHATSAPP_APP_SECRET"):
         monkeypatch.delenv(name, raising=False)
 
-    assert sync.main(["--api", "http://testserver/v1", "--dry-run"]) == 1
+    assert sync.main(["--api", "https://api.example/v1", "--dry-run"]) == 1
 
     assert "set WHATSAPP_BUSINESS_ACCOUNT_ID" in capsys.readouterr().err
+
+
+@pytest.mark.parametrize(
+    "api",
+    [
+        "http://api.example/v1",
+        "ftp://api.example/v1",
+        "api.example/v1",
+        "http://localhost.example/v1",
+    ],
+)
+def test_fr_064_the_signed_event_never_leaves_over_plain_http(
+    api: str, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    monkeypatch.setenv("WHATSAPP_BUSINESS_ACCOUNT_ID", ACCOUNT)
+    monkeypatch.setenv("WHATSAPP_ACCESS_TOKEN", TOKEN)
+    monkeypatch.setenv("WHATSAPP_APP_SECRET", APP_SECRET)
+
+    def no_network(**_settings: Any) -> None:
+        raise AssertionError("nothing is called before the address is checked")
+
+    monkeypatch.setattr(sync.httpx2, "Client", no_network)
+
+    assert sync.main(["--api", api]) == 1
+
+    assert "--api must be https" in capsys.readouterr().err
+
+
+@pytest.mark.parametrize(
+    "api",
+    [
+        "https://api.example/v1",
+        "http://localhost:8000/v1",
+        "http://127.0.0.1:8000/v1",
+        "http://[::1]/v1",
+    ],
+)
+def test_fr_064_https_and_this_machine_are_accepted(api: str) -> None:
+    sync.check_api(api)

@@ -51,8 +51,8 @@ MarketingTemplateStatus = Literal["none", "pending", "approved", "rejected"]
 
 # Meta's template events in the four statuses a seller can have. Only the two events Meta describes
 # as sendable open the send gate. An event left out changes nothing: it keeps the template as it
-# was (FLAGGED, LOCKED, UNLOCKED, LIMIT_EXCEEDED), names no status (UNARCHIVED returns to a previous
-# one) or is new, and a new event must never open the gate.
+# was (FLAGGED, LOCKED, LIMIT_EXCEEDED), names no status (UNARCHIVED returns to a previous one) or
+# is new, and a new event must never open the gate.
 _TEMPLATE_STATUSES: dict[str, MarketingTemplateStatus] = {
     "APPROVED": "approved",
     "REINSTATED": "approved",

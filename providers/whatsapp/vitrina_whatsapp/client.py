@@ -7,7 +7,10 @@ at most 3 attempts in total (R12, AS-3.11). Meta asks clients to key error handl
 error codes, which often arrive as HTTP 400, so this adapter keeps its own retry loop instead
 of ``with_backoff`` (whose Retry-After handling expects HTTP 429). A send that may already have
 reached Meta (read timeout, dropped connection) is never retried: a duplicate message to a
-customer is worse than a reported failure. Pacing (≥ 6 s between messages to one recipient)
+customer is worse than a reported failure. A marketing template goes further: a server error can
+also hide a message Meta took, so a template is posted again only after an answer that proves
+nothing went out (``nothing_sent``). Replies keep the server-error retry: they answer a customer
+who is waiting, and no rule counts them. Pacing (≥ 6 s between messages to one recipient)
 is the caller's job (``conversation``, T027).
 """
 
@@ -41,23 +44,27 @@ PROVIDER = "whatsapp"
 # Cloud API error codes whose documented remedy is to try again (developers.facebook.com/docs/
 # whatsapp/cloud-api/support/error-codes, read 2026-10-27): API and account rate limits (4,
 # 80007), throughput (130429), pair rate limit (131056), unknown or temporary failures (1, 2,
-# 131000, 131016).
-RETRYABLE_ERROR_CODES = frozenset({1, 2, 4, 80007, 130429, 131000, 131016, 131056})
+# 131000, 131016). Also maintenance mode (131057): the page gives no remedy, only that the account
+# is undergoing it, for instance during a throughput upgrade, so it is treated as a wait.
+RETRYABLE_ERROR_CODES = frozenset({1, 2, 4, 80007, 130429, 131000, 131016, 131056, 131057})
+# Of those, the ones that say the message did not go out, whatever the HTTP status. Code 1 does
+# not: the page calls it an invalid request "or possible server error" (read 2026-11-02).
+RETRY_SAFE_ERROR_CODES = RETRYABLE_ERROR_CODES - {1}
 
 # Who a refusal concerns, from the same page (read 2026-11-01), so a send to many customers knows
-# whether to go on. About this customer: they blocked the business (130403), a marketing
+# whether to go on. About this customer: the business blocked them (130403), a marketing
 # experiment held the message (130472), the number is the sender's (131021), undeliverable
 # (131026), outside the 24 h window (131047), held for ecosystem engagement (131049), opted out
 # of marketing (131050), too many messages to this customer (131056).
 RECIPIENT_ERROR_CODES = frozenset({130403, 130472, 131021, 131026, 131047, 131049, 131050, 131056})
 # About the account, number or template, so the next customer fares no better: token and
 # permissions (0, 3, 10, 190, 200-299, 131005), number deleted or unregistered (33, 131045,
-# 133010), account restricted (368, 131031), payment (131042), sending limits and maintenance
-# (131048, 131057, 131064), marketing templates off (131063), the template itself missing,
+# 133010), account restricted (368, 131031), payment (131042), sending limits (131048, 131064),
+# marketing templates off (131063), the template itself missing,
 # refused, paused or disabled or its parameter count wrong (132000, 132001, 132007, 132015,
 # 132016). Any other code stays ``unknown``: the page does not say whom it concerns.
 ACCOUNT_ERROR_CODES = frozenset(
-    {0, 3, 10, 33, 190, 368, 131005, 131031, 131042, 131045, 131048, 131057, 131063, 131064}
+    {0, 3, 10, 33, 190, 368, 131005, 131031, 131042, 131045, 131048, 131063, 131064}
     | {132000, 132001, 132007, 132015, 132016, 133010}
     | set(range(200, 300))
 )
@@ -69,13 +76,18 @@ MAX_MEDIA_BYTES = 16 * 1024 * 1024
 # Failures that happen before the request leaves this process: retrying cannot duplicate a send.
 _NEVER_SENT = (httpx2.ConnectError, httpx2.ConnectTimeout, httpx2.PoolTimeout)
 
+# A number as a request timeout sets four limits, one each to connect, write, read and wait for a
+# free connection, so one attempt can last that many times the timeout.
+_TIMEOUT_PHASES = 4
+
 
 class WhatsAppSendError(ProviderError):
     """A request that Meta refused or that could not be completed.
 
     ``retryable`` tells the caller whether trying again later can succeed; ``retry_after_s`` is
     set when Meta asked for a pause longer than a send is allowed to block. ``scope`` says
-    whether the refusal concerns this customer or the whole account. ``code``,
+    whether the refusal concerns this customer or the whole account, and ``nothing_sent`` whether
+    Meta's answer proves the message did not go out. ``code``,
     ``details`` and ``fbtrace_id`` are Meta's, for handling (131047: outside the 24 h window,
     send a template) and for support requests.
     """
@@ -92,6 +104,7 @@ class WhatsAppSendError(ProviderError):
         fbtrace_id: str | None = None,
         retry_after_s: float | None = None,
         scope: ErrorScope = "unknown",
+        nothing_sent: bool = False,
     ) -> None:
         super().__init__(
             message,
@@ -100,6 +113,7 @@ class WhatsAppSendError(ProviderError):
             status_code=status_code,
             scope=scope,
             retry_after_s=retry_after_s,
+            nothing_sent=nothing_sent,
         )
         self.attempts = attempts
         self.code = code
@@ -147,6 +161,15 @@ class WhatsAppClient(Messenger):
             graph_version=config.graph_version,
             http=http,
         )
+
+    @property
+    def longest_send_s(self) -> float:
+        """The most one send can take, retries included: every attempt at its limit, then waits.
+
+        A wait is at most ``max_backoff_s``: when Meta asks for longer, the send gives up instead.
+        """
+        attempts = self._max_attempts * _TIMEOUT_PHASES * self._timeout_s
+        return attempts + (self._max_attempts - 1) * self._max_backoff_s
 
     async def send(self, message: OutboundMessage) -> SendResult:
         """``Messenger`` entry point: one outbound message of any kind."""
@@ -206,7 +229,7 @@ class WhatsAppClient(Messenger):
         template: dict[str, Any] = {"name": name, "language": {"code": language}}
         if components:
             template["components"] = [dict(component) for component in components]
-        return await self._send(to, "template", template, None)
+        return await self._send(to, "template", template, None, retry_unclear=False)
 
     async def upload_media(self, blob: Blob) -> str:
         """Upload ``blob`` so it can be sent by ID; returns the media ID."""
@@ -260,7 +283,13 @@ class WhatsAppClient(Messenger):
         await self.aclose()
 
     async def _send(
-        self, to: str, kind: str, content: Mapping[str, Any], reply_to: str | None
+        self,
+        to: str,
+        kind: str,
+        content: Mapping[str, Any],
+        reply_to: str | None,
+        *,
+        retry_unclear: bool = True,
     ) -> SendResult:
         payload: dict[str, Any] = {
             "messaging_product": "whatsapp",
@@ -272,7 +301,12 @@ class WhatsAppClient(Messenger):
         if reply_to:
             payload["context"] = {"message_id": reply_to}
         return await self._request(
-            "POST", self.messages_url, _accepted, repeatable=False, json=payload
+            "POST",
+            self.messages_url,
+            _accepted,
+            repeatable=False,
+            retry_unclear=retry_unclear,
+            json=payload,
         )
 
     async def _request[T](
@@ -282,12 +316,14 @@ class WhatsAppClient(Messenger):
         read: Callable[[httpx2.Response, int], T],
         *,
         repeatable: bool,
+        retry_unclear: bool = True,
         **content: Any,
     ) -> T:
         """One request with the retry policy; ``read`` turns a successful response into a result.
 
         ``repeatable`` requests may be resent after any transport failure; the others only when
-        the failure happened before the request left (``_NEVER_SENT``).
+        the failure happened before the request left (``_NEVER_SENT``). Without ``retry_unclear``,
+        an answer that does not prove nothing went out is raised at once.
         """
         for attempt in range(1, self._max_attempts + 1):
             try:
@@ -307,6 +343,8 @@ class WhatsAppClient(Messenger):
                     retryable=True,
                     attempts=attempt,
                     scope="account",  # nothing reached Meta: the next customer fares no better
+                    # A repeatable request may have left; a send retried here never did.
+                    nothing_sent=isinstance(exc, _NEVER_SENT),
                 )
                 error.__cause__ = exc
             else:
@@ -314,7 +352,11 @@ class WhatsAppClient(Messenger):
                     return read(response, attempt)
                 error = _refused(response, attempt)
 
-            delay = self._retry_delay(error, attempt)
+            delay = (
+                None
+                if not (retry_unclear or error.nothing_sent)
+                else self._retry_delay(error, attempt)
+            )
             if delay is None:
                 raise error
             logger.warning(
@@ -408,6 +450,7 @@ def _refused(response: httpx2.Response, attempt: int) -> WhatsAppSendError:
         f"Cloud API refused the request (HTTP {response.status_code}, code {error.code})",
         retryable=retryable,
         scope=_scope(response.status_code, error.code, retryable),
+        nothing_sent=_nothing_sent(response.status_code, error.code),
         attempts=attempt,
         status_code=response.status_code,
         code=error.code,
@@ -424,6 +467,13 @@ def _scope(status_code: int, code: int | None, retryable: bool) -> ErrorScope:
     if code in ACCOUNT_ERROR_CODES or status_code in (401, 403) or retryable:
         return "account"
     return "unknown"
+
+
+def _nothing_sent(status_code: int, code: int | None) -> bool:
+    """A refusal Meta answered, or a code that says so; a 5xx alone may hide an accepted send."""
+    if code in RETRY_SAFE_ERROR_CODES:
+        return True
+    return status_code < 500 and code != 1
 
 
 def _retry_after_s(response: httpx2.Response) -> float | None:

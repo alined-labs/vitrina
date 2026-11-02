@@ -5,10 +5,11 @@
 The API learns a template's status from Meta's ``message_template_status_update`` webhook, so a
 template approved before the webhook was connected reads as not approved and campaigns answer
 409. This reads the template's status from Meta and delivers it to the API's webhook route as the
-event Meta would have sent, signed with the app secret, so only someone holding that secret can
-run it and the status always comes from Meta, never from whoever runs it. The API applies it under
-the same rules as Meta's own events (WHATSAPP_BUSINESS_ACCOUNT_ID, WHATSAPP_BUSINESS_NUMBER), and
-it stays in the webhook log with ``"source": "sync-template-status"``.
+event Meta would have sent, signed with the app secret. This script only ever delivers the status
+Meta reports, but the route cannot tell it from Meta's own delivery: whoever holds the app secret
+can sign any event, with or without this script. The API applies it under the same rules as Meta's
+events (WHATSAPP_BUSINESS_ACCOUNT_ID, WHATSAPP_BUSINESS_NUMBER), and it stays in the webhook log
+with ``"source": "sync-template-status"``. ``--api`` must be https, or http on this machine.
 
 It needs WHATSAPP_ACCESS_TOKEN, WHATSAPP_APP_SECRET and WHATSAPP_BUSINESS_ACCOUNT_ID. ``--dry-run``
 only prints what Meta says. The route acknowledges whatever it receives, so check the result in
@@ -21,7 +22,7 @@ import os
 import sys
 import time
 from typing import Any
-from urllib.parse import quote
+from urllib.parse import quote, urlsplit
 
 import httpx2
 
@@ -32,10 +33,18 @@ from vitrina_whatsapp.webhook import TEMPLATE_STATUS_FIELD
 
 PAGE = 100
 SOURCE = "sync-template-status"
+THIS_MACHINE = frozenset({"localhost", "127.0.0.1", "::1"})
 
 
 class SyncError(Exception):
     """Meta or the API refused; the message holds the status and no secret."""
+
+
+def check_api(api: str) -> None:
+    """The event is signed, not encrypted: it only leaves this machine over https."""
+    parts = urlsplit(api)
+    if parts.scheme != "https" and not (parts.scheme == "http" and parts.hostname in THIS_MACHINE):
+        raise SyncError("--api must be https (http only on this machine)")
 
 
 def template_status(graph: httpx2.Client, account_id: str) -> str:
@@ -113,6 +122,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--dry-run", action="store_true", help="only print what Meta says")
     args = parser.parse_args(argv)
     try:
+        check_api(args.api)
         account_id = _required("WHATSAPP_BUSINESS_ACCOUNT_ID")
         token = _required("WHATSAPP_ACCESS_TOKEN")
         app_secret = _required("WHATSAPP_APP_SECRET")

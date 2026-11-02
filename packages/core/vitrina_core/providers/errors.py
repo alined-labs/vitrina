@@ -11,6 +11,8 @@ class ProviderError(Exception):
 
     ``scope`` lets a caller working through many recipients tell one refusal from an outage;
     ``retry_after_s`` is the pause the provider asked for, when it asked for one.
+    ``nothing_sent`` is True only when the provider's answer proves the message did not go out; by
+    default a failure may have delivered it, which is what a caller must not repeat.
     """
 
     def __init__(
@@ -22,6 +24,7 @@ class ProviderError(Exception):
         status_code: int | None = None,
         scope: ErrorScope = "unknown",
         retry_after_s: float | None = None,
+        nothing_sent: bool = False,
     ) -> None:
         super().__init__(message)
         self.provider = provider
@@ -29,6 +32,7 @@ class ProviderError(Exception):
         self.status_code = status_code
         self.scope = scope
         self.retry_after_s = retry_after_s
+        self.nothing_sent = nothing_sent
 
 
 class ProviderUnavailableError(ProviderError):
@@ -49,6 +53,7 @@ class RateLimitedError(ProviderError):
             status_code=429,
             scope="account",
             retry_after_s=retry_after_s,
+            nothing_sent=True,
         )
 
 
