@@ -6,8 +6,9 @@ The token is signed HS256 with SUPABASE_JWT_SECRET from .env (any local secret o
 or more; the API must read the same one) and carries the claims core.auth checks: aud, exp
 and sub, plus iss when SUPABASE_URL is set (a local Supabase, e.g. http://localhost:54321).
 Without --seller, sign up with it first: POST /v1/sellers, with the local SERVICE_TOKEN in
-X-Service-Token, links the token's subject to the new seller (T022). It refuses a hosted project (*.supabase.co), where it would mint tokens
-for real accounts; there, sign in through Supabase instead.
+X-Service-Token, links the token's subject to the new seller (T022). It refuses a hosted
+project (*.supabase.co), where it would mint tokens for real accounts; there, sign in through
+Supabase instead.
 """
 
 import argparse

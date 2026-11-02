@@ -68,13 +68,14 @@ API only; the worker never needs it.
 - Create the shop's seller, with the WhatsApp business number as `whatsapp_number`, **before**
   the webhook is set. Inbound messages go to the seller with that number, so `POST /v1/sellers`
   needs the deployment's `SERVICE_TOKEN` in `X-Service-Token`. A signed-in account alone can't
-  create a seller.
+  create a seller, and the owner's token must come with that call, because a seller can't be
+  linked to an account later.
   `scripts/seed-demo.py` creates it with the demo shop's products, facts and photo (the shop in
   `evals/fixtures/sellers/mochilas_ana.json`). First add the owner's sign-in in Supabase
   (Authentication, Users), then run, from the repository root:
 
   ```sh
-  uv run --env-file apps/dashboard/.env.production.local --env-file <production secrets file> \
+  uv run --env-file apps/dashboard/.env.production.local --env-file <file holding only SERVICE_TOKEN> \
     scripts/seed-demo.py \
     --api https://<api address>/v1 --whatsapp-number <business number, E.164> \
     --sign-in <owner email> --photo mochila-azul=<path to the product photo>

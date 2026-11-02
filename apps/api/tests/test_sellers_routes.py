@@ -77,6 +77,27 @@ def test_as_1_1_without_a_configured_operator_token_nobody_creates_a_seller() ->
         assert response.status_code == 401
 
 
+def test_as_1_1_a_refused_call_does_not_burn_its_idempotency_key(client: TestClient) -> None:
+    key = {"Idempotency-Key": "seller-create-key"}
+
+    refused = client.post("/v1/sellers", json=NEW_SELLER, headers=key)
+    created = client.post("/v1/sellers", json=NEW_SELLER, headers={**key, **OPERATOR})
+
+    assert refused.status_code == 401
+    assert created.status_code == 201
+    assert "Idempotent-Replayed" not in created.headers
+
+
+def test_as_1_1_a_blank_operator_token_counts_as_unset() -> None:
+    blank = TestClient(
+        create_app(Settings(_env_file=None, supabase_jwt_secret=SECRET, service_token="  "))  # type: ignore[call-arg]
+    )
+
+    response = blank.post("/v1/sellers", json=NEW_SELLER, headers={"X-Service-Token": "  "})
+
+    assert response.status_code == 401
+
+
 def test_signing_up_with_a_token_links_the_account_to_the_seller(client: TestClient) -> None:
     created = client.post("/v1/sellers", json=NEW_SELLER, headers=as_operator(bearer())).json()
 

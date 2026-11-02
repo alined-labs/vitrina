@@ -53,6 +53,9 @@ paths:
       tags: [Sellers]
       operationId: createSeller
       summary: Create a seller account
+      description: >-
+        Operator only. Send the owner's Supabase token as well, in `Authorization`, so the new
+        seller is linked to the account that will sign in; there is no way to link it later.
       security: [{ serviceAuth: [] }]
       parameters: [{ $ref: '#/components/parameters/IdempotencyKey' }]
       requestBody:
@@ -1308,7 +1311,7 @@ components:
       type: apiKey
       in: header
       name: X-Service-Token
-      description: Internal workers.
+      description: Internal workers, and the operator creating a seller.
     whatsappSignature:
       type: apiKey
       in: header

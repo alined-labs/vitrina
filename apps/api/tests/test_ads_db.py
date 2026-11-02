@@ -28,7 +28,14 @@ from vitrina_creative.api import AdStore, get_approved_asset, read_provenance
 from vitrina_creative.testing import source_photo
 from vitrina_learning.tables import attribution_events
 
-from .test_creative_db import SECRET, STRANGER, bearer, scripted_providers, sign_up
+from .test_creative_db import (
+    SECRET,
+    SERVICE_TOKEN,
+    STRANGER,
+    bearer,
+    scripted_providers,
+    sign_up,
+)
 
 OWNER = "8d3b2e4f-5a6c-4b7d-9e0f-1a2b3c4d5e6f"
 LINK_A1 = "https://wa.me/573000000701?text=Hola%2C%20vi%20el%20anuncio%20%23A1"
@@ -61,6 +68,7 @@ async def test_db_as_2_5_an_ad_goes_from_draft_to_a_code_an_export_and_a_chat(
     settings = Settings(
         _env_file=None,
         database_url=url,
+        service_token=SERVICE_TOKEN,
         db_schema=schema,
         supabase_jwt_secret=SECRET,
         storage_dir=tmp_path,

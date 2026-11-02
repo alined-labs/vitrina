@@ -13,7 +13,10 @@ export interface paths {
         };
         get?: never;
         put?: never;
-        /** Create a seller account */
+        /**
+         * Create a seller account
+         * @description Operator only. Send the owner's Supabase token as well, in `Authorization`, so the new seller is linked to the account that will sign in; there is no way to link it later.
+         */
         post: operations["createSeller"];
         delete?: never;
         options?: never;
