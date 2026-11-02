@@ -9,8 +9,7 @@ every part, so it shows what was erased:
     [project.entry-points."vitrina.erasure"]
     conversation = "vitrina_conversation.erasure:erase"   # async (ctx, seller_id, contact_id) -> "messages"
 
-A failing part fails the job, and the worker retries it well inside the 24 hours. The job waits
-for an answer the inbound worker is still writing, so the erasure covers that answer too.
+A failing part fails the job, and the worker retries it well inside the 24 hours.
 """
 
 from collections.abc import Awaitable, Callable, Iterable

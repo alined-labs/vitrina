@@ -3,9 +3,7 @@
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from typing import Any
-from uuid import UUID
 
-import sqlalchemy as sa
 from sqlalchemy import event
 from sqlalchemy.ext.asyncio import (
     AsyncEngine,
@@ -57,21 +55,3 @@ async def session_scope(factory: async_sessionmaker[AsyncSession]) -> AsyncItera
     """One unit of work: commit on success, roll back on any error."""
     async with factory() as session, session.begin():
         yield session
-
-
-@asynccontextmanager
-async def customer_work_lock(
-    sessions: async_sessionmaker[AsyncSession], seller_id: UUID
-) -> AsyncIterator[None]:
-    """One at a time per seller: answering a customer message, or erasing a contact.
-
-    They run in different worker processes, and an answer still being written when the erasure
-    ran would keep the customer's words after the receipt says they are gone. The lock lives in
-    its own transaction, which only ever rolls back, so a cancelled job or a dead connection
-    releases it. It takes the id's last 8 bytes: bookings lock on the first 8, and a turn books
-    while it holds this one.
-    """
-    key = int.from_bytes(seller_id.bytes[8:], "big", signed=True)
-    async with sessions() as session:
-        await session.execute(sa.select(sa.func.pg_advisory_xact_lock(sa.cast(key, sa.BigInteger))))
-        yield

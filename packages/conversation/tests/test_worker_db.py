@@ -6,8 +6,8 @@ messenger stand in for the providers.
 
 import asyncio
 import dataclasses
+import re
 from pathlib import Path
-from uuid import uuid4
 
 import pytest
 import sqlalchemy as sa
@@ -15,7 +15,7 @@ from cryptography.fernet import Fernet
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from vitrina_catalog.sellers import PostgresSellerStore, SellerCreate
-from vitrina_compliance.erasure import request_erasure
+from vitrina_compliance.erasure import ERASURE_TASK, request_erasure
 from vitrina_compliance.tables import contacts
 from vitrina_conversation.api import (
     PROCESS_INBOUND,
@@ -24,15 +24,14 @@ from vitrina_conversation.api import (
     PostgresInboundQueue,
     sellers_on_postgres,
 )
-from vitrina_conversation.booking import PostgresBookings
 from vitrina_conversation.tables import messages
 from vitrina_conversation.testing import ScriptedChat, final_answer, webhook_fixture
-from vitrina_core.db import customer_work_lock
+from vitrina_core.db.tables import jobs as job_rows
 from vitrina_core.jobs import PostgresJobQueue, TaskRegistry, Worker, load_tasks
 from vitrina_core.ledger import InMemoryLedger
 from vitrina_core.providers import ChatRequest, ChatResponse
 from vitrina_core.providers.compose import ProviderMode, compose
-from vitrina_core.settings import Settings
+from vitrina_core.settings import REPO_ROOT, Settings
 from vitrina_local_mock import MockOutbox
 from vitrina_whatsapp.signature import sign
 
@@ -101,10 +100,21 @@ async def test_db_t027_a_queued_message_is_answered_once_by_the_worker(
     ]
 
 
-async def test_db_an_erasure_requested_mid_turn_also_erases_the_reply_written_after_it(
+def deployed_inbound_lane() -> frozenset[str]:
+    """The tasks production gives the inbound worker, read from the script that deploys it."""
+    found = re.search(
+        r"^INBOUND_WORKER_TASKS=(.+)$", (REPO_ROOT / "deploy" / "azure.sh").read_text(), re.M
+    )
+    assert found is not None
+    return frozenset(found.group(1).split(","))
+
+
+async def test_db_an_erasure_requested_mid_turn_waits_in_the_lane_and_leaves_no_words_behind(
     db_sessions: async_sessionmaker[AsyncSession], tmp_path: Path
 ) -> None:
-    """The two workers run at once, but an erasure still covers the answer being written."""
+    """The deployed lanes on Postgres: the other worker's claim cannot take the erasure, and the
+    lane's own loop runs it after the turn. One replica per lane is what makes that loop serial;
+    ``claim`` alone would hand the erasure to a second replica of the lane."""
     settings = Settings(  # type: ignore[call-arg]
         _env_file=None,
         model_agent="spark-test",
@@ -122,49 +132,79 @@ async def test_db_an_erasure_requested_mid_turn_also_erases_the_reply_written_af
         auth_subject=None,
     )
     jobs = PostgresJobQueue(db_sessions)
+    body = webhook_fixture("text_question_shipping")
     await Ingest(
         store=PostgresConversationStore(db_sessions),
         queue=PostgresInboundQueue(db_sessions, jobs),
         sellers=sellers_on_postgres(db_sessions),
         app_secret=SECRET,
-    ).receive(
-        body := webhook_fixture("text_question_shipping"),
-        sign(body, SECRET),
-    )
+    ).receive(body, sign(body, SECRET))
     registry = TaskRegistry()
     load_tasks(registry)
+    lane_tasks = deployed_inbound_lane()
     general = Worker(
-        jobs,
-        registry.narrowed(exclude={PROCESS_INBOUND}),
-        sessions=db_sessions,
-        settings=settings,
+        jobs, registry.narrowed(exclude=lane_tasks), sessions=db_sessions, settings=settings
     )
-    erasing: list[asyncio.Task[bool]] = []
+    general_claimed: list[bool] = []
+    erasure_during_the_turn: list[str | None] = []
 
     class ErasureRequestedMidTurn(ScriptedChat):
         async def complete(self, request: ChatRequest) -> ChatResponse:
-            if request.purpose != "classify" and not erasing:
+            if request.purpose != "classify" and not general_claimed:
                 async with db_sessions() as session, session.begin():
                     contact_id = await session.scalar(sa.select(contacts.c.id))
                     await request_erasure(jobs, session, seller.id, contact_id)
-                erasing.append(asyncio.create_task(general.run_once()))
+                general_claimed.append(await general.run_once())
                 await asyncio.sleep(1.0)  # far longer than an idle worker takes to erase
+                async with db_sessions() as session:
+                    erasure_during_the_turn.append(
+                        await session.scalar(
+                            sa.select(job_rows.c.status).where(job_rows.c.task == ERASURE_TASK)
+                        )
+                    )
             return await super().complete(request)
 
-    inbound = Worker(
+    lane = Worker(
         jobs,
-        registry.narrowed(only={PROCESS_INBOUND}),
+        registry.narrowed(only=lane_tasks),
         sessions=db_sessions,
         providers=dataclasses.replace(
             compose(settings, InMemoryLedger(), mode=ProviderMode.replay),
             chat=ErasureRequestedMidTurn([final_answer(GREETING, confidence=0.95)]),
         ),
         settings=settings,
+        poll_interval_s=0.05,
     )
 
-    assert await inbound.run_once() is True
-    assert await erasing[0] is True
+    async def finished_jobs() -> dict[str, sa.Row[tuple[str, object, object]]]:
+        async with db_sessions() as session:
+            rows = await session.execute(
+                sa.select(
+                    job_rows.c.task,
+                    job_rows.c.status,
+                    job_rows.c.started_at,
+                    job_rows.c.finished_at,
+                ).where(job_rows.c.finished_at.is_not(None))
+            )
+        return {row.task: row for row in rows}
 
+    stop = asyncio.Event()
+    running = asyncio.create_task(lane.run(stop))
+    try:
+        async with asyncio.timeout(60):
+            while len(done := await finished_jobs()) < 2:
+                await asyncio.sleep(0.1)
+    finally:
+        stop.set()
+        await running
+
+    assert general_claimed == [False]
+    assert erasure_during_the_turn == ["queued"]
+    assert {task: row.status for task, row in done.items()} == {
+        PROCESS_INBOUND: "succeeded",
+        ERASURE_TASK: "succeeded",
+    }
+    assert done[ERASURE_TASK].started_at >= done[PROCESS_INBOUND].finished_at
     async with db_sessions() as session:
         rows = (
             await session.execute(
@@ -177,51 +217,3 @@ async def test_db_an_erasure_requested_mid_turn_also_erases_the_reply_written_af
     assert [(row.text, row.agent_output) for row in rows] == [(None, None), (None, None)]
     outbox = MockOutbox(settings.mock_outbox_path)
     assert [entry.text for entry in outbox.entries(contact="+573000000001")] == [GREETING]
-
-
-async def test_db_a_booking_during_a_turn_does_not_wait_for_the_turns_own_lock(
-    db_sessions: async_sessionmaker[AsyncSession],
-) -> None:
-    seller_id = uuid4()
-
-    async with customer_work_lock(db_sessions, seller_id):
-        async with asyncio.timeout(5):
-            async with PostgresBookings(db_sessions).locked(seller_id):
-                pass
-
-
-async def test_db_the_lock_keeps_one_holder_per_seller_and_lets_other_sellers_through(
-    db_sessions: async_sessionmaker[AsyncSession],
-) -> None:
-    seller_id = uuid4()
-
-    async def second_holder() -> None:
-        async with customer_work_lock(db_sessions, seller_id):
-            pass
-
-    async with customer_work_lock(db_sessions, seller_id):
-        waiting = asyncio.create_task(second_holder())
-        await asyncio.sleep(0.5)
-        assert not waiting.done()
-        async with asyncio.timeout(5), customer_work_lock(db_sessions, uuid4()):
-            pass
-    async with asyncio.timeout(5):
-        await waiting
-
-
-async def test_db_a_cancelled_holder_releases_the_lock(
-    db_sessions: async_sessionmaker[AsyncSession],
-) -> None:
-    seller_id = uuid4()
-
-    async def holder() -> None:
-        async with customer_work_lock(db_sessions, seller_id):
-            await asyncio.sleep(60)
-
-    task = asyncio.create_task(holder())
-    await asyncio.sleep(0.5)
-    task.cancel()
-    await asyncio.gather(task, return_exceptions=True)
-
-    async with asyncio.timeout(5), customer_work_lock(db_sessions, seller_id):
-        pass

@@ -22,7 +22,7 @@ INBOUND_WORKER_CPU=${INBOUND_WORKER_CPU:-0.25}
 INBOUND_WORKER_MEMORY=${INBOUND_WORKER_MEMORY:-0.5Gi}
 # Customer messages run in their own worker, so they never wait behind a long job. One message
 # of a customer at a time needs one replica claiming this task, so no other app may claim it.
-INBOUND_TASK=conversation.process_inbound
+INBOUND_WORKER_TASKS=conversation.process_inbound
 
 dry=${DRY_RUN:-0}
 tag=${IMAGE_TAG:-$(git -C "$root" rev-parse --short=12 HEAD)}
@@ -110,8 +110,8 @@ env_args+=("DB_SCHEMA=$DB_SCHEMA" "${SETTINGS[@]}")
 api_secret_args=("${secret_args[@]}" "${api_only_secrets[@]}")
 api_env_args=("${env_args[@]}" "${api_only_env[@]}")
 # Each worker gets what the other gets, plus the limit that keeps them apart.
-worker_env_args=("${env_args[@]}" "WORKER_EXCLUDE_TASKS=$INBOUND_TASK")
-inbound_worker_env_args=("${env_args[@]}" "WORKER_TASKS=$INBOUND_TASK")
+worker_env_args=("${env_args[@]}" "WORKER_EXCLUDE_TASKS=$INBOUND_WORKER_TASKS")
+inbound_worker_env_args=("${env_args[@]}" "WORKER_TASKS=$INBOUND_WORKER_TASKS")
 
 step() { printf '\n== %s\n' "$*"; }
 
