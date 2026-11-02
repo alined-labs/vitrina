@@ -65,9 +65,12 @@ The script is idempotent. In order, it:
      replies. Erasures share this worker so they run between answers: one that ran during an
      answer would miss the reply written after it. A slow erasure holds replies up until it ends
      or reaches its time limit; waiting messages stay in the queue;
-6. checks that `vitrina-worker-inbound` is running: its latest revision must read `Running*` with
-   a replica, three checks in a row, while its containers do not restart. If not, the script stops
-   with `DEPLOY FAILED` and the app's name instead of reporting success;
+6. after each worker, checks that its new revision is running: the latest revision must run the
+   image of this deploy and read `Running*` with a replica, three checks in a row, while its
+   containers do not restart. If not, the script stops with `DEPLOY FAILED` and the app's name
+   instead of reporting success. The general worker is checked before the inbound worker is
+   touched: a failed update leaves its old revision running, and that revision must not run beside
+   a new inbound worker;
 7. waits for `GET /v1/health` and prints the API address and the WhatsApp webhook URL.
 
 Every secret becomes a Container Apps secret and reaches the apps as a `secretref`. Values are

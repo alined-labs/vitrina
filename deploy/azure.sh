@@ -200,28 +200,36 @@ deploy_app() {
   fi
 }
 
+# require_running <app> <what its failure means>: stops the deploy unless the app's new revision
+# runs (deploy/check-running.sh).
+require_running() {
+  step "is $1 running?"
+  if ! DRY_RUN=$dry bash "$root/deploy/check-running.sh" "$1" "$AZURE_RESOURCE_GROUP" "$image"; then
+    echo "DEPLOY FAILED: $1 is not running; $2" >&2
+    exit 1
+  fi
+}
+
 step "API $API_APP: public ingress on 8080"
 deploy_app "$API_APP" "$API_CPU" "$API_MEMORY" api_secret_args api_env_args \
   --ingress external --target-port 8080
 
 # In this order: on the deploy that adds the inbound worker, the general worker gets its limit
 # first. az returning does not mean its old replica has stopped, and that replica keeps claiming
-# customer messages until it does, so for that moment both workers may claim them. If a later
-# step fails, messages and erasures wait in the queue until the script runs again.
+# customer messages until it does, so for that moment both workers may claim them. If its new
+# revision fails, its old one keeps running, so the deploy stops here: that old revision and a new
+# inbound worker must not run side by side. If the inbound step fails, messages and erasures wait
+# in the queue until the script runs again.
 step "worker $WORKER_APP: no ingress, one replica takes every job but messages and erasures"
 deploy_app "$WORKER_APP" "$WORKER_CPU" "$WORKER_MEMORY" secret_args worker_env_args \
   --command vitrina-worker
+require_running "$WORKER_APP" "its old revision may still be running, so the inbound worker was not touched"
 
 step "inbound worker $INBOUND_WORKER_APP: no ingress, one replica takes messages and erasures"
 deploy_app "$INBOUND_WORKER_APP" "$INBOUND_WORKER_CPU" "$INBOUND_WORKER_MEMORY" \
   secret_args inbound_worker_env_args --command vitrina-worker
 
-step "is $INBOUND_WORKER_APP running?"
-if ! DRY_RUN=$dry bash "$root/deploy/check-running.sh" "$INBOUND_WORKER_APP" "$AZURE_RESOURCE_GROUP"; then
-  echo "DEPLOY FAILED: $INBOUND_WORKER_APP is not running; customer messages and erasures wait in" \
-    "the queue until it is" >&2
-  exit 1
-fi
+require_running "$INBOUND_WORKER_APP" "customer messages and erasures wait in the queue until it is"
 
 step "check"
 if [[ $dry == 1 ]]; then

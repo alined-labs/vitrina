@@ -2,16 +2,17 @@
 # Stops a deploy when a container app is not running: `az containerapp update` and `create` return
 # once the change is accepted, and a worker that exits at startup looks the same to them.
 #
-#   deploy/check-running.sh <app> <resource group>
+#   deploy/check-running.sh <app> <resource group> <image this deploy set>
 #   DRY_RUN=1 deploy/check-running.sh ...    prints the az commands instead
 #
 # Running means the latest revision (not the latest ready one, which may be the old revision a
-# failed update left in place) reads Running* with a replica, several checks in a row, while its
-# containers do not restart. A state this script does not know never counts as running, so the
-# worst a surprise in az's output can do is a false alarm, never a false success.
+# failed update left in place) runs the image this deploy set and reads Running* with a replica,
+# several checks in a row, while its containers do not restart. A state this script does not know
+# never counts as running, so the worst a surprise in az's output can do is a false alarm, never a
+# false success.
 set -uo pipefail
 
-app=$1 group=$2
+app=$1 group=$2 expected_image=$3
 attempts=${CHECK_ATTEMPTS:-30}
 interval=${CHECK_INTERVAL_S:-10}
 in_a_row=3
@@ -33,7 +34,7 @@ restart_count() {
 if [[ ${DRY_RUN:-0} == 1 ]]; then
   az() { printf 'az'; printf ' %q' "$@"; printf '\n'; }
   latest_revision
-  for field in provisioningState runningState replicas; do
+  for field in 'template.containers[0].image' provisioningState runningState replicas; do
     revision_field '<latest revision>' "$field"
   done
   restart_count '<latest revision>'
@@ -54,16 +55,19 @@ for ((attempt = 1; attempt <= attempts; attempt++)); do
     streak=0 why="az named no latest revision"
     continue
   fi
+  image=$(revision_field "$revision" 'template.containers[0].image') || image=""
   provisioning=$(revision_field "$revision" provisioningState) || provisioning=""
   running=$(revision_field "$revision" runningState) || running=""
   replicas=$(revision_field "$revision" replicas) || replicas=""
   restarts=$(restart_count "$revision") || restarts=""
   restarts=${restarts%%.*}
-  state="revision $revision: provisioning '$provisioning', running '$running', replicas '$replicas', restarts '$restarts'"
+  state="revision $revision: image '$image', provisioning '$provisioning', running '$running', replicas '$replicas', restarts '$restarts'"
   if [[ $provisioning == *[Ff]ailed* || $running == *[Ff]ailed* ]]; then
     not_running "$state"
   fi
-  if [[ $running != Running* || ! $replicas =~ ^[1-9][0-9]*$ || ! $restarts =~ ^[0-9]+$ ]]; then
+  if [[ $image != "$expected_image" ]]; then
+    streak=0 why="the latest revision does not run $expected_image; $state"
+  elif [[ $running != Running* || ! $replicas =~ ^[1-9][0-9]*$ || ! $restarts =~ ^[0-9]+$ ]]; then
     streak=0 why=$state
   elif [[ -n $previous_restarts ]] && ((restarts > previous_restarts)); then
     streak=0 why="its containers keep restarting; $state"

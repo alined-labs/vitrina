@@ -112,6 +112,13 @@ def dry_run(tmp_path: Path, *, exists: bool = False) -> tuple[str, dict[str, str
     return result.stdout, values
 
 
+CHECK_COMMANDS = [
+    "az containerapp show",
+    *["az containerapp revision"] * 4,
+    "az containerapp replica",
+]
+
+
 def test_every_secret_setting_is_deployed_as_a_container_apps_secret() -> None:
     mapping = secret_map()
 
@@ -133,12 +140,9 @@ def test_a_first_deploy_creates_everything_and_never_prints_a_secret(tmp_path: P
         "az containerapp env",
         "az containerapp create",
         "az containerapp create",
+        *CHECK_COMMANDS,
         "az containerapp create",
-        "az containerapp show",
-        "az containerapp revision",
-        "az containerapp revision",
-        "az containerapp revision",
-        "az containerapp replica",
+        *CHECK_COMMANDS,
     ]
     api, worker, _inbound = (line for line in commands if line.startswith("az containerapp create"))
     assert "--ingress external --target-port 8080" in api
@@ -302,33 +306,24 @@ def test_a_config_from_before_the_inbound_worker_still_deploys_it(tmp_path: Path
     )
 
 
-@pytest.mark.parametrize("exists", [False, True])
-def test_a_dry_run_shows_the_check_on_the_inbound_worker_after_it_is_deployed(
-    tmp_path: Path, exists: bool
-) -> None:
-    lines = dry_run(tmp_path, exists=exists)[0].splitlines()
-    verb = "update" if exists else "create"
-    deployed = next(
-        number
-        for number, line in enumerate(lines)
-        if line.startswith(f"az containerapp {verb} --name vitrina-worker-inbound")
-    )
-    calls = [
-        shlex.split(line)
-        for line in lines[deployed + 1 :]
-        if line.startswith("az containerapp ") and not line.startswith("az containerapp create")
-    ]
-    target = ["--name", "vitrina-worker-inbound", "--resource-group", "vitrina"]
+def check_calls(app: str) -> list[list[str]]:
+    """The az calls deploy/check-running.sh makes for ``app``, as a dry run prints them."""
+    target = ["--name", app, "--resource-group", "vitrina"]
     revision = ["--revision", "<latest revision>"]
 
     def tsv(query: str) -> list[str]:
         return ["--query", query, "--output", "tsv"]
 
-    assert calls == [
+    return [
         ["az", "containerapp", "show", *target, *tsv("properties.latestRevisionName")],
         *(
             ["az", "containerapp", "revision", "show", *target, *revision, *tsv(f"properties.{f}")]
-            for f in ("provisioningState", "runningState", "replicas")
+            for f in (
+                "template.containers[0].image",
+                "provisioningState",
+                "runningState",
+                "replicas",
+            )
         ),
         [
             "az",
@@ -340,12 +335,42 @@ def test_a_dry_run_shows_the_check_on_the_inbound_worker_after_it_is_deployed(
             *tsv("sum([].properties.containers[].restartCount)"),
         ],
     ]
-    assert lines.index("curl -fsS https://<api fqdn>/v1/health") > deployed
+
+
+@pytest.mark.parametrize("exists", [False, True])
+def test_a_dry_run_checks_each_worker_right_after_deploying_it_general_first(
+    tmp_path: Path, exists: bool
+) -> None:
+    verb = "update" if exists else "create"
+    calls = [
+        shlex.split(line)
+        for line in dry_run(tmp_path, exists=exists)[0].splitlines()
+        if line.startswith("az containerapp ")
+    ]
+    deploys = [
+        number
+        for number, call in enumerate(calls)
+        if call[:3] == ["az", "containerapp", verb]
+        and call[call.index("--name") + 1] in ("vitrina-worker", "vitrina-worker-inbound")
+    ]
+    general, inbound = deploys
+
+    assert calls[general][calls[general].index("--name") + 1] == "vitrina-worker"
+    assert calls[general + 1 : general + 7] == check_calls("vitrina-worker")
+    assert calls[inbound][calls[inbound].index("--name") + 1] == "vitrina-worker-inbound"
+    assert calls[inbound + 1 : inbound + 7] == check_calls("vitrina-worker-inbound")
+    assert inbound > general + 6
+
+
+def test_a_dry_run_runs_the_api_check_last(tmp_path: Path) -> None:
+    lines = dry_run(tmp_path)[0].splitlines()
+
+    assert lines[-1] == "curl -fsS https://<api fqdn>/v1/health"
 
 
 def stub_az(tmp_path: Path, **answers: list[str]) -> dict[str, str]:
     """An ``az`` that answers each state from a list, repeating the last answer; the environment
-    to run with it."""
+    to run with it. ``running.<app>`` answers for that app alone."""
     for name, lines in answers.items():
         (tmp_path / name).write_text("".join(f"{line}\n" for line in lines))
     stub = tmp_path / "bin" / "az"
@@ -354,12 +379,20 @@ def stub_az(tmp_path: Path, **answers: list[str]) -> dict[str, str]:
         f"""#!/bin/sh
 cd {shlex.quote(str(tmp_path))}
 echo "$@" >> az-calls
+previous=""
+for arg in "$@"; do
+  [ "$previous" = --name ] && app=$arg
+  previous=$arg
+done
 next() {{
-  n=$(cat "$1.n" 2>/dev/null || echo 0); n=$((n + 1)); echo "$n" > "$1.n"
-  line=$(sed -n "${{n}}p" "$1"); [ -n "$line" ] || line=$(tail -n 1 "$1"); printf '%s\\n' "$line"
+  file=$1; [ -f "$1.$app" ] && file="$1.$app"
+  n=$(cat "$file.n" 2>/dev/null || echo 0); n=$((n + 1)); echo "$n" > "$file.n"
+  line=$(sed -n "${{n}}p" "$file"); [ -n "$line" ] || line=$(tail -n 1 "$file")
+  printf '%s\\n' "$line"
 }}
 case "$*" in
-  *properties.latestRevisionName*) echo vitrina-worker-inbound--r1 ;;
+  *properties.latestRevisionName*) echo "$app--r1" ;;
+  *"properties.template.containers[0].image"*) next image ;;
   *properties.provisioningState*) next provisioning ;;
   *properties.runningState*) next running ;;
   *properties.replicas*) next replicas ;;
@@ -378,16 +411,21 @@ esac
     }
 
 
+NEW_IMAGE = "vitrinaregistry.azurecr.io/vitrina:test"
+OLD_IMAGE = "vitrinaregistry.azurecr.io/vitrina:older"
+HEALTHY = {
+    "image": [NEW_IMAGE],
+    "provisioning": ["Provisioned"],
+    "running": ["Running"],
+    "replicas": ["1"],
+    "restarts": ["0"],
+}
+
+
 def check_running(tmp_path: Path, **answers: list[str]) -> subprocess.CompletedProcess[str]:
-    defaults = {
-        "provisioning": ["Provisioned"],
-        "running": ["Running"],
-        "replicas": ["1"],
-        "restarts": ["0"],
-    }
     return subprocess.run(
-        ["bash", str(CHECK), "vitrina-worker-inbound", "vitrina"],
-        env=stub_az(tmp_path, **(defaults | answers)),
+        ["bash", str(CHECK), "vitrina-worker-inbound", "vitrina", NEW_IMAGE],
+        env=stub_az(tmp_path, **(HEALTHY | answers)),
         capture_output=True,
         text=True,
     )
@@ -428,6 +466,8 @@ def test_a_worker_that_keeps_running_passes_the_check(
         {"restarts": [""]},
         {"restarts": ["0", "1", "2", "3", "4", "5"]},
         {"running": ["Running", "Running", "Degraded", "Running", "Running", "Degraded"]},
+        {"image": [OLD_IMAGE]},
+        {"image": [""]},
     ],
     ids=[
         "degraded",
@@ -441,6 +481,8 @@ def test_a_worker_that_keeps_running_passes_the_check(
         "restarts blank",
         "crash loop",
         "flapping",
+        "an old revision still running",
+        "image blank",
     ],
 )
 def test_a_worker_that_is_not_running_fails_the_check_and_names_the_app(
@@ -474,7 +516,7 @@ def test_the_check_fails_when_az_itself_fails(tmp_path: Path) -> None:
     (tmp_path / "bin" / "az").write_text("#!/bin/sh\nexit 97\n")
 
     result = subprocess.run(
-        ["bash", str(CHECK), "vitrina-worker-inbound", "vitrina"],
+        ["bash", str(CHECK), "vitrina-worker-inbound", "vitrina", NEW_IMAGE],
         env=env,
         capture_output=True,
         text=True,
@@ -484,15 +526,9 @@ def test_the_check_fails_when_az_itself_fails(tmp_path: Path) -> None:
     assert "vitrina-worker-inbound is not running" in result.stderr
 
 
-def real_run_with_stubs(tmp_path: Path, running: str) -> subprocess.CompletedProcess[str]:
+def real_run_with_stubs(tmp_path: Path, **answers: list[str]) -> subprocess.CompletedProcess[str]:
     """The script's real path, with az, uv and curl all stubs: nothing leaves this machine."""
-    env = stub_az(
-        tmp_path,
-        provisioning=["Provisioned"],
-        running=[running],
-        replicas=["1"],
-        restarts=["0"],
-    )
+    env = stub_az(tmp_path, **(HEALTHY | answers))
     for tool in ("uv", "curl"):
         stub = tmp_path / "bin" / tool
         stub.write_text(f'#!/bin/sh\necho "$@" >> {tmp_path / (tool + "-calls")}\nexit 0\n')
@@ -511,7 +547,7 @@ def real_run_with_stubs(tmp_path: Path, running: str) -> subprocess.CompletedPro
 def test_a_deploy_does_not_report_success_while_the_inbound_worker_is_not_running(
     tmp_path: Path,
 ) -> None:
-    result = real_run_with_stubs(tmp_path, "Degraded")
+    result = real_run_with_stubs(tmp_path, **{"running.vitrina-worker-inbound": ["Degraded"]})
 
     assert result.returncode == 1
     assert "DEPLOY FAILED: vitrina-worker-inbound is not running" in result.stderr
@@ -519,10 +555,33 @@ def test_a_deploy_does_not_report_success_while_the_inbound_worker_is_not_runnin
     assert not (tmp_path / "curl-calls").exists()
 
 
-def test_a_deploy_goes_on_to_the_api_check_once_the_inbound_worker_runs(tmp_path: Path) -> None:
-    result = real_run_with_stubs(tmp_path, "Running")
+@pytest.mark.parametrize(
+    "answers",
+    [
+        {"running.vitrina-worker": ["Degraded"]},
+        {"running.vitrina-worker": ["Failed"]},
+        {"provisioning.vitrina-worker": ["Failed"]},
+        {"image.vitrina-worker": [OLD_IMAGE]},
+    ],
+    ids=["degraded", "failed", "provisioning failed", "an old revision still running"],
+)
+def test_a_general_worker_that_fails_stops_the_deploy_before_the_inbound_worker_is_touched(
+    tmp_path: Path, answers: dict[str, list[str]]
+) -> None:
+    result = real_run_with_stubs(tmp_path, **answers)
+
+    assert result.returncode == 1
+    assert "DEPLOY FAILED: vitrina-worker is not running" in result.stderr
+    assert "vitrina-worker-inbound" not in (tmp_path / "az-calls").read_text()
+    assert "WhatsApp webhook:" not in result.stdout
+    assert not (tmp_path / "curl-calls").exists()
+
+
+def test_a_deploy_goes_on_to_the_api_check_once_both_workers_run(tmp_path: Path) -> None:
+    result = real_run_with_stubs(tmp_path)
 
     assert result.returncode == 0, result.stderr
+    assert "vitrina-worker is running" in result.stdout
     assert "vitrina-worker-inbound is running" in result.stdout
     assert "WhatsApp webhook:" in result.stdout
 
