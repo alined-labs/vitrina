@@ -11,8 +11,10 @@ from hypothesis import strategies as st
 from vitrina_whatsapp.webhook import (
     DeliveryStatus,
     MediaRef,
+    TemplateStatusUpdate,
     WebhookPayloadError,
     WebhookStatus,
+    marketing_status,
     merge_delivery_status,
     parse_webhook,
 )
@@ -248,13 +250,87 @@ def test_fr_028_failed_status_carries_the_meta_error(webhook_body: Callable[[str
     assert "24 hours" in error.details
 
 
-def test_as_3_1_other_webhook_fields_are_ignored_not_rejected(
+def test_as_3_1_other_webhook_fields_are_ignored_not_rejected() -> None:
+    batch = parse_webhook(
+        {
+            "object": "whatsapp_business_account",
+            "entry": [
+                {
+                    "id": "100000000000002",
+                    "changes": [{"field": "account_review_update", "value": {}}],
+                }
+            ],
+        }
+    )
+
+    assert (batch.messages, batch.statuses, batch.template_updates) == ((), (), ())
+    assert batch.ignored_fields == ("account_review_update",)
+
+
+def test_fr_064_a_template_status_event_is_read_with_its_account(
     webhook_body: Callable[[str], bytes],
 ) -> None:
     batch = parse_webhook(webhook_body("template_status_update"))
 
-    assert (batch.messages, batch.statuses) == ((), ())
-    assert batch.ignored_fields == ("message_template_status_update",)
+    assert batch.template_updates == (
+        TemplateStatusUpdate(
+            account_id="100000000000002",
+            template_name="vitrina_reactivacion",
+            language="es",
+            event="APPROVED",
+        ),
+    )
+    assert (batch.messages, batch.statuses, batch.ignored_fields) == ((), (), ())
+
+
+def test_fr_064_a_template_event_it_cannot_read_is_listed_without_its_values() -> None:
+    batch = parse_webhook(
+        {
+            "object": "whatsapp_business_account",
+            "entry": [
+                {
+                    "id": "100000000000002",
+                    "changes": [
+                        {
+                            "field": "message_template_status_update",
+                            "value": {"event": "APPROVED", "message_template_language": "es"},
+                        }
+                    ],
+                }
+            ],
+        }
+    )
+
+    assert batch.template_updates == ()
+    (problem,) = batch.unreadable
+    assert problem.startswith("templates.0: message_template_name")
+    assert "APPROVED" not in problem
+
+
+@pytest.mark.parametrize(
+    ("event", "status"),
+    [
+        ("APPROVED", "approved"),
+        ("REINSTATED", "approved"),
+        ("PENDING", "pending"),
+        ("IN_APPEAL", "pending"),
+        ("PAUSED", "pending"),
+        ("REJECTED", "rejected"),
+        ("DISABLED", "rejected"),
+        ("ARCHIVED", "none"),
+        ("DELETED", "none"),
+        ("PENDING_DELETION", "none"),
+        ("FLAGGED", None),  # still sendable, only at risk
+        ("LOCKED", None),  # only editing is locked
+        ("LIMIT_EXCEEDED", None),  # about the account's template count
+        ("UNARCHIVED", None),  # back to a previous status the event does not name
+        ("SOMETHING_NEW", None),  # nothing Meta adds later can open the send gate
+    ],
+)
+def test_fr_064_each_template_event_maps_to_the_seller_status(
+    event: str, status: str | None
+) -> None:
+    assert marketing_status(event) == status
 
 
 @pytest.mark.parametrize(

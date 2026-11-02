@@ -265,6 +265,57 @@ async def test_fr_028_permanent_errors_are_raised_without_retry(clock: Clock) ->
     assert clock.sleeps == []
 
 
+@pytest.mark.parametrize(
+    ("status", "code", "scope"),
+    [
+        (400, 131026, "recipient"),  # undeliverable
+        (400, 131050, "recipient"),  # opted out of marketing
+        (429, 131056, "recipient"),  # the pair limit is retried, but concerns one customer
+        (401, 190, "account"),  # the token expired
+        (403, 10, "account"),  # permission removed
+        (400, 200, "account"),  # the permission range
+        (400, 132001, "account"),  # the template is not there
+        (400, 132016, "account"),  # the template is disabled
+        (429, 130429, "account"),  # throughput
+        (503, None, "account"),  # Meta is down
+        (401, None, "account"),  # refused without a code
+        (400, 131009, "unknown"),  # a parameter value: may be this customer's, may not
+        (400, 999999, "unknown"),  # a code Meta's page does not list
+    ],
+)
+async def test_fr_064_a_refusal_says_whom_it_concerns(
+    status: int, code: int | None, scope: str, clock: Clock
+) -> None:
+    body = {"error": {"code": code}} if code is not None else {"error": {}}
+    graph = ScriptedGraph(*[httpx2.Response(status, json=body)] * 3)
+
+    async with client_for(graph, clock) as client:
+        with pytest.raises(WhatsAppSendError) as caught:
+            await client.send_template(CUSTOMER, "vitrina_reactivacion")
+
+    assert caught.value.scope == scope
+
+
+async def test_fr_064_a_meta_it_cannot_reach_is_account_wide(clock: Clock) -> None:
+    graph = ScriptedGraph(*[httpx2.ConnectError] * 3)
+
+    async with client_for(graph, clock) as client:
+        with pytest.raises(WhatsAppSendError) as caught:
+            await client.send_template(CUSTOMER, "vitrina_reactivacion")
+
+    assert (caught.value.scope, caught.value.retryable) == ("account", True)
+
+
+async def test_fr_064_a_send_that_may_have_arrived_has_unknown_scope(clock: Clock) -> None:
+    graph = ScriptedGraph(httpx2.ReadTimeout)
+
+    async with client_for(graph, clock) as client:
+        with pytest.raises(WhatsAppSendError) as caught:
+            await client.send_template(CUSTOMER, "vitrina_reactivacion")
+
+    assert (caught.value.scope, caught.value.retryable) == ("unknown", False)
+
+
 async def test_as_3_11_retry_after_header_stretches_the_backoff(clock: Clock) -> None:
     graph = ScriptedGraph(graph_error(429, 130429, **{"Retry-After": "3"}), accepted())
 

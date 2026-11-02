@@ -12,21 +12,25 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from vitrina_compliance.calendar import BOGOTA
 from vitrina_compliance.campaigns import (
+    CAMPAIGN_SEND,
     AdRef,
     CampaignDeps,
     Candidate,
     PostgresCampaigns,
     ReactivationCampaignCreate,
     Segment,
+    finish_stranded_campaigns,
     preview_campaign,
     run_send,
     schedule_send,
 )
 from vitrina_compliance.consents import PostgresCompliance, record_consent
 from vitrina_compliance.contacts import ContactIdentity
+from vitrina_compliance.eligibility import REASON_TEXT_ES, SendDecision
 from vitrina_compliance.tables import send_decisions
-from vitrina_core.db.tables import sellers
+from vitrina_core.db.tables import jobs, sellers
 from vitrina_core.ids import new_id
+from vitrina_core.jobs import PostgresJobQueue
 from vitrina_core.providers import OutboundMessage, SendResult
 
 PROMPT = "¿Te aviso cuando llegue tu talla o haya promo? Responde SÍ"
@@ -110,6 +114,7 @@ async def test_db_as_6_7_a_campaign_keeps_every_decision_and_marks_the_send(
         ).all()
     assert sorted(kept, key=lambda row: (row.contact_id == silent.id, row.decision)) == [
         (granted.id, "allowed"),
+        (granted.id, "failed"),  # written before the request left, replaced by the next row
         (granted.id, "sent"),
         (silent.id, "blocked"),
     ]
@@ -120,3 +125,114 @@ async def test_db_as_6_7_a_campaign_keeps_every_decision_and_marks_the_send(
     rest, end = await store.page(shop, limit=1, cursor=cursor)
     assert ([c.id for c in rest], end) == ([preview.id], None)
     assert await store.get(new_id(), preview.id) is None
+
+
+async def _waiting_campaign(
+    db_sessions: async_sessionmaker[AsyncSession], number: str
+) -> tuple[UUID, UUID, UUID, PostgresCampaigns]:
+    """A shop with one consenting contact and a campaign that holds them as ``allowed``."""
+    identity = ContactIdentity(
+        pepper=SecretStr("db-test-pepper"), key=SecretStr(Fernet.generate_key().decode())
+    )
+    compliance = PostgresCompliance(db_sessions, identity)
+    shop = new_id()
+    async with db_sessions() as session, session.begin():
+        await session.execute(
+            sa.insert(sellers).values(
+                id=shop,
+                business_name="Mochilas Ana",
+                owner_name="Ana",
+                whatsapp_number=number,
+                city="Medellín",
+            )
+        )
+    person = await compliance.resolve_contact(shop, "573000000011")
+    await record_consent(compliance, shop, person.id, prompt_text=PROMPT, response_text="sí")
+
+    async def candidates(
+        seller_id: UUID,
+        segment: Segment,
+        *,
+        now: datetime,
+        contact_ids: Sequence[UUID] | None = None,
+    ) -> list[Candidate]:
+        return [Candidate(person.id, "shipping", PRODUCT, "Mochila tejida azul")]
+
+    async def ads(seller_id: UUID, product_id: UUID, *, ad_id: UUID | None = None) -> AdRef:
+        return AD
+
+    store = PostgresCampaigns(db_sessions)
+    deps = CampaignDeps(store, compliance, candidates, ads)
+    preview = await preview_campaign(
+        deps,
+        shop,
+        ReactivationCampaignCreate(template_name="vitrina_reactivacion"),
+        now=WEDNESDAY_10,
+    )
+    return shop, preview.id, person.id, store
+
+
+@pytest.mark.db
+async def test_db_fr_064_only_one_pass_can_claim_a_contact(
+    db_sessions: async_sessionmaker[AsyncSession],
+) -> None:
+    shop, campaign_id, contact_id, store = await _waiting_campaign(db_sessions, "+573000000232")
+    claim = SendDecision(
+        id=new_id(),
+        campaign_id=campaign_id,
+        contact_id=contact_id,
+        decision="failed",
+        reason="SEND_FAILED",
+        reason_text_es=REASON_TEXT_ES["SEND_FAILED"],
+        evaluated_at=WEDNESDAY_10,
+    )
+
+    first = await store.claim_send(campaign_id, claim)
+    second = await store.claim_send(campaign_id, claim.model_copy(update={"id": new_id()}))
+
+    assert (first, second) == (True, False)
+    campaign = await store.get(shop, campaign_id)
+    assert campaign is not None
+    assert [d.decision for d in campaign.decisions] == ["failed"]
+
+
+@pytest.mark.db
+async def test_db_fr_064_a_campaign_whose_job_ended_is_finished_by_the_sweep(
+    db_sessions: async_sessionmaker[AsyncSession],
+) -> None:
+    shop, stranded, _, store = await _waiting_campaign(db_sessions, "+573000000233")
+    other, waiting, _, _ = await _waiting_campaign(db_sessions, "+573000000234")
+    no_job, unqueued, _, _ = await _waiting_campaign(db_sessions, "+573000000235")
+    await schedule_send(store, shop, stranded, template_approved=True)
+    await store.set_status(shop, stranded, "sending", expect="scheduled")
+    await schedule_send(store, other, waiting, template_approved=True)
+    await store.set_status(other, waiting, "sending", expect="scheduled")
+    await schedule_send(store, no_job, unqueued, template_approved=True)
+    async with db_sessions() as session, session.begin():
+        queue = PostgresJobQueue(db_sessions)
+        for owner, campaign in ((shop, stranded), (other, waiting)):
+            await queue.enqueue(
+                session,
+                kind="campaign_send",
+                task=CAMPAIGN_SEND,
+                payload={"campaign_id": str(campaign)},
+                owner_seller_id=owner,
+            )
+        await session.execute(
+            sa.update(jobs)
+            .where(jobs.c.owner_seller_id == shop)
+            .values(status="failed", attempts=jobs.c.max_attempts)
+        )
+
+    changed = await finish_stranded_campaigns(db_sessions, WEDNESDAY_10)
+
+    assert changed == 1
+    finished = await store.get(shop, stranded)
+    assert finished is not None
+    assert (finished.status, finished.counts.failed, finished.counts.allowed) == ("sent", 1, 0)
+    live = await store.get(other, waiting)
+    assert live is not None
+    assert (live.status, live.counts.allowed) == ("sending", 1)  # its job is still queued
+    just_scheduled = await store.get(no_job, unqueued)
+    assert just_scheduled is not None
+    assert just_scheduled.status == "scheduled"  # its job may be a moment from being queued

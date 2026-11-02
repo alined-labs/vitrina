@@ -8,7 +8,7 @@ from uuid import UUID, uuid4
 import pytest
 
 from vitrina_conversation.api import InMemoryConversationStore
-from vitrina_conversation.ingest import Ingest, InvalidSignatureError
+from vitrina_conversation.ingest import Ingest, InvalidSignatureError, TemplateAccount
 from vitrina_conversation.testing import webhook_fixture
 from vitrina_whatsapp.signature import sign
 
@@ -160,3 +160,157 @@ async def test_as_3_1_other_webhook_fields_are_acknowledged(
     result = await ingest(store, queue).receive(body, sign(body, SECRET))
 
     assert (result.queued, result.statuses) == ((), 0)
+
+
+ACCOUNT_ID = "100000000000002"
+
+
+def template_event(
+    event: str = "APPROVED",
+    *,
+    account: str = ACCOUNT_ID,
+    name: str = "vitrina_reactivacion",
+    language: str = "es",
+) -> bytes:
+    return json.dumps(
+        {
+            "object": "whatsapp_business_account",
+            "entry": [
+                {
+                    "id": account,
+                    "time": 1793114100,
+                    "changes": [
+                        {
+                            "field": "message_template_status_update",
+                            "value": {
+                                "event": event,
+                                "message_template_id": 1000000000000201,
+                                "message_template_name": name,
+                                "message_template_language": language,
+                                "reason": "NONE",
+                            },
+                        }
+                    ],
+                }
+            ],
+        }
+    ).encode()
+
+
+class TemplateStatuses:
+    def __init__(self) -> None:
+        self.written: list[tuple[UUID, str, str]] = []
+
+    async def __call__(self, seller_id: UUID, template_name: str, status: str) -> None:
+        self.written.append((seller_id, template_name, status))
+
+
+def with_templates(
+    store: InMemoryConversationStore,
+    queue: RecordingQueue,
+    statuses: TemplateStatuses,
+    *,
+    number: str = BUSINESS_NUMBER,
+) -> Ingest:
+    return Ingest(
+        store=store,
+        queue=queue,
+        sellers=by_number,
+        app_secret=SECRET,
+        template_account=TemplateAccount(ACCOUNT_ID, number),
+        template_status=statuses,
+    )
+
+
+async def test_fr_064_an_approved_template_reaches_the_accounts_seller(
+    store: InMemoryConversationStore, queue: RecordingQueue
+) -> None:
+    statuses = TemplateStatuses()
+    body = webhook_fixture("template_status_update")
+
+    result = await with_templates(store, queue, statuses).receive(body, sign(body, SECRET))
+
+    assert statuses.written == [(SELLER, "vitrina_reactivacion", "approved")]
+    assert result.templates == 1
+    assert result.payload_id in store.webhooks
+    assert queue.jobs == []
+
+
+async def test_fr_064_a_redelivered_event_writes_the_same_status(
+    store: InMemoryConversationStore, queue: RecordingQueue
+) -> None:
+    statuses = TemplateStatuses()
+    ingest = with_templates(store, queue, statuses)
+    body = template_event()
+
+    await ingest.receive(body, sign(body, SECRET))
+    await ingest.receive(body, sign(body, SECRET))
+
+    assert statuses.written == [(SELLER, "vitrina_reactivacion", "approved")] * 2
+
+
+async def test_fr_064_a_disabled_template_closes_the_gate_again(
+    store: InMemoryConversationStore, queue: RecordingQueue
+) -> None:
+    statuses = TemplateStatuses()
+    body = template_event("DISABLED")
+
+    await with_templates(store, queue, statuses).receive(body, sign(body, SECRET))
+
+    assert statuses.written == [(SELLER, "vitrina_reactivacion", "rejected")]
+
+
+@pytest.mark.parametrize(
+    "body",
+    [
+        template_event(account="100000000000099"),  # another business account on this app
+        template_event(name="hello_world"),  # another template of this account
+        template_event(language="en_US"),  # another translation: a template of its own
+        template_event("FLAGGED"),  # no change of status
+        template_event("SOMETHING_NEW"),  # never opens the gate
+    ],
+)
+async def test_fr_064_an_event_that_is_not_about_this_template_changes_nothing(
+    store: InMemoryConversationStore, queue: RecordingQueue, body: bytes
+) -> None:
+    statuses = TemplateStatuses()
+
+    result = await with_templates(store, queue, statuses).receive(body, sign(body, SECRET))
+
+    assert statuses.written == []
+    assert result.templates == 0
+    assert result.payload_id in store.webhooks  # kept and acknowledged all the same
+
+
+async def test_fr_064_no_shop_with_the_configured_number_changes_nothing(
+    store: InMemoryConversationStore, queue: RecordingQueue
+) -> None:
+    statuses = TemplateStatuses()
+    body = template_event()
+    ingest = with_templates(store, queue, statuses, number="573000000999")
+
+    result = await ingest.receive(body, sign(body, SECRET))
+
+    assert (statuses.written, result.templates) == ([], 0)
+
+
+async def test_fr_064_without_a_configured_account_the_event_is_only_kept(
+    store: InMemoryConversationStore, queue: RecordingQueue
+) -> None:
+    body = template_event()
+
+    result = await ingest(store, queue).receive(body, sign(body, SECRET))
+
+    assert result.templates == 0
+    assert result.payload_id in store.webhooks
+
+
+async def test_fr_064_an_unsigned_template_event_changes_nothing(
+    store: InMemoryConversationStore, queue: RecordingQueue
+) -> None:
+    statuses = TemplateStatuses()
+
+    with pytest.raises(InvalidSignatureError):
+        await with_templates(store, queue, statuses).receive(template_event(), "sha256=00")
+
+    assert statuses.written == []

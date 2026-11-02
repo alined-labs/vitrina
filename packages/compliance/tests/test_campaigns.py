@@ -14,6 +14,9 @@ from pydantic import SecretStr
 
 from vitrina_compliance.calendar import BOGOTA
 from vitrina_compliance.campaigns import (
+    FIRST_PAUSE,
+    MAX_PAUSES,
+    UNKNOWN_IN_A_ROW,
     AdRef,
     CampaignConflictError,
     CampaignDeps,
@@ -21,6 +24,8 @@ from vitrina_compliance.campaigns import (
     InMemoryCampaigns,
     ReactivationCampaignCreate,
     Segment,
+    SendRun,
+    abandon_send,
     check_eligibility,
     preview_campaign,
     render_template,
@@ -33,7 +38,8 @@ from vitrina_compliance.consents import (
     opt_out,
 )
 from vitrina_compliance.contacts import ContactIdentity
-from vitrina_core.providers import OutboundMessage, OutboundTemplate, SendResult
+from vitrina_compliance.eligibility import REASON_TEXT_ES, SendDecision
+from vitrina_core.providers import OutboundMessage, OutboundTemplate, ProviderError, SendResult
 
 SELLER = UUID("00000000-0000-7000-8000-00000000000a")
 PRODUCT = UUID("00000000-0000-7000-8000-0000000000b1")
@@ -47,18 +53,65 @@ THURSDAY_7 = datetime(2026, 10, 29, 7, 0, tzinfo=BOGOTA)
 PROMPT = "¿Te aviso cuando llegue tu talla o haya promo? Responde SÍ"
 
 
+def undeliverable() -> ProviderError:
+    """One customer WhatsApp cannot reach, as the real client reports it: it raises."""
+    return ProviderError(
+        "Cloud API refused the request (HTTP 400, code 131026)",
+        provider="whatsapp",
+        status_code=400,
+        scope="recipient",
+    )
+
+
+def bad_token() -> ProviderError:
+    return ProviderError(
+        "Cloud API refused the request (HTTP 401, code 190)",
+        provider="whatsapp",
+        status_code=401,
+        scope="account",
+    )
+
+
+def rate_limited(retry_after_s: float | None = None) -> ProviderError:
+    return ProviderError(
+        "Cloud API refused the request (HTTP 429, code 130429)",
+        provider="whatsapp",
+        retryable=True,
+        status_code=429,
+        scope="account",
+        retry_after_s=retry_after_s,
+    )
+
+
+def delivery_unknown() -> ProviderError:
+    return ProviderError(
+        "Cloud API request failed after it was sent (ReadTimeout); delivery unknown, not retried",
+        provider="whatsapp",
+    )
+
+
 @dataclass
 class Messages:
-    """The messenger: every message, answered ``sent`` unless the number is in ``failing``."""
+    """The messenger: every message tried, answered ``sent`` unless ``failing`` holds the number.
+
+    Like the real client it never answers ``failed``: a refusal is raised. A number in ``dies``
+    stands for a worker killed while the request is out, after Meta may have taken it.
+    """
 
     sent: list[OutboundMessage] = field(default_factory=list)
-    failing: set[str] = field(default_factory=set)
+    failing: dict[str, Exception] = field(default_factory=dict)
+    dies: set[str] = field(default_factory=set)
 
     async def send(self, message: OutboundMessage) -> SendResult:
         self.sent.append(message)
+        if message.to in self.dies:
+            raise RuntimeError("the worker died")
         if message.to in self.failing:
-            return SendResult(message_id="", status="failed", error="131026 undeliverable")
+            raise self.failing[message.to]
         return SendResult(message_id=f"wamid.{len(self.sent)}", status="sent")
+
+    def tried(self) -> list[str]:
+        return [message.to for message in self.sent]
 
 
 @dataclass
@@ -347,7 +400,7 @@ async def test_as_6_7_the_send_reevaluates_a_contact_who_opted_out_since(world: 
 
 async def test_fr_064_a_send_whatsapp_refuses_is_logged_as_failed(world: World) -> None:
     contact_id = await world.contact("573000000011")
-    world.messages.failing.add("573000000011")
+    world.messages.failing["573000000011"] = undeliverable()
     campaign_id = await started(world)
 
     run = await run_send(
@@ -362,6 +415,218 @@ async def test_fr_064_a_send_whatsapp_refuses_is_logged_as_failed(world: World) 
     contact = await world.compliance.contact(SELLER, contact_id)
     assert contact is not None
     assert contact.last_marketing_sent_at is None
+
+
+async def send_pass(world: World, campaign_id: UUID, *, pauses: int = 0) -> SendRun:
+    return await run_send(
+        world.deps(),
+        SELLER,
+        campaign_id,
+        business_name="Mochilas Ana",
+        now=WEDNESDAY_10,
+        pauses=pauses,
+    )
+
+
+async def three_contacts(world: World) -> tuple[UUID, UUID, UUID]:
+    return (
+        await world.contact("573000000011"),
+        await world.contact("573000000012"),
+        await world.contact("573000000013"),
+    )
+
+
+def by_contact(run: SendRun) -> dict[UUID, str]:
+    return {d.contact_id: d.decision for d in run.campaign.decisions}
+
+
+async def test_fr_064_one_refused_contact_does_not_stop_the_others(world: World) -> None:
+    first, refused, last = await three_contacts(world)
+    world.messages.failing["573000000012"] = undeliverable()
+    campaign_id = await started(world)
+
+    run = await send_pass(world, campaign_id)
+
+    assert world.messages.tried() == ["573000000011", "573000000012", "573000000013"]
+    assert by_contact(run) == {first: "sent", refused: "failed", last: "sent"}
+    assert (run.campaign.status, run.next_at, run.stopped) == ("sent", None, None)
+    assert (run.campaign.counts.sent, run.campaign.counts.failed) == (2, 1)
+    decision = next(d for d in run.campaign.decisions if d.contact_id == refused)
+    assert decision.reason == "SEND_FAILED"
+    assert decision.reason_text_es == REASON_TEXT_ES["SEND_FAILED"]  # never Meta's words
+    assert [contact for contact, _, _ in world.outbox] == [first, last]
+
+
+async def test_fr_064_a_number_the_client_cannot_use_only_fails_that_contact(
+    world: World,
+) -> None:
+    refused, second, third = await three_contacts(world)
+    world.messages.failing["573000000011"] = ValueError("recipient must be an E.164 phone number")
+    campaign_id = await started(world)
+
+    run = await send_pass(world, campaign_id)
+
+    assert by_contact(run) == {refused: "failed", second: "sent", third: "sent"}
+
+
+async def test_fr_064_a_bad_token_stops_the_pass_and_finishes_the_campaign(world: World) -> None:
+    await three_contacts(world)
+    world.messages.failing["573000000011"] = bad_token()
+    campaign_id = await started(world)
+
+    run = await send_pass(world, campaign_id)
+
+    assert world.messages.tried() == ["573000000011"]  # the rest would only fail the same way
+    assert (run.campaign.status, run.next_at, run.paused) == ("sent", None, False)
+    assert run.stopped == "Cloud API refused the request (HTTP 401, code 190)"
+    assert run.campaign.counts.model_dump() == {
+        "allowed": 0, "blocked": 0, "deferred": 0, "sent": 0, "failed": 3
+    }  # fmt: skip
+    assert {d.reason for d in run.campaign.decisions} == {"SEND_FAILED"}
+
+
+async def test_fr_064_a_rate_limit_pauses_the_pass_and_no_contact_is_lost(world: World) -> None:
+    await three_contacts(world)
+    world.messages.failing["573000000012"] = rate_limited()
+    campaign_id = await started(world)
+
+    run = await send_pass(world, campaign_id)
+
+    assert world.messages.tried() == ["573000000011", "573000000012"]
+    assert (run.paused, run.next_at) == (True, WEDNESDAY_10 + FIRST_PAUSE)
+    assert run.campaign.status == "sending"
+    assert (run.campaign.counts.sent, run.campaign.counts.allowed) == (1, 2)
+    assert run.campaign.counts.failed == 0
+
+    del world.messages.failing["573000000012"]
+    again = await send_pass(world, campaign_id, pauses=1)
+
+    assert world.messages.tried() == [
+        "573000000011", "573000000012", "573000000012", "573000000013"
+    ]  # fmt: skip
+    assert (again.paused, again.next_at, again.campaign.status) == (False, None, "sent")
+    assert again.campaign.counts.sent == 3
+
+
+async def test_fr_064_each_pause_is_longer_and_meta_can_ask_for_more(world: World) -> None:
+    await world.contact("573000000011")
+    world.messages.failing["573000000011"] = rate_limited()
+    campaign_id = await started(world)
+
+    second = await send_pass(world, campaign_id, pauses=1)
+    world.messages.failing["573000000011"] = rate_limited(retry_after_s=3600)
+    asked = await send_pass(world, campaign_id, pauses=1)
+
+    assert second.next_at == WEDNESDAY_10 + FIRST_PAUSE * 2
+    assert asked.next_at == WEDNESDAY_10 + timedelta(seconds=3600)
+
+
+async def test_fr_064_a_limit_that_never_lifts_finishes_the_campaign(world: World) -> None:
+    await three_contacts(world)
+    world.messages.failing["573000000011"] = rate_limited()
+    campaign_id = await started(world)
+
+    run = await send_pass(world, campaign_id, pauses=MAX_PAUSES)
+
+    assert world.messages.tried() == ["573000000011"]
+    assert (run.campaign.status, run.next_at, run.paused) == ("sent", None, False)
+    assert run.stopped is not None
+    assert run.campaign.counts.failed == 3
+
+
+async def test_fr_064_failures_it_cannot_classify_stop_after_a_few_in_a_row(world: World) -> None:
+    numbers = [f"57300000001{i}" for i in range(UNKNOWN_IN_A_ROW + 2)]
+    for number in numbers:
+        await world.contact(number)
+        world.messages.failing[number] = delivery_unknown()
+    campaign_id = await started(world)
+
+    run = await send_pass(world, campaign_id)
+
+    assert world.messages.tried() == numbers[:UNKNOWN_IN_A_ROW]
+    assert run.campaign.counts.failed == UNKNOWN_IN_A_ROW  # delivery unknown: never sent again
+    assert run.campaign.counts.allowed == 2
+    assert (run.paused, run.campaign.status) == (True, "sending")
+
+
+async def test_fr_064_a_refusal_it_can_read_breaks_a_run_of_unknown_failures(
+    world: World,
+) -> None:
+    numbers = [f"57300000001{i}" for i in range(UNKNOWN_IN_A_ROW * 2 + 1)]
+    for position, number in enumerate(numbers):
+        await world.contact(number)
+        world.messages.failing[number] = (
+            undeliverable() if position == UNKNOWN_IN_A_ROW - 1 else delivery_unknown()
+        )
+    campaign_id = await started(world)
+
+    run = await send_pass(world, campaign_id)
+
+    assert world.messages.tried() == numbers[: UNKNOWN_IN_A_ROW * 2]
+    assert run.paused is True
+
+
+async def test_fr_064_a_pass_killed_during_a_send_never_sends_twice(world: World) -> None:
+    sent, killed, last = await three_contacts(world)
+    world.messages.dies.add("573000000012")
+    campaign_id = await started(world)
+
+    with pytest.raises(RuntimeError):
+        await send_pass(world, campaign_id)
+    world.messages.dies.clear()
+    run = await send_pass(world, campaign_id)
+
+    assert world.messages.tried() == [
+        "573000000011", "573000000012", "573000000013"
+    ]  # fmt: skip
+    assert run.campaign.status == "sent"
+    assert (run.campaign.counts.sent, run.campaign.counts.failed) == (2, 1)
+    # Meta may have the second: it is reported as failed and never sent again.
+    assert by_contact(run) == {sent: "sent", killed: "failed", last: "sent"}
+
+
+async def test_fr_064_a_contact_another_pass_took_is_not_sent_again(world: World) -> None:
+    contact_id = await world.contact("573000000011")
+    campaign_id = await started(world)
+
+    async def other_pass_wins(_recipient: str) -> None:
+        taken = SendDecision(
+            contact_id=contact_id, decision="sent", reason="OK", evaluated_at=WEDNESDAY_10
+        )
+        await world.store.add_decisions(campaign_id, [taken])
+
+    run = await run_send(
+        replace(world.deps(), pace=other_pass_wins),
+        SELLER,
+        campaign_id,
+        business_name="Mochilas Ana",
+        now=WEDNESDAY_10,
+    )
+
+    assert world.messages.sent == []
+    assert by_contact(run) == {contact_id: "sent"}
+
+
+async def test_fr_064_a_campaign_whose_job_is_gone_finishes_with_true_totals(
+    world: World,
+) -> None:
+    sent, _, _ = await three_contacts(world)
+    world.messages.dies.add("573000000012")
+    campaign_id = await started(world)
+    with pytest.raises(RuntimeError):
+        await send_pass(world, campaign_id)
+
+    campaign = await abandon_send(world.store, SELLER, campaign_id, now=WEDNESDAY_10)
+
+    assert campaign.status == "sent"
+    assert campaign.counts.model_dump() == {
+        "allowed": 0, "blocked": 0, "deferred": 0, "sent": 1, "failed": 2
+    }  # fmt: skip
+    assert len(world.messages.sent) == 2  # finishing a campaign sends nothing
+    assert next(d for d in campaign.decisions if d.contact_id == sent).decision == "sent"
+    again = await send_pass(world, campaign_id)
+    assert len(world.messages.sent) == 2
+    assert again.campaign.counts == campaign.counts
 
 
 async def test_as_6_3_a_send_outside_hours_waits_for_the_next_window(world: World) -> None:
@@ -452,8 +717,10 @@ async def test_fr_064_every_evaluation_is_kept(world: World) -> None:
 
     history = world.store.history(campaign_id)
 
+    # The middle row is written before the request leaves, so a pass that dies never resends.
     assert [(d.contact_id, d.decision) for d in history] == [
         (contact_id, "allowed"),
+        (contact_id, "failed"),
         (contact_id, "sent"),
     ]
 

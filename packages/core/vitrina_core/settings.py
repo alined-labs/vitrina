@@ -72,6 +72,9 @@ class Settings(BaseSettings):
     whatsapp_verify_token: SecretStr | None = None
     whatsapp_phone_number_id: str | None = None
     whatsapp_access_token: SecretStr | None = None
+    # Template status events name only the business account: these two say whose they are.
+    whatsapp_business_account_id: str | None = None
+    whatsapp_business_number: str | None = None
     whatsapp_mock: bool = True
     mock_outbox_path: Path = REPO_ROOT / "tmp" / "mock-whatsapp.jsonl"
 

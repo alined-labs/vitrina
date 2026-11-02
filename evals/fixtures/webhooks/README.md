@@ -19,4 +19,4 @@ One file per webhook `POST` body from the WhatsApp Cloud API (T012); replay sess
 | `batch_two_customers.json` | Two customers in one delivery; contacts listed in reverse order |
 | `status_sent.json`, `status_delivered.json`, `status_read.json` | Delivery status callbacks for one outbound message (FR-028) |
 | `status_failed_reengagement.json` | Failed send outside the 24 h window, error 131047 |
-| `template_status_update.json` | A non-`messages` field, ignored by the adapter |
+| `template_status_update.json` | Meta approved the marketing template: its account ID, name and language, no phone number (FR-064) |

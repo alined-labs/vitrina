@@ -19,10 +19,13 @@ from vitrina_compliance.api import PostgresCompliance, record_consent
 from vitrina_compliance.calendar import BOGOTA
 from vitrina_conversation.api import PostgresConversationStore
 from vitrina_conversation.tables import messages
-from vitrina_core.db.tables import jobs, sellers
+from vitrina_conversation.testing import webhook_fixture
+from vitrina_core.db.tables import jobs
 from vitrina_core.jobs import PostgresJobQueue, TaskRegistry, Worker, load_tasks
 from vitrina_core.settings import Settings
+from vitrina_whatsapp.signature import sign
 
+APP_SECRET = "reactivation-db-test-app-secret"
 SECRET = "reactivation-db-test-secret-with-32-bytes"
 SERVICE_TOKEN = "service-token-for-tests"
 SUBJECT = "6b2f0c1e-3d4a-4e5b-8f6a-7b8c9d0e1f2a"
@@ -48,6 +51,9 @@ async def test_db_as_6_7_a_campaign_from_preview_to_the_worker(
         service_token=SERVICE_TOKEN,
         db_schema=schema,
         supabase_jwt_secret=SECRET,
+        whatsapp_app_secret=APP_SECRET,
+        whatsapp_business_account_id="100000000000002",
+        whatsapp_business_number="+573000000311",
         contact_hash_pepper="reactivation-db-pepper",
         contact_encryption_key=Fernet.generate_key().decode(),
         mock_outbox_path=tmp_path / "outbox.jsonl",
@@ -119,12 +125,18 @@ async def test_db_as_6_7_a_campaign_from_preview_to_the_worker(
 
         refused = client.post(f"/v1/reactivation/campaigns/{campaign['id']}/send", headers=bearer())
         assert (refused.status_code, refused.json()["code"]) == (409, "TEMPLATE_NOT_APPROVED")
-        async with db_sessions() as session, session.begin():
-            await session.execute(
-                sa.update(sellers)
-                .where(sellers.c.id == seller_id)
-                .values(marketing_template_status="approved")
-            )
+        approved = webhook_fixture("template_status_update")
+        delivered = client.post(
+            "/v1/webhooks/whatsapp",
+            content=approved,
+            headers={
+                "Content-Type": "application/json",
+                "X-Hub-Signature-256": sign(approved, APP_SECRET),
+            },
+        )
+        assert delivered.status_code == 200
+        me = client.get("/v1/sellers/me", headers=bearer())
+        assert me.json()["marketing_template_status"] == "approved"
         accepted = client.post(
             f"/v1/reactivation/campaigns/{campaign['id']}/send", headers=bearer()
         )

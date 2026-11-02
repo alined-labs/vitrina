@@ -15,6 +15,7 @@ from vitrina_core.ids import new_id
 
 DEFAULT_CONSENT_PROMPT = "¿Te aviso cuando llegue tu talla o haya promo? Responde SÍ"
 
+MarketingTemplateStatus = Literal["none", "pending", "approved", "rejected"]
 Clock = Annotated[str, Field(pattern=r"^\d{2}:\d{2}$")]
 # Weekday → list of [open, close] in local time; a missing weekday is closed.
 BusinessHours = dict[str, list[Annotated[list[Clock], Field(min_length=2, max_length=2)]]]
@@ -66,9 +67,7 @@ class Seller(BaseModel):
     ai_label_enabled: bool = True
     handoff_summary_enabled: bool = True
     consent_prompt_text: str = DEFAULT_CONSENT_PROMPT
-    marketing_template_status: Literal["none", "pending", "approved", "rejected"] | MISSING = (
-        MISSING
-    )
+    marketing_template_status: MarketingTemplateStatus | MISSING = MISSING
     created_at: datetime
 
 
@@ -122,6 +121,10 @@ class SellerStore(Protocol):
     async def update(self, seller_id: UUID, data: SellerUpdate) -> Seller | None: ...
 
     async def set_voice_profile(self, seller_id: UUID, profile: BrandVoiceProfile) -> None: ...
+
+    async def set_marketing_template(
+        self, seller_id: UUID, name: str, status: MarketingTemplateStatus
+    ) -> None: ...
 
     async def settings(self, seller_id: UUID) -> SellerSettings | None: ...
 
@@ -192,6 +195,11 @@ class InMemorySellerStore:
     async def set_voice_profile(self, seller_id: UUID, profile: BrandVoiceProfile) -> None:
         self.rows[seller_id]["brand_voice_profile"] = profile.model_dump(mode="json")
 
+    async def set_marketing_template(
+        self, seller_id: UUID, name: str, status: MarketingTemplateStatus
+    ) -> None:
+        self.rows[seller_id].update(marketing_template_name=name, marketing_template_status=status)
+
     async def settings(self, seller_id: UUID) -> SellerSettings | None:
         row = self.rows.get(seller_id)
         return _settings(row) if row is not None else None
@@ -255,6 +263,16 @@ class PostgresSellerStore:
                 sa.update(sellers)
                 .where(sellers.c.id == seller_id)
                 .values(brand_voice_profile=profile.model_dump(mode="json"))
+            )
+
+    async def set_marketing_template(
+        self, seller_id: UUID, name: str, status: MarketingTemplateStatus
+    ) -> None:
+        async with self.sessions() as session, session.begin():
+            await session.execute(
+                sa.update(sellers)
+                .where(sellers.c.id == seller_id)
+                .values(marketing_template_name=name, marketing_template_status=status)
             )
 
     async def settings(self, seller_id: UUID) -> SellerSettings | None:

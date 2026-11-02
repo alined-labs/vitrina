@@ -31,6 +31,7 @@ from vitrina_core.providers import (
     ProviderError,
     SendResult,
 )
+from vitrina_core.providers.errors import ErrorScope
 from vitrina_whatsapp.config import DEFAULT_GRAPH_VERSION, GRAPH_BASE_URL, WhatsAppConfig
 
 logger = logging.getLogger(__name__)
@@ -42,6 +43,24 @@ PROVIDER = "whatsapp"
 # 80007), throughput (130429), pair rate limit (131056), unknown or temporary failures (1, 2,
 # 131000, 131016).
 RETRYABLE_ERROR_CODES = frozenset({1, 2, 4, 80007, 130429, 131000, 131016, 131056})
+
+# Who a refusal concerns, from the same page (read 2026-11-01), so a send to many customers knows
+# whether to go on. About this customer: they blocked the business (130403), a marketing
+# experiment held the message (130472), the number is the sender's (131021), undeliverable
+# (131026), outside the 24 h window (131047), held for ecosystem engagement (131049), opted out
+# of marketing (131050), too many messages to this customer (131056).
+RECIPIENT_ERROR_CODES = frozenset({130403, 130472, 131021, 131026, 131047, 131049, 131050, 131056})
+# About the account, number or template, so the next customer fares no better: token and
+# permissions (0, 3, 10, 190, 200-299, 131005), number deleted or unregistered (33, 131045,
+# 133010), account restricted (368, 131031), payment (131042), sending limits and maintenance
+# (131048, 131057, 131064), marketing templates off (131063), the template itself missing,
+# refused, paused or disabled or its parameter count wrong (132000, 132001, 132007, 132015,
+# 132016). Any other code stays ``unknown``: the page does not say whom it concerns.
+ACCOUNT_ERROR_CODES = frozenset(
+    {0, 3, 10, 33, 190, 368, 131005, 131031, 131042, 131045, 131048, 131057, 131063, 131064}
+    | {132000, 132001, 132007, 132015, 132016, 133010}
+    | set(range(200, 300))
+)
 
 # The largest inbound media WhatsApp delivers that this adapter reads: audio and video up to
 # 16 MB, images up to 5 MB (Cloud API media reference, read 2026-10-27).
@@ -55,7 +74,8 @@ class WhatsAppSendError(ProviderError):
     """A request that Meta refused or that could not be completed.
 
     ``retryable`` tells the caller whether trying again later can succeed; ``retry_after_s`` is
-    set when Meta asked for a pause longer than a send is allowed to block. ``code``,
+    set when Meta asked for a pause longer than a send is allowed to block. ``scope`` says
+    whether the refusal concerns this customer or the whole account. ``code``,
     ``details`` and ``fbtrace_id`` are Meta's, for handling (131047: outside the 24 h window,
     send a template) and for support requests.
     """
@@ -71,13 +91,20 @@ class WhatsAppSendError(ProviderError):
         details: str | None = None,
         fbtrace_id: str | None = None,
         retry_after_s: float | None = None,
+        scope: ErrorScope = "unknown",
     ) -> None:
-        super().__init__(message, provider=PROVIDER, retryable=retryable, status_code=status_code)
+        super().__init__(
+            message,
+            provider=PROVIDER,
+            retryable=retryable,
+            status_code=status_code,
+            scope=scope,
+            retry_after_s=retry_after_s,
+        )
         self.attempts = attempts
         self.code = code
         self.details = details
         self.fbtrace_id = fbtrace_id
-        self.retry_after_s = retry_after_s
 
 
 class WhatsAppClient(Messenger):
@@ -279,6 +306,7 @@ class WhatsAppClient(Messenger):
                     f"could not reach the Cloud API ({type(exc).__name__})",
                     retryable=True,
                     attempts=attempt,
+                    scope="account",  # nothing reached Meta: the next customer fares no better
                 )
                 error.__cause__ = exc
             else:
@@ -371,13 +399,15 @@ def _refused(response: httpx2.Response, attempt: int) -> WhatsAppSendError:
         error = _ErrorBody.model_validate_json(response.content).error
     except ValidationError:
         error = _GraphError()
+    retryable = (
+        response.status_code == 429
+        or response.status_code >= 500
+        or error.code in RETRYABLE_ERROR_CODES
+    )
     return WhatsAppSendError(
         f"Cloud API refused the request (HTTP {response.status_code}, code {error.code})",
-        retryable=(
-            response.status_code == 429
-            or response.status_code >= 500
-            or error.code in RETRYABLE_ERROR_CODES
-        ),
+        retryable=retryable,
+        scope=_scope(response.status_code, error.code, retryable),
         attempts=attempt,
         status_code=response.status_code,
         code=error.code,
@@ -385,6 +415,15 @@ def _refused(response: httpx2.Response, attempt: int) -> WhatsAppSendError:
         fbtrace_id=error.fbtrace_id,
         retry_after_s=_retry_after_s(response),
     )
+
+
+def _scope(status_code: int, code: int | None, retryable: bool) -> ErrorScope:
+    """A code about the customer wins: the pair limit (131056) is retried but concerns one."""
+    if code in RECIPIENT_ERROR_CODES:
+        return "recipient"
+    if code in ACCOUNT_ERROR_CODES or status_code in (401, 403) or retryable:
+        return "account"
+    return "unknown"
 
 
 def _retry_after_s(response: httpx2.Response) -> float | None:

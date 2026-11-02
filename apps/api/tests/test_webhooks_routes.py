@@ -70,6 +70,8 @@ async def make_hook(tmp_path: Path, **limits: Any) -> Hook:
             _env_file=None,
             whatsapp_app_secret=APP_SECRET,
             whatsapp_verify_token=VERIFY_TOKEN,
+            whatsapp_business_account_id="100000000000002",
+            whatsapp_business_number="+573000000000",
             model_agent="spark-test",
             mock_outbox_path=outbox_path,
             contact_hash_pepper="webhook-routes-test-pepper",
@@ -207,6 +209,20 @@ def test_as_3_1_a_payload_this_api_cannot_read_is_still_acknowledged(hook: Hook)
     body = b'{"object": "page", "entry": []}'
 
     assert hook.post(body, sign(body, APP_SECRET)).status_code == 200
+    assert hook.replies() == []
+
+
+def test_fr_064_a_signed_template_event_sets_the_sellers_status(hook: Hook) -> None:
+    row = hook.app.state.sellers.rows[SELLER]
+    body = webhook_fixture("template_status_update")
+    assert row["marketing_template_status"] == "none"
+
+    assert hook.post(body, "sha256=" + "0" * 64).status_code == 401
+    assert row["marketing_template_status"] == "none"
+
+    assert hook.post(body, sign(body, APP_SECRET)).status_code == 200
+    assert row["marketing_template_status"] == "approved"
+    assert row["marketing_template_name"] == "vitrina_reactivacion"
     assert hook.replies() == []
 
 
