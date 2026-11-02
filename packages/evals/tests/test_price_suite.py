@@ -5,7 +5,15 @@ import pytest
 from vitrina_core.money import amounts_cop
 from vitrina_evals import price_suite, suites
 from vitrina_evals.cases import build_scene, load_business
-from vitrina_evals.price_suite import PriceCase, price_cases, render, run_price_validator, spoken
+from vitrina_evals.price_suite import (
+    AttackCase,
+    PriceCase,
+    load_attack_cases,
+    price_cases,
+    render,
+    run_price_validator,
+    spoken,
+)
 
 
 @pytest.mark.parametrize(
@@ -59,6 +67,41 @@ async def test_as_7_2_an_invented_amount_that_gets_through_fails_the_run() -> No
 
     assert result.status == "failed"
     assert result.metrics.invented_price_rate == 1.0
+
+
+def test_as_7_2_the_attack_list_is_written_by_hand_in_both_directions() -> None:
+    cases = load_attack_cases()
+
+    assert len({case.case_id for case in cases}) == len(cases)
+    assert sum(case.rejected for case in cases) >= 30
+    assert sum(not case.rejected for case in cases) >= 30
+
+
+async def test_as_7_2_the_suite_runs_the_attack_list_beside_the_generated_cases() -> None:
+    result = await run_price_validator()
+    ids = {score.case_id for score in result.cases}
+
+    assert {case.case_id for case in load_attack_cases()} <= ids
+    assert len(ids) == price_suite.CASES + len(load_attack_cases())
+
+
+async def test_as_7_2_an_attack_that_gets_through_fails_the_run() -> None:
+    harmless = AttackCase("a", "La mochila vale $85.000.", ("mochila-azul",), rejected=True)
+
+    result = await run_price_validator([], attacks=[harmless])
+
+    assert result.status == "failed"
+    assert result.metrics.invented_price_rate == 1.0
+
+
+async def test_as_7_2_an_honest_reply_that_is_stopped_fails_the_run() -> None:
+    honest = AttackCase("h", "La mochila vale 45000.", ("mochila-azul",), rejected=False)
+
+    result = await run_price_validator([], attacks=[honest])
+
+    assert result.status == "failed"
+    assert result.metrics.invented_price_rate == 0.0
+    assert result.metrics.groundedness_rate == 0.0
 
 
 def test_the_suite_is_registered() -> None:

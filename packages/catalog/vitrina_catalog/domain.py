@@ -61,11 +61,14 @@ class Reservation(_View):
 
 
 class Citation(_View):
-    """What the price validator needs about a cited id (R2, data-model.md invariants 6 and 7)."""
+    """What the price validator needs about a cited id (R2, data-model.md invariants 6 and 7):
+    ``name`` to tell a product's price from another's, ``text`` to read the deals it states."""
 
     id: UUID
     kind: SearchKind
     amounts_cop: tuple[int, ...]
+    name: str = ""
+    text: str = ""
 
 
 class ProductNotFoundError(LookupError):

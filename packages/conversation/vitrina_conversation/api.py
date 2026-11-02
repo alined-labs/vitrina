@@ -57,7 +57,13 @@ from vitrina_conversation.tools import (
     ToolCallRecord,
     TurnActions,
 )
-from vitrina_conversation.validation import FALLBACK_REPLY, Agreement, Review, agreed_offers
+from vitrina_conversation.validation import (
+    FALLBACK_REPLY,
+    Agreement,
+    Review,
+    agreed_offers,
+    review,
+)
 from vitrina_conversation.wiring import (
     PROCESS_INBOUND,
     BackgroundInboundQueue,
@@ -136,6 +142,7 @@ __all__ = [
     "postgres_pipeline",
     "process_inbound",
     "process_stored_message",
+    "review",
     "run_turn",
     "sellers_in_memory",
     "sellers_on_postgres",

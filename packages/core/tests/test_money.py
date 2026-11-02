@@ -235,6 +235,119 @@ def test_fr_026_numbers_that_are_not_money_are_ignored(text: str) -> None:
     assert amounts_cop(text) == []
 
 
+@pytest.mark.parametrize(
+    ("text", "expected"),
+    [
+        # A plain number from 1.000 up is money, with or without a word that says so
+        ("La mochila te la vendo a 45000.", [45000]),
+        ("Mochila: 45000", [45000]),
+        ("Mochila 45000 azul", [45000]),
+        ("Mochila 45000 gracias", [45000]),
+        ("Mochila-45000", [45000]),
+        ("COP85000", [85000]),
+        ("Vale45000", [45000]),
+        ("Tu pedido: 45000", [45000]),
+        ("Te queda en solo 85", [85]),
+        ("Hoy 1500", [1500]),
+        ("Combo 2:45000", [45000]),
+        # A short number after a selling word, as a price word does
+        ("Te la vendo a 45", [45]),
+        ("Te la doy en cuarenta y cinco", [45]),
+        # A colon or a slash between numbers is not always a time or a date
+        ("Talla 38: 85 mil, combo 2: 45.000", [85000, 45000]),
+        ("Talla 38: 45000", [45000]),
+        ("$85.000/unidad", [85000]),
+        # Other currencies, before or after the number, in digits or in words
+        ("La mochila vale USD 20.", [20]),
+        ("US$ 20", [20]),
+        ("EUR 20", [20]),
+        ("€20", [20]),
+        ("20€", [20]),
+        ("20$", [20]),
+        ("Talla 38 $85.000", [85000]),
+        ("Llevo 2 $85.000", [85000]),
+        ("20 dólares", [20]),
+        ("Son veinte dólares", [20]),
+        ("veinte euros", [20]),
+        # A year-like number where a price goes
+        ("Mochila: 2000", [2000]),
+        ("Empanadas a 2000", [2000]),
+        ("Vale 2000", [2000]),
+        # A decimal with a multiplier keeps its exact value
+        ("4.1 millones", [4100000]),
+        ("4,1 millones", [4100000]),
+        ("1.1 millones", [1100000]),
+        ("2,3 mil", [2300]),
+        ("$12.000,75", [12000]),
+    ],
+)
+def test_as_3_4_a_plain_number_from_a_thousand_up_counts_as_money(
+    text: str, expected: list[int]
+) -> None:
+    assert amounts_cop(text) == expected
+
+
+@pytest.mark.parametrize(
+    "text",
+    [
+        # Phone numbers (synthetic), however they are grouped
+        "Escríbenos al 3000000101",
+        "Escríbenos al +573000000101",
+        "Escríbenos al +57 300 000 0101",
+        "Llama al 300 000 0101",
+        "Llama al 300-000-0101",
+        "Llama al 300 000 01 01",
+        "Línea 601 000 0101",
+        "Tel: 6040101",
+        "Línea gratuita 018000 000101",
+        # Addresses
+        "Calle 100 # 15-20",
+        "Carrera 7 # 45-1020",
+        "Estamos en el local 1204",
+        "Apto 1502, torre 2",
+        "Oficina: 1001",
+        "Of. 1001",
+        "Avenida 1500 con 30",
+        # Hours and dates
+        "Abrimos 8:00 a 18:00",
+        "De 9:00 a. m. a 6:00 p. m.",
+        "Llega el 27/10/2026",
+        "Hasta 12/2026",
+        # Years
+        "Desde 2015 tejemos mochilas",
+        "Colección 2026",
+        "De 2019 a 2024",
+        "Fundada en 1998",
+        # Units and quantities
+        "Batería de 5000 mAh",
+        "Bolso de 1500 gramos",
+        "Termo de 1200 ml",
+        "Hilo de 2000 metros",
+        "Monitor 1080p",
+        "Motor de 1500 W",
+        "Tenemos 1000 unidades",
+        "Tenemos 1.000 unidades",
+        "Necesito 1000 mochilas",
+        "Más de 2000 clientes",
+        "Sábanas de 1000 hilos",
+        # Codes
+        "Referencia 2310",
+        "Ref: 2310",
+        "Tu pedido #1234 va en camino",
+        "Tu pedido 12345 va en camino",
+        "Tu código es ABC1234",
+        "Reloj XR2000",
+        # Stock is no price, even after a word that can introduce one
+        "Quedan solo 3",
+        "Te quedan apenas 2",
+        "Guía 123456",
+        "NIT 900000101",
+    ],
+)
+def test_as_3_4_numbers_that_clearly_are_not_money_stay_out(text: str) -> None:
+    assert amounts_cop(text) == []
+
+
 @given(st.integers(min_value=1000, max_value=50_000_000))
 def test_fr_026_colombian_digit_formats_round_trip(amount: int) -> None:
     grouped = format_cop(amount)

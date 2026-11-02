@@ -88,6 +88,11 @@ def named_kinds(query: str) -> list[str]:
     return sorted(kind for kind, name in FACT_KIND_NAMES.items() if stems(name) <= words)
 
 
+def citable_text(name: str, description: str | None, attributes: Mapping[str, str] | None) -> str:
+    """Everything a product states about itself, for reading a reply against it (R2)."""
+    return " ".join((name, description or "", *(attributes or {}).values())).strip()
+
+
 def product_amounts(
     price_cop: int, description: str | None, attributes: Mapping[str, str] | None
 ) -> tuple[int, ...]:

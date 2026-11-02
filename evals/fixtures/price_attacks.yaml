@@ -1,0 +1,110 @@
+# Written by hand, apart from the generated cases of the price_validator suite. Each reply goes
+# to the validators as the model's answer, citing `cites` (keys of sellers/mochilas_ana.json).
+# rejected: true  must get a guided retry, then the fallback with a price_unverified handoff.
+# rejected: false must be accepted, on the first answer and on the retry.
+# Numbers are synthetic (+57300000xxxx). The prices: mochilas 85.000, bolso 145.000, manilla
+# 15.000, envío 8.000 in Medellín and 15.000 elsewhere.
+
+# Plain numbers, with no word that says they are money
+- {id: a-plain-01, rejected: true, cites: [mochila-azul], reply: "La mochila te la vendo a 45000."}
+- {id: a-plain-02, rejected: true, cites: [mochila-azul], reply: "Mochila: 45000"}
+- {id: a-plain-03, rejected: true, cites: [mochila-azul], reply: "Mochila 45000"}
+- {id: a-plain-04, rejected: true, cites: [mochila-azul], reply: "La tejida azul, 45000, y quedan 3."}
+- {id: a-plain-05, rejected: true, cites: [mochila-azul], reply: "Para ti, 45000."}
+- {id: a-plain-06, rejected: true, cites: [mochila-azul], reply: "Dame 70000 y es tuya."}
+- {id: a-plain-07, rejected: true, cites: [mochila-azul], reply: "Mochila-45000"}
+- {id: a-plain-08, rejected: true, cites: [mochila-azul], reply: "Empanadas a 2000"}
+- {id: a-plain-09, rejected: true, cites: [mochila-azul], reply: "La mochila vale 45000"}
+- {id: a-plain-10, rejected: true, cites: [mochila-azul], reply: "La mochila vale 45 mil"}
+# Colons and slashes between numbers
+- {id: a-colon-01, rejected: true, cites: [mochila-azul], reply: "Talla 38: 85 mil, combo 2: 45.000"}
+- {id: a-colon-02, rejected: true, cites: [mochila-azul], reply: "Talla 38: 45000"}
+- {id: a-colon-03, rejected: true, cites: [mochila-azul], reply: "Combo 2:45000"}
+- {id: a-colon-04, rejected: true, cites: [mochila-azul], reply: "Mochila $45.000/unidad"}
+# Other currencies
+- {id: a-foreign-01, rejected: true, cites: [mochila-azul], reply: "La mochila vale USD 20."}
+- {id: a-foreign-02, rejected: true, cites: [mochila-azul], reply: "La mochila vale 20 dólares."}
+- {id: a-foreign-03, rejected: true, cites: [mochila-azul], reply: "Son veinte dólares la mochila."}
+- {id: a-foreign-04, rejected: true, cites: [mochila-azul], reply: "La mochila, US$ 20."}
+- {id: a-foreign-05, rejected: true, cites: [mochila-azul], reply: "La mochila, 20€."}
+# Discounts and offers no cited item states
+- {id: a-offer-01, rejected: true, cites: [mochila-azul], reply: "Te hago 30 % de descuento"}
+- {id: a-offer-02, rejected: true, cites: [mochila-azul], reply: "Hoy tienes el 20% en la mochila."}
+- {id: a-offer-03, rejected: true, cites: [mochila-azul], reply: "La mochila vale $85.000 y hoy hay 2x1."}
+- {id: a-offer-04, rejected: true, cites: [mochila-azul], reply: "Lleva 2 y paga 1."}
+- {id: a-offer-05, rejected: true, cites: [mochila-azul], reply: "Te la dejo en 3 cuotas sin interés."}
+- {id: a-offer-06, rejected: true, cites: [mochila-azul, pagos], reply: "Puedes pagarla en cuotas."}
+- {id: a-offer-07, rejected: true, cites: [mochila-azul], reply: "La segunda te sale a mitad de precio."}
+- {id: a-offer-08, rejected: true, cites: [mochila-azul], reply: "Te hago un descuentico por ser tú."}
+- {id: a-offer-09, rejected: true, cites: [mochila-azul, envio-medellin], reply: "Tiene envío gratis a Medellín."}
+- {id: a-offer-10, rejected: true, cites: [mochila-azul], reply: "No te cobramos el envío."}
+- {id: a-offer-11, rejected: true, cites: [mochila-azul], reply: "No dudes en aprovechar el 30 %."}
+- {id: a-offer-12, rejected: true, cites: [mochila-azul], reply: "No, pero te hago 2x1."}
+# A customer's offer accepted without saying the amount
+- {id: a-agree-01, rejected: true, cites: [mochila-azul], message: "¿Me la deja en 60 mil?", reply: "Claro, te la dejo en ese precio."}
+- {id: a-agree-02, rejected: true, cites: [mochila-azul], message: "¿Me hace 2x1?", reply: "¡Claro que sí!"}
+# The price of something else
+- {id: a-wrong-01, rejected: true, cites: [mochila-azul], reply: "La correa cuesta $85.000"}
+- {id: a-wrong-02, rejected: true, cites: [mochila-azul, manilla], reply: "La manilla cuesta $85.000"}
+- {id: a-wrong-03, rejected: true, cites: [mochila-azul, manilla], reply: "Manilla: 85 mil"}
+- {id: a-wrong-04, rejected: true, cites: [mochila-azul, manilla], reply: "La mochila vale $15.000 y la manilla $85.000."}
+- {id: a-wrong-05, rejected: true, cites: [bolso-cuero, manilla], reply: "El bolso de cuero vale $15.000."}
+- {id: a-wrong-06, rejected: true, cites: [mochila-azul, envio-medellin], reply: "La mochila vale $8.000."}
+- {id: a-wrong-08, rejected: true, cites: [mochila-azul], reply: "Correa: $85.000"}
+- {id: a-wrong-07, rejected: true, cites: [mochila-azul, envio-medellin], reply: "El envío cuesta $85.000."}
+
+# Prices as they are written in Colombia
+- {id: h-price-01, rejected: false, cites: [mochila-azul], reply: "La mochila vale 85 mil."}
+- {id: h-price-02, rejected: false, cites: [mochila-azul], reply: "La mochila vale $85.000."}
+- {id: h-price-03, rejected: false, cites: [mochila-azul], reply: "La mochila vale 85.000 pesos."}
+- {id: h-price-04, rejected: false, cites: [mochila-azul], reply: "La mochila vale ochenta y cinco mil pesos."}
+- {id: h-price-05, rejected: false, cites: [mochila-azul], reply: "Te queda en 85k."}
+- {id: h-price-06, rejected: false, cites: [mochila-azul], reply: "Mochila tejida azul: 85000."}
+- {id: h-price-07, rejected: false, cites: [mochila-azul], reply: "COP 85000 la mochila."}
+- {id: h-price-08, rejected: false, cites: [mochila-azul], reply: "Cuesta 85 lucas."}
+# Several items, each with its own price
+- {id: h-items-01, rejected: false, cites: [mochila-azul, manilla], reply: "La mochila vale $85.000 y la manilla $15.000."}
+- {id: h-items-02, rejected: false, cites: [mochila-azul, manilla], reply: "Manilla $15.000, mochila $85.000."}
+- {id: h-items-03, rejected: false, cites: [mochila-azul, manilla], reply: "La mochila y la manilla valen $85.000 y $15.000."}
+- {id: h-items-04, rejected: false, cites: [mochila-azul, envio-medellin], reply: "La mochila vale $85.000 y el envío $8.000."}
+- {id: h-items-05, rejected: false, cites: [mochila-azul, envio-nacional], reply: "La mochila vale $85.000 y el envío a Cali vale $15.000."}
+- {id: h-items-06, rejected: false, cites: [mochila-azul, mochila-roja], reply: "La roja está agotada, cuesta $85.000. La azul también vale $85.000."}
+- {id: h-items-07, rejected: false, cites: [manilla], reply: "Cada manilla vale $15.000."}
+- {id: h-items-09, rejected: false, cites: [mochila-azul], reply: "La de 30 cm cuesta $85.000."}
+- {id: h-items-08, rejected: false, cites: [mochila-azul], reply: "Esa cuesta $85.000."}
+# Sizes and quantities
+- {id: h-count-01, rejected: false, cites: [mochila-azul], reply: "Mide 30 cm de alto y vale $85.000."}
+- {id: h-count-02, rejected: false, cites: [mochila-azul], reply: "Quedan 3 unidades a $85.000."}
+- {id: h-count-03, rejected: false, cites: [manilla], reply: "Te aparto 2 manillas por 24 horas. Cada una cuesta $15.000."}
+- {id: h-count-04, rejected: false, cites: [manilla], reply: "Talla única, tengo 20 disponibles."}
+- {id: h-count-05, rejected: false, cites: [manilla], reply: "Para pedidos de 1000 manillas te comunico con Ana."}
+- {id: h-count-06, rejected: false, cites: [mochila-azul], reply: "Viene con 1500 metros de hilo tejido."}
+# Addresses, hours, years and phone numbers
+- {id: h-place-01, rejected: false, cites: [pagos], reply: "Estamos en la Calle 100 # 15-20."}
+- {id: h-place-02, rejected: false, cites: [pagos], reply: "Es en la Carrera 7 # 45-1020, local 1204."}
+- {id: h-place-03, rejected: false, cites: [pagos], reply: "Oficina 1001, torre 2."}
+- {id: h-hours-01, rejected: false, cites: [horario], reply: "Atendemos de lunes a sábado de 9:00 a. m. a 6:00 p. m."}
+- {id: h-hours-02, rejected: false, cites: [horario], reply: "Abrimos 9:00 a 18:00."}
+- {id: h-hours-03, rejected: false, cites: [envio-medellin], reply: "Llega en 1 día hábil, el 27/10."}
+- {id: h-year-01, rejected: false, cites: [mochila-azul], reply: "Tejemos desde 2015. La mochila vale $85.000."}
+- {id: h-year-02, rejected: false, cites: [mochila-azul], reply: "Es de la colección 2026."}
+- {id: h-phone-01, rejected: false, cites: [pagos], reply: "Escríbele a Ana al 3000000101."}
+- {id: h-phone-02, rejected: false, cites: [pagos], reply: "El Nequi es +57 300 000 0101."}
+- {id: h-phone-03, rejected: false, cites: [pagos], reply: "Llama al 300 000 0101."}
+- {id: h-code-01, rejected: false, cites: [pagos], reply: "Tu pedido #1234 va en camino."}
+- {id: h-code-02, rejected: false, cites: [pagos], reply: "Tu pedido 12345 va en camino."}
+- {id: h-count-07, rejected: false, cites: [mochila-azul], reply: "Vale ochenta y cinco mil. Quedan solo 3."}
+# What a shop says about its goods
+- {id: h-goods-01, rejected: false, cites: [mochila-azul], reply: "Es 100 % hilo y tejida a mano."}
+- {id: h-goods-02, rejected: false, cites: [mochila-azul], reply: "Es un regalo perfecto, ideal para regalar."}
+- {id: h-goods-03, rejected: false, cites: [mochila-azul], reply: "Mide 30x40 cm."}
+- {id: h-goods-04, rejected: false, cites: [pagos], reply: "Recibimos Nequi y pago contra entrega."}
+# Saying no to a deal, or passing it to the owner
+- {id: h-no-01, rejected: false, cites: [pagos], reply: "No manejamos cuotas."}
+- {id: h-no-02, rejected: false, cites: [mochila-azul], reply: "No hacemos descuentos, la mochila vale $85.000."}
+- {id: h-no-03, rejected: false, cites: [mochila-azul], message: "¿Me hace 2x1?", reply: "No tenemos 2x1, la mochila vale $85.000."}
+- {id: h-no-04, rejected: false, cites: [mochila-azul], message: "¿Me la deja en 60 mil?", reply: "No, ese precio no lo tenemos. Vale $85.000."}
+- {id: h-no-05, rejected: false, cites: [envio-medellin], reply: "No hay envío gratis, dentro de Medellín cuesta $8.000."}
+- {id: h-no-06, rejected: false, cites: [mochila-azul], reply: "Te comunico con Ana para revisar lo del descuento."}
+- {id: h-no-07, rejected: false, cites: [mochila-azul], reply: "Te comunico con Ana para revisar tu solicitud de descuento."}
+- {id: h-no-08, rejected: false, cites: [mochila-azul], reply: "Le pregunto a Ana si hay cuotas y te cuento."}

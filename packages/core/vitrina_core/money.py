@@ -4,26 +4,46 @@ One normalizer for both sides of the price check: catalog extracts ``amounts_cop
 fact or product is written, and the price validator extracts the amounts in a reply. If
 the two parsed differently, honest replies would fail and invented prices could pass.
 
-Counted as money: a number with ``$``, ``COP``, ``pesos`` or ``lucas``; a number with a
-multiplier (``mil``, ``k``, ``millón``, or ``palos`` right after a number); spelled-out amounts
-with ``mil``/``millón`` or a currency word; numbers grouped like ``12.000``, ``1'250.000`` or
-``45 000``; a plain number right after a price word (``cuesta 85000``, ``te sale 85000``,
-``por 85000``), in words too (``cuesta noventa``); a plain number from 1.000 up a few words
-after one (``el precio de la camisa es 85000``); and an amount in another currency
-(``20 USD``), which no cited peso amount matches. ``45 mil 900`` is 45.900, ``medio millón``
-500.000, ``dos palos`` 2.000.000 and ``40-45 mil`` both ends. Not money: percentages, phone
-numbers, dates, times, years, sizes, counts.
+The reading fails closed: any number from 1.000 up is money unless it clearly is something
+else, because a wrong "money" costs one guided retry and a wrong "not money" lets an invented
+price reach a customer. ``Mochila: 45000`` and ``a 45000`` count with no word to say so.
+
+Also counted, whatever their size: a number with ``$``, ``COP``, ``pesos`` or ``lucas``; a number
+with a multiplier (``mil``, ``k``, ``millón``, or ``palos`` right after a number); spelled-out
+amounts with ``mil``/``millón`` or a currency word; a plain number right after a price word
+(``vale 85``), in words too (``cuesta noventa``); and an amount in another currency (``USD 20``,
+``20 €``), which no cited peso amount matches. ``45 mil 900`` is 45.900, ``medio millón``
+500.000, ``dos palos`` 2.000.000 and ``40-45 mil`` both ends.
+
+Not money: percentages; phone numbers; dates and times written as such (``27/10``, ``2:30``,
+never ``38: 85``); years, unless they stand where a price goes (``a 2000``, ``Mochila: 2000``);
+sizes, units and counts (``1200 ml``, ``1000 mochilas``); and numbers a word labels as a code
+or part of an address (``Ref 2310``, ``local 1204``, ``# 45-1020``).
 """
 
 import re
 import unicodedata
 
 # A comma or full stop not inside a number is kept: "45 mil, 50 mil" is two amounts.
-_TOKEN = re.compile(r"\d+(?:[.,]\d+)*|[a-zñ]+|[$%/:\-–—]|[.,!?;](?!\d)")
+_TOKEN = re.compile(r"\d+(?:[.,]\d+)*|[a-zñ]+|[$€#%/:\-–—]|[.,!?;](?!\d)")
 # 1'250.000: an apostrophe marks the millions. 45 000: a space groups thousands, as some
 # keyboards and writers do; the number is then read as written, so it needs a money mark.
 _APOSTROPHE_MILLIONS = re.compile(r"(?<=\d)['’´`](?=\d{3}(?:[.,]\d{3})*(?!\d))")
 _SPACE_GROUPED = re.compile(r"(?<![\d.,])\d{1,3}(?: \d{3})+(?![\d.,]| \d)")
+# Colombian phone numbers, however they are grouped: mobile, landline, toll-free.
+_PHONE = re.compile(
+    r"(?<![\d.,$])(?:\+?57[\s.\-]?)?(?:(?:3\d{2}|60\d)[\s.\-]?\d{3}[\s.\-]?\d{2}[\s.\-]?\d{2}"
+    r"|018000[\s.\-]?\d{6})(?![\d])"
+)
+# A code glued to a short word: "ABC1234", "XR2000". A currency or a price word is not: "COP85000".
+_CODE = re.compile(
+    r"(?<![a-z0-9])(?!cop|usd|eur|us\d|vale|son|por|sale|solo)[a-z]{2,4}\d{3,}[a-z0-9]*"
+)
+# A time or a date is written without spaces: "2:30", "27/10", while "38: 85 mil" is a label.
+_TIME_OR_DATE = re.compile(
+    r"(?<![\d.,:/])(?:(?:[01]?\d|2[0-4]):[0-5]\d(?::[0-5]\d)?|[0-3]?\d/[01]?\d(?:/\d{2,4})?"
+    r"|[01]?\d/(?:19|20)\d{2})(?![\d:/])"
+)
 
 _UNITS = {
     "cero": 0, "un": 1, "uno": 1, "una": 1, "dos": 2, "tres": 3, "cuatro": 4, "cinco": 5,
@@ -51,17 +71,19 @@ _ARTICLES = {"un", "una", "uno"}
 _CURRENCY_AFTER = {"pesos", "peso", "pesitos", "pesito", "cop"}
 # Another currency: reported as written, so it can only fail the check.
 _FOREIGN_AFTER = {"usd", "dolar", "dolares", "eur", "euro", "euros"}
+_MARK_BEFORE = {"$", "€", "cop", "usd", "eur"}
 # Price words before a plain number. Strong: any size counts, so a short "vale 85" is reported
 # and fails the check instead of hiding a price. Via "en": "te queda en 85", while "te queda 85"
-# and "está en 85" are weak. Weak: from 1.000 up, and so is a strong word a few words before.
+# and "está en 85" are weak: from 1.000 up, where a year-like number counts too.
 _STRONG_CUES = {
     "precio", "precios", "vale", "valen", "valor", "cuesta", "cuestan", "costo", "costos",
     "total", "envio", "domicilio", "cobro", "cobramos", "tarifa",
 }  # fmt: skip
 _EN_CUES = {
     "queda", "quedan", "quedaria", "quedarian", "sale", "salen", "saldria", "saldrian", "deja",
-    "dejan", "dejo", "dejamos",
+    "dejan", "dejo", "dejamos", "vendo", "vendemos", "doy", "damos",
 }  # fmt: skip
+_EN_LINKS = {"en", "a", "por"}
 _EN_WEAK_CUES = {"esta", "estan", "estaria"}
 _WEAK_CUES = {"son", "seria", "serian", "sera", "seran", "pagar", "pago", "pagas", "abono",
               "descuento"}  # fmt: skip
@@ -69,17 +91,37 @@ _CUE_LINKS = {
     "en", "de", "es", "a", "por", ":", "-", "–", "—", "unos", "unas", "solo", "solamente",
     "apenas", "como", "aprox", "aproximadamente",
 }  # fmt: skip
-# How far back a strong price word still makes a plain number from 1.000 up a price.
-_CUE_REACH = 6
-_SENTENCE_END = {".", "!", "?", ";"}
 _CONNECTORS = {"y", "a", "o", "-", "–", "—"}
 # A number followed by one of these counts something else.
 _NON_MONEY_UNITS = {
     "dia", "dias", "hora", "horas", "semana", "semanas", "mes", "meses", "minuto", "minutos",
     "ano", "anos", "unidad", "unidades", "talla", "tallas", "cm", "metro", "metros", "kg",
     "kilo", "kilos", "gramos", "gr", "litro", "litros", "ml", "persona", "personas", "pieza",
-    "piezas", "par", "pares", "cuota", "cuotas", "x",
+    "piezas", "par", "pares", "cuota", "cuotas", "x", "mah", "mg", "g", "gb", "mb", "w", "watts",
+    "vatios", "v", "km", "m", "mm", "cc", "oz", "onzas", "p", "dpi", "rpm", "kcal", "calorias",
 }  # fmt: skip
+# After a plain number with no price word, a plural noun says what it counts ("1000 mochilas",
+# "3500 seguidores"); these plural words say nothing of the kind ("Mochila 45000 gracias").
+_NOT_COUNTED = {
+    "ademas", "buenas", "cuantos", "dos", "entonces", "gracias", "las", "los", "mas", "menos", "nos",
+    "pues", "seis", "sus", "tres", "tus", "unas", "unos",
+}  # fmt: skip
+# A number right after one of these (a colon or "#" between them is fine) is a code or part of an
+# address.
+_LABELS = {
+    "ref", "referencia", "codigo", "cod", "sku", "guia", "factura", "nit", "cedula", "cc", "serie",
+    "modelo", "version", "apto", "apartamento", "local", "oficina", "of", "piso", "interior", "int",
+    "bodega", "calle", "cl", "carrera", "cra", "cr", "kr", "avenida", "av", "diagonal", "dg",
+    "transversal", "tv", "km", "kilometro", "tel", "telefono", "cel", "celular", "whatsapp", "wa",
+    "linea", "numero", "nro",
+}  # fmt: skip
+# Labels shortened with a full stop: "Of. 1204". After a full word it ends a sentence.
+_SHORT_LABELS = {"ref", "cod", "of", "int", "cl", "cra", "cr", "kr", "av", "dg", "tv", "tel", "cel",
+                 "nro", "apto"}  # fmt: skip
+# Codes right after a word, without a colon: "pedido 1234". "Tu pedido: 45000" is a total.
+_ORDER_WORDS = {"pedido", "orden"}
+# Prepositions after which a year-like number is a price, not a year: "a 2000", ": 2000".
+_PRICE_POSITION = {"a", ":"}
 
 
 def _fold(text: str) -> str:
@@ -88,9 +130,10 @@ def _fold(text: str) -> str:
 
 
 def _normalized(text: str) -> str:
-    """Folded text with ``1'250.000`` and ``45 000`` rewritten as one number each."""
+    """Folded text without phones, times and dates, ``1'250.000`` and ``45 000`` as one number."""
     folded = _fold(_APOSTROPHE_MILLIONS.sub(".", text))
-    return _SPACE_GROUPED.sub(lambda match: match.group().replace(" ", ""), folded)
+    readable = _CODE.sub(" ", _TIME_OR_DATE.sub(" ", _PHONE.sub(" ", folded)))
+    return _SPACE_GROUPED.sub(lambda match: match.group().replace(" ", ""), readable)
 
 
 def _number(token: str) -> tuple[float, bool]:
@@ -141,13 +184,14 @@ def _words(tokens: list[str], start: int) -> tuple[int, int, bool]:
 
 
 def _price_cue(tokens: list[str], index: int) -> str | None:
-    """'strong', 'weak', 'distant' or None for the price word before ``tokens[index]``."""
+    """'strong', 'weak' or None for the price word before ``tokens[index]``."""
     position, crossed = index - 1, []
     while position >= 0 and tokens[position] in _CUE_LINKS and index - position <= 2:
         crossed.append(tokens[position])
         position -= 1
     word = tokens[position] if position >= 0 else ""
-    if word in _STRONG_CUES or (crossed and word in _EN_CUES):
+    # "quedan solo 3" counts stock; "queda en solo 85" is a price
+    if word in _STRONG_CUES or (word in _EN_CUES and _EN_LINKS & set(crossed)):
         return "strong"
     if (
         word in _WEAK_CUES
@@ -156,12 +200,6 @@ def _price_cue(tokens: list[str], index: int) -> str | None:
         or "por" in crossed  # "2 por 85000"
     ):
         return "weak"
-    # "el precio de la camisa es 85000": a strong word earlier in the same sentence
-    for earlier in reversed(tokens[max(0, index - _CUE_REACH) : index]):
-        if earlier in _SENTENCE_END or earlier[0].isdigit() or earlier == "$":
-            break
-        if earlier in _STRONG_CUES:
-            return "distant"
     return None
 
 
@@ -192,6 +230,42 @@ def _counts_something_else(tokens: list[str], index: int, value: float) -> bool:
         if following < value:
             return False
     return False
+
+
+def _currency_follows(after: list[str]) -> bool:
+    """``20 pesos``, ``20 USD``, ``20 de pesos``, ``20$``, but ``talla 38 $85.000`` marks the 85."""
+    if not after:
+        return False
+    if after[0] in ("$", "€"):
+        return len(after) == 1 or not after[1][0].isdigit()
+    return after[0] in _CURRENCY_AFTER or after[0] in _FOREIGN_AFTER or after[:2] == ["de", "pesos"]
+
+
+def _counted_by_noun(tokens: list[str], index: int) -> bool:
+    """``1000 mochilas``: a plural noun right after a plain number says what it counts."""
+    word = tokens[index + 1] if index + 1 < len(tokens) else ""
+    return word.isalpha() and word.endswith("s") and word not in _NOT_COUNTED
+
+
+def _labelled(tokens: list[str], index: int) -> bool:
+    """``Ref 2310``, ``Ref: 2310``, ``Of. 1204``, ``#1234``, ``# 45-1020``: a code or an address."""
+    last = tokens[index - 1] if index >= 1 else ""
+    prior = tokens[index - 2] if index >= 2 else ""
+    if last == "#":
+        return True
+    if last in ("-", "–") and index >= 3 and tokens[index - 3] == "#" and prior[0].isdigit():
+        return True
+    if last == ".":
+        return prior in _SHORT_LABELS
+    return prior in _LABELS if last == ":" else last in _LABELS or last in _ORDER_WORDS
+
+
+def _is_year(tokens: list[str], index: int, token: str, value: float) -> bool:
+    """``Desde 2015``, ``de 2019 a 2024``, but ``a 2000`` and ``Mochila: 2000`` are prices."""
+    if not (token.isdigit() and len(token) == 4 and 1900 <= value <= 2099):
+        return False
+    before = tokens[index - 1] if index else ""
+    return before not in _PRICE_POSITION or (index >= 2 and tokens[index - 2][0].isdigit())
 
 
 def _remainder(tokens: list[str], index: int, below: int) -> tuple[int, int]:
@@ -229,20 +303,12 @@ def amounts_cop(text: str) -> list[int]:
     while index < len(tokens):
         token = tokens[index]
         before = tokens[max(0, index - 3) : index]
-        marked_before = bool(before) and (before[-1] == "$" or before[-1] == "cop")
+        marked_before = bool(before) and before[-1] in _MARK_BEFORE
         if token[0].isdigit():
             value, grouped = _number(token)
             following = tokens[index + 1 : index + 4]
             nxt = following[0] if following else ""
-            # percentages, dates (27/10) and times (2:30) are never money
-            after_clock = (
-                index >= 2 and tokens[index - 1] in ("/", ":") and tokens[index - 2][0].isdigit()
-            )
-            if (
-                nxt == "%"
-                or (nxt in ("/", ":") and len(following) > 1 and following[1][0].isdigit())
-                or after_clock
-            ):
+            if nxt == "%":  # percentages are offers, not amounts (vitrina_core.offers)
                 index += 1
                 continue
             multiplier, consumed, remainder = 1, 1, 0
@@ -260,29 +326,32 @@ def amounts_cop(text: str) -> list[int]:
                 remainder, used = _remainder(tokens, index + 2, multiplier)
                 consumed += used
             after = tokens[index + consumed : index + consumed + 2]
-            currency_after = bool(after) and (
-                after[0] in _CURRENCY_AFTER
-                or after[0] in _FOREIGN_AFTER
-                or after[:2] == ["de", "pesos"]
-            )
+            currency_after = _currency_follows(after)
             # Colombian numbers: 10 digits starting with 3 (mobile) or 60 (landline), or +57 prefixed
             phone_like = token.isdigit() and (
                 len(token) >= 11 or (len(token) == 10 and token[0] in "36")
             )
-            year_like = token.isdigit() and len(token) == 4 and 1900 <= value <= 2099
             counts = _counts_something_else(tokens, index, value)
             cue = None if counts else _price_cue(tokens, index)
+            # Fail closed: from 1.000 up it is money unless it clearly is something else.
+            something_else = (
+                counts
+                or _labelled(tokens, index)
+                or (not grouped and _counted_by_noun(tokens, index))
+                or (not grouped and _is_year(tokens, index, token, value))
+                or (token.isdigit() and token[0] == "0")
+            )
             is_money = (
                 marked_before
                 or multiplier > 1
                 or currency_after
-                or (grouped and value >= 1000)
                 or (cue == "strong" and not phone_like)
                 or (cue == "weak" and value >= 1000 and not phone_like)
-                or (cue == "distant" and value >= 1000 and not phone_like and not year_like)
+                or (value >= 1000 and not phone_like and not something_else)
             )
             if is_money:
-                found.append(int(value * multiplier) + remainder)
+                # round first: 4.1 * 1_000_000 is 4099999.999… in binary
+                found.append(int(round(value * multiplier, 6)) + remainder)
             index += consumed
             continue
         half_million = token in ("medio", "media") and tokens[index + 1 : index + 2] in (
@@ -301,9 +370,7 @@ def amounts_cop(text: str) -> list[int]:
                 end = index + used
                 after = tokens[end : end + 2]
                 slang = bool(after) and after[0] in _THOUSANDS_SLANG
-                currency_after = bool(after) and (
-                    after[0] in _CURRENCY_AFTER or after[:2] == ["de", "pesos"]
-                )
+                currency_after = _currency_follows(after)
                 if slang:
                     found.append(value * 1000)
                     index += used + 1

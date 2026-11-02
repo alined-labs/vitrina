@@ -92,6 +92,9 @@ async def test_db_as_1_4_facts_match_questions_without_accents_and_with_any_word
     assert [result.id for result in results] == [shipping.id]
     assert results[0].kind == "shipping"
     assert [c.amounts_cop for c in await catalog.citations(SELLER, [shipping.id])] == [(12000,)]
+    assert [c.text for c in await catalog.citations(SELLER, [shipping.id])] == [
+        "Envío a Medellín $12.000, 2–3 días"
+    ]
 
 
 @pytest.mark.db
@@ -205,6 +208,7 @@ async def test_db_products_page_filter_update_and_archive(
     assert [c.amounts_cop for c in await catalog.citations(SELLER, [created[1].id])] == [
         (2000, 12000)
     ]
+    assert [c.name for c in await catalog.citations(SELLER, [created[1].id])] == [created[1].name]
     assert await catalog.archive_product(OTHER, created[0].id) is False
     assert await catalog.archive_product(SELLER, created[0].id) is True
     assert await catalog.search(SELLER, "bolso tejido", kinds=["product"]) != []

@@ -26,6 +26,7 @@ from vitrina_creative.copy import (
     CopyInput,
     allowed_amounts,
     check_copy,
+    offer_sources,
     rewrite_cells,
 )
 
@@ -152,7 +153,8 @@ async def judge_copy(
         candidates = {
             index: rewritten[position]
             for position, index in enumerate(low)
-            if position in rewritten and not check_copy(rewritten[position], allowed)
+            if position in rewritten
+            and not check_copy(rewritten[position], allowed, offer_sources(item))
         }
         if candidates:
             rescored = await judge.score(list(candidates.values()), item.voice)
