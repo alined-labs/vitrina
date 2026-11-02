@@ -3,7 +3,9 @@
 In-memory store and compliance, the scripted Spark, a recording messenger, a fake clock.
 """
 
+import asyncio
 import json
+from collections.abc import Callable
 from dataclasses import dataclass, field, replace
 from datetime import UTC, datetime
 from typing import Any
@@ -48,10 +50,13 @@ from vitrina_conversation.testing import (
 from vitrina_conversation.wiring import process_stored_message
 from vitrina_core.providers import (
     ChatMessage,
+    ChatRequest,
+    ChatResponse,
     OutboundImage,
     OutboundMessage,
     OutboundText,
     ProviderError,
+    RateLimitedError,
     SendResult,
 )
 
@@ -992,3 +997,525 @@ async def test_as_3_8_an_order_above_the_threshold_hands_the_chat_over(world: Wo
     kinds = [kind for _, kind, _ in world.store.events]
     assert "ad.reservation" in kinds
     assert "ad.handoff" in kinds
+
+
+# ── a message is never left unanswered: retries, failed sends, takeovers ──
+
+SAME_ID = "wamid.VITRINA-TEST-IN-SAME"
+FREE_FORM_OPT_OUT = "Por favor dejen de mandarme promociones a este número"  # no keyword
+THROTTLED = RateLimitedError("throttled", provider="whatsapp", retry_after_s=120.0)
+REFUSED = ProviderError("number not on WhatsApp", provider="whatsapp")
+
+
+class DatabaseDownError(Exception):
+    """Stands in for a database error, or for the process dying at that point."""
+
+
+def breaks_once(
+    monkeypatch: pytest.MonkeyPatch,
+    target: Any,
+    method: str,
+    when: Callable[[dict[str, Any]], bool] = lambda _options: True,
+) -> None:
+    """The next call of ``method`` whose keyword arguments match raises; later ones work."""
+    real = getattr(target, method)
+    broken: list[bool] = []
+
+    async def call(*args: Any, **options: Any) -> Any:
+        if not broken and when(options):
+            broken.append(True)
+            raise DatabaseDownError
+        return await real(*args, **options)
+
+    monkeypatch.setattr(target, method, call)
+
+
+def stalls_when_the_script_ends(world: World, monkeypatch: pytest.MonkeyPatch) -> asyncio.Event:
+    """The model never answers past its script; the event says the turn got that far."""
+    real = world.chat.complete
+    stalled = asyncio.Event()
+
+    async def complete(request: ChatRequest) -> ChatResponse:
+        if request.purpose != "classify" and not world.chat.script:
+            stalled.set()
+            await asyncio.Event().wait()
+        return await real(request)
+
+    monkeypatch.setattr(world.chat, "complete", complete)
+    return stalled
+
+
+def owner_takes_over_during_the_turn(world: World, monkeypatch: pytest.MonkeyPatch) -> None:
+    real = world.chat.complete
+
+    async def complete(request: ChatRequest) -> ChatResponse:
+        for conversation in world.store.conversations.values():
+            await world.store.set_mode(
+                world.seller_id, conversation.id, "human", touched_at=datetime.now(UTC)
+            )
+        return await real(request)
+
+    monkeypatch.setattr(world.chat, "complete", complete)
+
+
+def replies(world: World) -> list[Any]:
+    return [row.stored for row in world.store.messages if row.stored.direction == "outbound"]
+
+
+async def test_art_viii_any_error_in_the_turn_gets_the_fallback_and_a_handoff(
+    world: World, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    breaks_once(monkeypatch, world.shop.catalog, "search")
+
+    outcome = await world.say("¿Cuánto vale la mochila azul?", can_retry=True)
+
+    assert (outcome.status, world.messenger.texts) == ("replied", [FALLBACK])
+    assert world.conversation(outcome).mode == "human"
+    ((_, handoff),) = world.store.handoffs
+    assert "¿Cuánto vale la mochila azul?" in handoff.summary
+
+
+async def test_as_3_1_a_retry_answers_a_message_that_was_stored_but_not_answered(
+    world: World, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    breaks_once(monkeypatch, world.store, "update_conversation")
+    world.script(final_answer(GREETING, confidence=0.95))
+
+    with pytest.raises(DatabaseDownError):
+        await world.say("Hola", message_id=SAME_ID, can_retry=True)
+    outcome = await world.say("Hola", message_id=SAME_ID, can_retry=True)
+
+    assert (outcome.status, world.messenger.texts) == ("replied", [GREETING])
+    assert len(world.inbound_rows()) == 1
+    # The retry's own row is not history.
+    assert [message.role for message in world.chat.requests[0].messages] == ["system", "user"]
+
+
+async def test_as_3_1_a_redelivery_after_a_late_answer_still_sends_nothing(
+    world: World, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The first message's reply comes after the second's: the link is not the row order."""
+    breaks_once(monkeypatch, world.store, "update_conversation")
+    world.script(final_answer(GREETING, confidence=0.95))
+    world.script(final_answer("¡Con gusto, veci!", confidence=0.95))
+
+    with pytest.raises(DatabaseDownError):
+        await world.say("Uno", message_id=SAME_ID, can_retry=True)
+    await world.say("Dos")
+    await world.say("Uno", message_id=SAME_ID)
+    again = await world.say("Uno", message_id=SAME_ID)
+
+    assert again.status == "duplicate"
+    assert world.messenger.texts == [GREETING, "¡Con gusto, veci!"]
+
+
+async def test_as_6_5_a_keyword_opt_out_is_kept_when_the_first_try_fails(
+    world: World, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    breaks_once(monkeypatch, world.compliance, "mark_opted_out")
+
+    with pytest.raises(DatabaseDownError):
+        await world.say("BAJA", message_id=SAME_ID, can_retry=True)
+    outcome = await world.say("BAJA", message_id=SAME_ID, can_retry=True)
+
+    assert (outcome.status, world.messenger.texts) == ("opted_out", [OPT_OUT_REPLY])
+    assert await world.compliance.is_opted_out(world.seller_id, await world.contact_id())
+
+
+async def test_as_3_1_a_saved_reply_that_never_left_goes_out_on_the_retry(
+    world: World, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    breaks_once(monkeypatch, world.store, "set_delivery")
+    world.script(final_answer(GREETING, confidence=0.95))
+
+    with pytest.raises(DatabaseDownError):
+        await world.say("Hola", message_id=SAME_ID, can_retry=True)
+    assert world.messenger.texts == []
+    outcome = await world.say("Hola", message_id=SAME_ID, can_retry=True)
+
+    assert (outcome.status, world.messenger.texts) == ("replied", [GREETING])
+    assert len(world.chat.requests) == 1  # the kept reply, not a new turn
+    (reply,) = replies(world)
+    assert reply.delivery_status == "sent"
+
+
+async def test_as_3_1_dying_between_the_send_and_its_record_repeats_nothing(
+    world: World, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Delivery is unknown here: no second send, and the owner is told to look at the chat."""
+    breaks_once(monkeypatch, world.store, "set_delivery", lambda o: o["status"] == "sent")
+    world.script(final_answer(GREETING, confidence=0.95))
+
+    with pytest.raises(DatabaseDownError):
+        await world.say("Hola", message_id=SAME_ID, can_retry=True)
+    outcome = await world.say("Hola", message_id=SAME_ID, can_retry=True)
+    again = await world.say("Hola", message_id=SAME_ID, can_retry=True)
+
+    assert world.messenger.texts == [GREETING]
+    assert (outcome.status, again.status) == ("send_failed", "duplicate")
+    assert world.conversation(outcome).mode == "human"
+    ((_, handoff),) = world.store.handoffs
+    assert handoff.reason == "other"
+    assert "confirmar" in handoff.summary
+    assert GREETING in handoff.summary
+    (reply,) = replies(world)
+    assert reply.delivery_status == "failed"
+
+
+async def test_as_3_1_a_send_cancelled_midway_is_not_repeated(
+    world: World, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    sending = asyncio.Event()
+    real = world.messenger.send
+
+    async def stalled_send(_message: OutboundMessage) -> SendResult:
+        sending.set()
+        await asyncio.Event().wait()
+        raise AssertionError("never answers")
+
+    monkeypatch.setattr(world.messenger, "send", stalled_send)
+    world.script(final_answer(GREETING, confidence=0.95))
+
+    job = asyncio.create_task(world.say("Hola", message_id=SAME_ID, can_retry=True))
+    await sending.wait()
+    job.cancel()
+    with pytest.raises(asyncio.CancelledError):
+        await job
+    monkeypatch.setattr(world.messenger, "send", real)
+    outcome = await world.say("Hola", message_id=SAME_ID, can_retry=True)
+
+    assert (outcome.status, world.messenger.texts) == ("send_failed", [])
+    assert len(world.store.handoffs) == 1
+
+
+async def test_as_3_1_a_job_cancelled_during_the_turn_resumes_on_its_retry(
+    world: World, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    stalled = stalls_when_the_script_ends(world, monkeypatch)
+
+    job = asyncio.create_task(world.say("Hola", message_id=SAME_ID, can_retry=True))
+    await stalled.wait()
+    job.cancel()
+    with pytest.raises(asyncio.CancelledError):
+        await job
+
+    assert world.store.handoffs == []  # not a failure of the turn: no fallback, no handoff
+    world.script(final_answer(GREETING, confidence=0.95))
+    outcome = await world.say("Hola", message_id=SAME_ID, can_retry=True)
+    assert (outcome.status, world.messenger.texts) == ("replied", [GREETING])
+
+
+async def test_as_6_5_a_job_cancelled_during_the_turn_keeps_the_opt_out(
+    world: World, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    stalled = stalls_when_the_script_ends(world, monkeypatch)
+    world.script(tool_call("opt_out"))
+
+    job = asyncio.create_task(world.say(FREE_FORM_OPT_OUT, can_retry=True))
+    await stalled.wait()
+    job.cancel()
+    with pytest.raises(asyncio.CancelledError):
+        await job
+
+    assert await world.compliance.is_opted_out(world.seller_id, await world.contact_id())
+
+
+@pytest.mark.parametrize("cancelled", [False, True])
+async def test_art_viii_on_the_last_attempt_the_owner_hears_of_a_failure(
+    world: World, monkeypatch: pytest.MonkeyPatch, cancelled: bool
+) -> None:
+    if cancelled:
+        stalled = stalls_when_the_script_ends(world, monkeypatch)
+        job = asyncio.create_task(world.say("Hola"))
+        await stalled.wait()
+        job.cancel()
+        with pytest.raises(asyncio.CancelledError):
+            await job
+    else:
+        breaks_once(monkeypatch, world.store, "update_conversation")
+        with pytest.raises(DatabaseDownError):
+            await world.say("Hola")
+
+    ((conversation_id, handoff),) = world.store.handoffs
+    assert "Hola" in handoff.summary
+    assert world.store.conversations[conversation_id].mode == "human"
+    assert world.messenger.texts == []
+
+
+async def test_fr_028_a_throttled_reply_goes_back_to_the_job_with_its_pause(world: World) -> None:
+    world.script(final_answer(GREETING, confidence=0.95))
+    world.messenger.failure = THROTTLED
+
+    with pytest.raises(RateLimitedError) as raised:
+        await world.say("Hola", message_id=SAME_ID, can_retry=True)
+
+    assert raised.value.retry_after_s == 120.0
+    assert world.store.handoffs == []
+    (reply,) = replies(world)
+    assert reply.delivery_status is None
+
+    world.messenger.failure = None
+    outcome = await world.say("Hola", message_id=SAME_ID, can_retry=True)
+
+    assert (outcome.status, world.messenger.texts) == ("replied", [GREETING])
+    assert len(world.chat.requests) == 1  # the kept reply, not a new turn
+    (reply,) = replies(world)
+    assert reply.delivery_status == "sent"
+
+
+async def test_fr_028_a_reply_still_throttled_on_the_last_attempt_opens_a_handoff(
+    world: World,
+) -> None:
+    world.script(final_answer(GREETING, confidence=0.95))
+    world.messenger.failure = THROTTLED
+
+    with pytest.raises(RateLimitedError):
+        await world.say("Hola", message_id=SAME_ID, can_retry=True)
+    outcome = await world.say("Hola", message_id=SAME_ID, can_retry=False)
+
+    assert outcome.status == "send_failed"
+    assert world.conversation(outcome).mode == "human"
+    ((_, handoff),) = world.store.handoffs
+    assert "limitó" in handoff.summary
+    assert GREETING in handoff.summary
+    (reply,) = replies(world)
+    assert reply.delivery_status == "failed"
+
+
+async def test_fr_028_a_throttled_handoff_reply_still_goes_out_on_the_retry(world: World) -> None:
+    """The chat is human by then, through its own handoff: that is not an owner's takeover."""
+    world.script(
+        final_answer("Te comunico con Ana.", confidence=0.95, handoff_reason="customer_request")
+    )
+    world.messenger.failure = THROTTLED
+
+    with pytest.raises(RateLimitedError):
+        await world.say("Quiero hablar con Ana", message_id=SAME_ID, can_retry=True)
+    world.messenger.failure = None
+    outcome = await world.say("Quiero hablar con Ana", message_id=SAME_ID, can_retry=True)
+
+    assert (outcome.status, world.messenger.texts) == ("replied", ["Te comunico con Ana."])
+    assert len(world.store.handoffs) == 1
+
+
+async def test_fr_028_a_refused_reply_opens_a_handoff_at_once(world: World) -> None:
+    world.script(final_answer(GREETING, confidence=0.95))
+    world.messenger.failure = REFUSED
+
+    outcome = await world.say("Hola", can_retry=True)
+
+    assert outcome.status == "send_failed"
+    assert world.conversation(outcome).mode == "human"
+    ((_, handoff),) = world.store.handoffs
+    assert "rechazó" in handoff.summary
+
+
+async def test_fr_028_a_failed_handoff_reply_counts_one_handoff_for_the_ad(world: World) -> None:
+    world.script(
+        final_answer("Te comunico con Ana.", confidence=0.95, handoff_reason="customer_request")
+    )
+    world.messenger.failure = REFUSED
+
+    await world.say("vi el #A7, quiero hablar con una persona")
+
+    assert [handoff.reason for _, handoff in world.store.handoffs] == ["customer_request", "other"]
+    assert [kind for _, kind, _ in world.store.events].count("ad.handoff") == 1
+
+
+@pytest.mark.parametrize("failure", [REFUSED, THROTTLED])
+async def test_fr_028_a_failed_ad_image_opens_a_handoff_and_is_not_retried(
+    world: World, failure: ProviderError
+) -> None:
+    product = world.shop.ids["mochila-azul"]
+    world.gallery.approve(product)
+    world.messenger.failure = failure
+    world.messenger.failing_kinds = ("image",)
+    world.script(
+        tool_call("send_ad_asset", product_id=product),
+        final_answer("Te envío la foto de la mochila azul.", product),
+    )
+
+    outcome = await world.say("¿Tienen foto de la mochila azul?", can_retry=True)
+
+    assert outcome.status == "replied"
+    assert world.conversation(outcome).mode == "human"
+    ((_, handoff),) = world.store.handoffs
+    assert "imagen" in handoff.summary
+    (image_row,) = [row for row in world.store.messages if row.stored.type == "image"]
+    assert image_row.stored.delivery_status == "failed"
+
+
+async def test_as_3_7_a_reservation_held_before_a_timeout_reaches_the_customer(
+    world: World, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    product = world.shop.ids["mochila-azul"]
+    stalls_when_the_script_ends(world, monkeypatch)
+    world.deps = replace(world.deps, agent=replace(world.deps.agent, budget_s=0.05))
+    world.script(tool_call("reserve_item", product_id=product, quantity=1))
+
+    outcome = await world.say("vi el #A7, resérvame la mochila azul")
+
+    (reservation,) = [p for _, kind, p in world.store.events if kind == "ad.reservation"]
+    assert reservation["product_id"] == str(product)
+    (text,) = world.messenger.texts
+    assert text.startswith("Tu reserva quedó con el código R-")
+    assert FALLBACK not in text
+    assert world.conversation(outcome).mode == "human"  # the question itself waits for the owner
+    assert (await world.shop.catalog.check_stock(world.seller_id, product)).available == 2
+
+
+async def test_as_3_7_a_booking_made_before_a_timeout_reaches_the_customer(
+    world: World, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    bookings = InMemoryBookings()
+    tuesday_8am = datetime(2026, 10, 27, 13, 0, tzinfo=UTC)
+    stalls_when_the_script_ends(world, monkeypatch)
+    world.deps = replace(
+        world.deps,
+        agent=replace(
+            world.deps.agent, bookings=bookings, clock=lambda: tuesday_8am, budget_s=0.05
+        ),
+    )
+    world.script(tool_call("book_slot", service="Arreglo", starts_at="2026-10-31T10:00:00-05:00"))
+
+    await world.say("¿Me agendas el sábado a las 10?")
+
+    (text,) = world.messenger.texts
+    assert text.startswith("Listo, quedó tu cita de Arreglo")
+
+
+@pytest.mark.parametrize(("erase", "reply"), [(False, OPT_OUT_REPLY), (True, ERASURE_REPLY)])
+async def test_as_6_5_a_free_form_opt_out_survives_a_timeout(
+    world: World, monkeypatch: pytest.MonkeyPatch, erase: bool, reply: str
+) -> None:
+    stalls_when_the_script_ends(world, monkeypatch)
+    world.deps = replace(world.deps, agent=replace(world.deps.agent, budget_s=0.05))
+    world.script(tool_call("opt_out", also_erase_data=erase))
+
+    outcome = await world.say(FREE_FORM_OPT_OUT)
+
+    assert await world.compliance.is_opted_out(world.seller_id, await world.contact_id())
+    assert len(world.erasures) == int(erase)
+    assert world.messenger.texts == [reply]
+    assert world.conversation(outcome).mode == "human"
+
+
+async def test_as_6_5_an_opt_out_that_cannot_be_recorded_sends_the_job_back(
+    world: World, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Never a fallback that finishes the job with the opt-out unrecorded."""
+    breaks_once(monkeypatch, world.compliance, "mark_opted_out")
+    world.script(
+        tool_call("opt_out"), final_answer("Listo, no te escribimos más.", confidence=0.95)
+    )
+
+    with pytest.raises(DatabaseDownError):
+        await world.say(FREE_FORM_OPT_OUT, message_id=SAME_ID, can_retry=True)
+    world.script(
+        tool_call("opt_out"), final_answer("Listo, no te escribimos más.", confidence=0.95)
+    )
+    await world.say(FREE_FORM_OPT_OUT, message_id=SAME_ID, can_retry=True)
+
+    assert await world.compliance.is_opted_out(world.seller_id, await world.contact_id())
+    assert [kind for _, kind, _ in world.store.events].count("ad.chat_started") == 1
+
+
+async def test_art_viii_an_error_applying_the_turn_gets_the_fallback_once(
+    world: World, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    breaks_once(monkeypatch, world.store, "add_objection")
+    world.script(
+        tool_call("record_objection", tag="shipping", quote="muy caro el envío"),
+        final_answer(GREETING, confidence=0.95),
+    )
+
+    outcome = await world.say("Hola, muy caro el envío", can_retry=True)
+
+    assert (outcome.status, world.messenger.texts) == ("replied", [FALLBACK])
+    assert world.conversation(outcome).mode == "human"
+    assert len(world.store.handoffs) == 1
+
+
+async def test_as_3_9_a_takeover_during_the_turn_keeps_the_reply_unsent(
+    world: World, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    product = world.shop.ids["mochila-azul"]
+    world.gallery.approve(product)
+    owner_takes_over_during_the_turn(world, monkeypatch)
+    world.script(
+        tool_call("send_ad_asset", product_id=product),
+        final_answer("Te envío la foto de la mochila azul.", product),
+    )
+
+    outcome = await world.say("¿Tienen foto de la mochila azul?")
+
+    assert (outcome.status, outcome.reply) == ("human_mode", None)
+    assert world.messenger.sent == []
+    kept = replies(world)[-1]
+    assert (kept.sender, kept.text) == ("agent", "Te envío la foto de la mochila azul.")
+    assert kept.delivery_status is None
+    assert kept.agent_output is not None
+    assert world.store.handoffs == []
+
+
+async def test_as_3_9_a_takeover_stops_the_handoff_the_turn_asked_for(
+    world: World, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    owner_takes_over_during_the_turn(world, monkeypatch)
+    world.script(
+        final_answer("Te comunico con Ana.", confidence=0.95, handoff_reason="customer_request")
+    )
+
+    outcome = await world.say("Quiero hablar con Ana")
+
+    assert outcome.status == "human_mode"
+    assert world.messenger.sent == []
+    assert world.store.handoffs == []
+
+
+async def test_as_3_9_a_takeover_during_a_failed_turn_sends_no_fallback(
+    world: World, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    owner_takes_over_during_the_turn(world, monkeypatch)
+    world.script(ProviderError("refused", provider="meta_model_api"))
+
+    outcome = await world.say("¿Cuánto vale la mochila azul?")
+
+    assert outcome.status == "human_mode"
+    assert world.messenger.sent == []
+    assert world.store.handoffs == []
+
+
+async def test_as_3_9_a_takeover_never_stops_the_opt_out_confirmation(world: World) -> None:
+    outcome = await world.say("Hola", kind="unsupported", wa_type="sticker")
+    await world.store.set_mode(
+        world.seller_id, world.conversation(outcome).id, "human", touched_at=datetime.now(UTC)
+    )
+    world.messenger.sent.clear()
+
+    outcome = await world.say("BAJA")
+
+    assert (outcome.status, world.messenger.texts) == ("opted_out", [OPT_OUT_REPLY])
+
+
+async def test_r8_a_consent_question_the_customer_never_got_is_not_pending(
+    world: World, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    prompt = world.shop.seller.consent_prompt_text
+    real = world.chat.complete
+    owner_takes_over_during_the_turn(world, monkeypatch)
+    world.script(final_answer(f"¡Hola! {prompt}", confidence=0.95, proposed_consent_prompt=True))
+    withheld = await world.say("Hola")
+    assert withheld.status == "human_mode"
+    monkeypatch.setattr(world.chat, "complete", real)
+    await world.store.set_mode(
+        world.seller_id, world.conversation(withheld).id, "agent", touched_at=datetime.now(UTC)
+    )
+    world.script(final_answer(GREETING, confidence=0.95))
+
+    await world.say("Sí")
+
+    assert world.messenger.texts == [GREETING]
+    assert await world.compliance.consents(world.seller_id, await world.contact_id()) == []
+    # Nor is the reply it never got part of the history the model reads.
+    assert prompt not in str(world.chat.requests[-1].messages[1:])

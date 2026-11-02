@@ -2,7 +2,10 @@
 
 
 class ProviderError(Exception):
-    """A provider call failed. ``retryable`` marks failures worth a backoff retry."""
+    """A provider call failed. ``retryable`` marks failures worth a backoff retry, and
+    ``retry_after_s`` is how long the provider asked to be left alone, when it said."""
+
+    retry_after_s: float | None = None
 
     def __init__(
         self,

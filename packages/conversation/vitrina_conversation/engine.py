@@ -57,6 +57,7 @@ from vitrina_conversation.tools import (
     BookedSlot,
     HandoffAction,
     ObjectionAction,
+    ReservedItem,
     ToolBox,
     ToolCallRecord,
     TurnActions,
@@ -174,10 +175,16 @@ class TurnResult:
         return True, self.scope.reason
 
 
-async def run_turn(request: TurnRequest, deps: AgentDeps) -> TurnResult:
-    """Run one agent turn; ``TimeoutError`` when the budget runs out (Art. VIII.1)."""
+async def run_turn(
+    request: TurnRequest, deps: AgentDeps, actions: TurnActions | None = None
+) -> TurnResult:
+    """Run one agent turn; ``TimeoutError`` when the budget runs out (Art. VIII.1).
+
+    The tools fill ``actions`` as they run, so a caller keeps what they did and decided even
+    when the turn raises.
+    """
     async with asyncio.timeout(deps.budget_s):
-        return await _Turn(request, deps).run()
+        return await _Turn(request, deps, actions).run()
 
 
 def booking_confirmation(seller: SellerSettings, booked: Sequence[BookedSlot]) -> str:
@@ -187,6 +194,28 @@ def booking_confirmation(seller: SellerSettings, booked: Sequence[BookedSlot]) -
     )
     made = "quedó tu cita" if len(booked) == 1 else "quedaron tus citas"
     return f"Listo, {made} de {slots}. ¿Te ayudo con algo más?"
+
+
+def reservation_note(seller: SellerSettings, reserved: Sequence[ReservedItem]) -> str:
+    """From the reservations the tool made, so it needs no citation (AS-3.7)."""
+    codes = " y ".join(str(item.code) for item in reserved)
+    made = (
+        "Tu reserva quedó con el código"
+        if len(reserved) == 1
+        else "Tus reservas quedaron con los códigos"
+    )
+    until = local_time(min(filter(None, (item.expires_at for item in reserved))), seller.timezone)
+    return f"{made} {codes}, hasta el {until}."
+
+
+def made_confirmation(
+    seller: SellerSettings, booked: Sequence[BookedSlot], reserved: Sequence[ReservedItem]
+) -> str:
+    """What the tools made, for a customer who gets no other answer."""
+    if not reserved:
+        return booking_confirmation(seller, booked)
+    closing = booking_confirmation(seller, booked) if booked else ANYTHING_ELSE
+    return f"{reservation_note(seller, reserved)} {closing}"
 
 
 def parse_output(content: str | None) -> AgentTurnOutput | None:
@@ -214,7 +243,9 @@ class _DeclinedError(Exception):
 
 
 class _Turn:
-    def __init__(self, request: TurnRequest, deps: AgentDeps) -> None:
+    def __init__(
+        self, request: TurnRequest, deps: AgentDeps, actions: TurnActions | None = None
+    ) -> None:
         self.request = request
         self.deps = deps
         self.calls: list[CallMeta] = []
@@ -229,6 +260,7 @@ class _Turn:
             ad_assets=deps.ad_assets,
             bookings=deps.bookings,
             clock=deps.clock,
+            actions=actions,
         )
 
     async def run(self) -> TurnResult:
@@ -333,11 +365,15 @@ class _Turn:
             handoff_reason = verdict.handoff_reason
         accepted = verdict is not None and verdict.outcome == "accept"
         no_data = not accepted and handoff_reason == "other"  # R4's first fallback
-        booked = self.box.actions.bookings
-        if booked and no_data:
-            # The tool booked it: the customer hears that, never "no tengo ese dato", and
-            # nothing waits for the owner (T052).
-            final, handoff_reason = booking_confirmation(seller, booked), None
+        booked, reserved = self.box.actions.bookings, self.box.actions.reservations
+        if (booked or reserved) and no_data:
+            # The tool booked or held it: the customer hears that, never "no tengo ese dato",
+            # and nothing waits for the owner (T052).
+            final, handoff_reason = made_confirmation(seller, booked, reserved), None
+        # AS-3.7: stock held for a day is no use to a customer who never got its code, whatever
+        # the reply became.
+        if unheard := [item for item in reserved if item.code and item.code not in final]:
+            final = f"{reservation_note(seller, unheard)} {final}"
 
         if self.request.opted_out and output is not None:
             # Q31: the opt-out wins, so the customer is never asked to opt back in (R8).

@@ -145,6 +145,12 @@ class ConversationStore(Protocol):
         self, seller_id: UUID, conversation_id: UUID, *, limit: int
     ) -> list[StoredMessage]: ...
 
+    async def message(self, seller_id: UUID, message_id: UUID) -> StoredMessage | None: ...
+
+    async def message_by_wa_id(
+        self, seller_id: UUID, wa_message_id: str
+    ) -> StoredMessage | None: ...
+
     async def update_conversation(
         self,
         seller_id: UUID,
@@ -162,7 +168,7 @@ class ConversationStore(Protocol):
         seller_id: UUID,
         message_id: UUID,
         *,
-        status: DeliveryStatus,
+        status: DeliveryStatus | None,
         wa_message_id: str | None = None,
     ) -> None: ...
 
@@ -361,6 +367,18 @@ class InMemoryConversationStore:
         ]
         return rows[-limit:] if limit else []
 
+    async def message(self, seller_id: UUID, message_id: UUID) -> StoredMessage | None:
+        for row in self.messages:
+            if row.seller_id == seller_id and row.stored.id == message_id:
+                return row.stored
+        return None
+
+    async def message_by_wa_id(self, seller_id: UUID, wa_message_id: str) -> StoredMessage | None:
+        for row in self.messages:
+            if row.seller_id == seller_id and row.stored.wa_message_id == wa_message_id:
+                return row.stored
+        return None
+
     async def update_conversation(
         self,
         seller_id: UUID,
@@ -391,7 +409,7 @@ class InMemoryConversationStore:
         seller_id: UUID,
         message_id: UUID,
         *,
-        status: DeliveryStatus,
+        status: DeliveryStatus | None,
         wa_message_id: str | None = None,
     ) -> None:
         for row in self.messages:
@@ -882,6 +900,21 @@ class PostgresConversationStore(_PostgresReads):
             )
         return [_message(row) for row in reversed(rows)]
 
+    async def message(self, seller_id: UUID, message_id: UUID) -> StoredMessage | None:
+        return await self._one_message(
+            db.messages.c.seller_id == seller_id, db.messages.c.id == message_id
+        )
+
+    async def message_by_wa_id(self, seller_id: UUID, wa_message_id: str) -> StoredMessage | None:
+        return await self._one_message(
+            db.messages.c.seller_id == seller_id, db.messages.c.wa_message_id == wa_message_id
+        )
+
+    async def _one_message(self, *where: sa.ColumnElement[bool]) -> StoredMessage | None:
+        async with self.sessions() as session:
+            row = (await session.execute(sa.select(db.messages).where(*where))).mappings().first()
+        return _message(row) if row is not None else None
+
     async def update_conversation(
         self,
         seller_id: UUID,
@@ -918,7 +951,7 @@ class PostgresConversationStore(_PostgresReads):
         seller_id: UUID,
         message_id: UUID,
         *,
-        status: DeliveryStatus,
+        status: DeliveryStatus | None,
         wa_message_id: str | None = None,
     ) -> None:
         values: dict[str, Any] = {"delivery_status": status}

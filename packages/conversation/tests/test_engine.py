@@ -6,6 +6,7 @@ answer goes out before its verdict.
 """
 
 import asyncio
+import json
 from datetime import UTC, datetime, timedelta
 from typing import Any
 from uuid import uuid4
@@ -17,8 +18,13 @@ from vitrina_conversation.contract import output_schema, tool_specs
 from vitrina_conversation.engine import AdContext, booking_confirmation
 from vitrina_conversation.scope import decline_reply, sensitive_reply
 from vitrina_conversation.testing import ScriptedChat, Shop, final_answer, scope_answer, tool_call
-from vitrina_conversation.tools import BookedSlot
-from vitrina_core.providers import ChatRequest, ChatResponse, ProviderUnavailableError
+from vitrina_conversation.tools import BookedSlot, TurnActions
+from vitrina_core.providers import (
+    ChatRequest,
+    ChatResponse,
+    ProviderError,
+    ProviderUnavailableError,
+)
 
 FALLBACK = "No tengo ese dato, te comunico con Ana"
 CONVERSATION = uuid4()
@@ -430,6 +436,101 @@ async def test_t052_a_reply_that_passes_after_a_booking_is_kept(shop: Shop) -> N
     )
 
     assert result.final_reply == reply
+
+
+async def test_as_3_7_a_reservation_the_review_rejects_is_confirmed_from_the_tool(
+    shop: Shop,
+) -> None:
+    product = shop.ids["mochila-azul"]
+    chat = ScriptedChat(
+        [
+            tool_call("reserve_item", product_id=product, quantity=1),
+            final_answer("Listo, te la guardo hasta mañana sin falta.", confidence=0.95),
+        ]
+    )
+
+    result = await run_turn(
+        request(shop, "Resérvame la mochila azul", dry_run=False), deps(chat, shop)
+    )
+
+    (item,) = result.actions.reservations
+    assert item.code is not None
+    assert item.code in result.final_reply
+    assert FALLBACK not in result.final_reply
+    assert result.final_reply.endswith("¿Te ayudo con algo más?")
+    assert result.handoff is None
+
+
+async def test_as_3_7_a_reservation_with_a_handoff_tells_the_code_and_the_fallback(
+    shop: Shop,
+) -> None:
+    product = shop.ids["mochila-azul"]
+    invented = final_answer("Listo, son $50.000.", confidence=0.95)
+    chat = ScriptedChat(
+        [tool_call("reserve_item", product_id=product, quantity=1), invented, invented]
+    )
+
+    result = await run_turn(
+        request(shop, "Resérvame la mochila azul", dry_run=False), deps(chat, shop)
+    )
+
+    (item,) = result.actions.reservations
+    assert item.code is not None
+    assert result.final_reply.startswith(f"Tu reserva quedó con el código {item.code}")
+    assert result.final_reply.endswith(FALLBACK)
+    assert result.handoff is not None
+    assert result.handoff.reason == "price_unverified"
+
+
+async def test_as_3_7_an_accepted_reply_without_the_code_gets_it(shop: Shop) -> None:
+    product = shop.ids["mochila-azul"]
+    reply = "Listo, quedó reservada por 24 horas."
+    chat = ScriptedChat(
+        [tool_call("reserve_item", product_id=product, quantity=1), final_answer(reply, product)]
+    )
+
+    result = await run_turn(
+        request(shop, "Resérvame la mochila azul", dry_run=False), deps(chat, shop)
+    )
+
+    (item,) = result.actions.reservations
+    assert item.code is not None
+    assert result.final_reply.startswith(f"Tu reserva quedó con el código {item.code}")
+    assert result.final_reply.endswith(reply)
+
+
+async def test_as_3_7_an_accepted_reply_with_the_code_is_kept(shop: Shop) -> None:
+    product = shop.ids["mochila-azul"]
+
+    class Echoing(ScriptedChat):
+        """Answers with the code the tool returned, as the prompt asks the model to."""
+
+        async def complete(self, sent: ChatRequest) -> ChatResponse:
+            if sent.purpose != "classify" and not self.script:
+                code = json.loads(str(sent.messages[-1].content))["code"]
+                self.script.append(final_answer(f"Listo, tu código es {code}.", product))
+            return await super().complete(sent)
+
+    chat = Echoing([tool_call("reserve_item", product_id=product, quantity=1)])
+
+    result = await run_turn(
+        request(shop, "Resérvame la mochila azul", dry_run=False), deps(chat, shop)
+    )
+
+    (item,) = result.actions.reservations
+    assert result.final_reply == f"Listo, tu código es {item.code}."
+
+
+async def test_t052_a_failed_turn_leaves_what_its_tools_decided_with_the_caller(
+    shop: Shop,
+) -> None:
+    chat = ScriptedChat([tool_call("opt_out"), ProviderError("refused", provider="meta")])
+    actions = TurnActions()
+
+    with pytest.raises(ProviderError):
+        await run_turn(request(shop, "ya no me escriban", dry_run=False), deps(chat, shop), actions)
+
+    assert actions.opt_out is not None
 
 
 def test_t052_two_bookings_are_confirmed_together(shop: Shop) -> None:

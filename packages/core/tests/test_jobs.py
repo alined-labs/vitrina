@@ -19,7 +19,7 @@ from vitrina_core.jobs import (
     load_tasks,
 )
 from vitrina_core.ledger import InMemoryLedger
-from vitrina_core.providers import ProviderError
+from vitrina_core.providers import ProviderError, RateLimitedError
 from vitrina_core.providers.compose import Providers, compose
 from vitrina_core.settings import Settings
 from vitrina_core.storage import BlobStore, LocalBlobStore
@@ -114,6 +114,27 @@ async def test_failures_are_retried_with_backoff_until_the_last_attempt() -> Non
         "message": "upstream 503",
         "retryable": False,
     }
+
+
+@pytest.mark.parametrize(
+    ("retry_after_s", "waits"),
+    [(120.0, timedelta(seconds=120)), (1.0, backoff(1)), (None, backoff(1))],
+)
+async def test_fr_028_a_provider_pause_longer_than_the_backoff_is_waited_out(
+    retry_after_s: float | None, waits: timedelta
+) -> None:
+    registry = TaskRegistry()
+
+    @registry.task("catalog.import_products")
+    async def throttled(ctx: JobContext) -> None:
+        raise RateLimitedError("slow down", provider="whatsapp", retry_after_s=retry_after_s)
+
+    queue = FakeQueue([claimed()])
+    await worker(queue, registry).run_once()
+
+    ((_, error, retry_at),) = queue.events
+    assert error["retryable"] is True
+    assert retry_at == NOW + waits
 
 
 async def test_job_failed_error_is_final_and_keeps_its_code() -> None:

@@ -8,7 +8,8 @@ task never edits a shared file:
 
 A handler gets a ``JobContext`` and returns the job's ``result_ref`` (or None). Raise
 ``JobFailedError`` for a final failure with a stable code; any other exception, a provider
-outage or a timeout is retried with backoff until ``max_attempts``.
+outage or a timeout is retried with backoff until ``max_attempts``, waiting longer when the
+provider asked for a longer pause (``ProviderError.retry_after_s``).
 """
 
 import asyncio
@@ -244,7 +245,9 @@ class Worker:
             await self._failed(job, "TIMEOUT", f"{job.task} ran longer than {task.timeout_s:g} s")
         except ProviderError as error:
             if error.retryable:
-                await self._failed(job, "PROVIDER_UNAVAILABLE", str(error))
+                await self._failed(
+                    job, "PROVIDER_UNAVAILABLE", str(error), not_before_s=error.retry_after_s
+                )
             else:
                 await self.queue.fail(
                     job.id,
@@ -260,10 +263,13 @@ class Worker:
             seller_id_var.reset(seller_token)
             beat.cancel()
 
-    async def _failed(self, job: ClaimedJob, code: str, message: str) -> None:
+    async def _failed(
+        self, job: ClaimedJob, code: str, message: str, *, not_before_s: float | None = None
+    ) -> None:
         retry = job.attempt < job.max_attempts
         error = {"code": code, "message": message[:500], "retryable": retry}
-        await self.queue.fail(job.id, error, self.clock() + backoff(job.attempt) if retry else None)
+        wait = max(backoff(job.attempt), timedelta(seconds=not_before_s or 0))
+        await self.queue.fail(job.id, error, self.clock() + wait if retry else None)
 
     async def _heartbeat(self, job_id: UUID) -> None:
         while True:
