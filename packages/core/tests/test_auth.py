@@ -6,7 +6,7 @@ from uuid import UUID
 import jwt
 import pytest
 from cryptography.hazmat.primitives.asymmetric import ec
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
 from fastapi.testclient import TestClient
 from pydantic import SecretStr
 
@@ -26,6 +26,7 @@ from vitrina_core.http import (
     RequestIdMiddleware,
     install_problem_handlers,
 )
+from vitrina_core.ids import NIL
 
 SECRET = "test-jwt-secret-with-at-least-32-bytes!!"
 ISSUER = "https://project.supabase.co/auth/v1"
@@ -214,6 +215,51 @@ def test_openapi_uses_the_contract_security_schemes() -> None:
         "{'sellerAuth': []}",
         "{'serviceAuth': []}",
     ]
+
+
+def test_fr_081_a_stored_service_response_is_not_replayed_to_an_anonymous_caller() -> None:
+    app = make_app()
+    client = TestClient(app)
+    headers = {"Idempotency-Key": "service-key-0001"}
+
+    first = client.post("/runs", headers={**headers, "X-Service-Token": SERVICE_TOKEN})
+    anonymous = client.post("/runs", headers=headers)
+    bad_token = client.post("/runs", headers={**headers, "X-Service-Token": "not-the-token"})
+    again = client.post("/runs", headers={**headers, "X-Service-Token": SERVICE_TOKEN})
+
+    assert first.status_code == 200
+    assert (anonymous.status_code, bad_token.status_code) == (401, 401)
+    assert "idempotent-replayed" not in anonymous.headers
+    assert again.headers["idempotent-replayed"] == "true"
+    assert app.state.calls == ["service"]
+
+
+def test_fr_081_a_service_key_and_a_seller_key_do_not_share_a_scope() -> None:
+    app = make_app()
+    client = TestClient(app)
+    headers = {"Idempotency-Key": "shared-key-00001"}
+
+    client.post("/runs", headers={**headers, "X-Service-Token": SERVICE_TOKEN})
+    seller = client.post("/runs", headers={**headers, **bearer(token())})
+
+    assert seller.json()["kind"] == "seller"
+    assert app.state.calls == ["service", "seller"]
+
+
+async def test_fr_081_only_a_seller_or_the_service_token_owns_a_key() -> None:
+    auth = make_app().state.auth
+
+    def request(**headers: str) -> Request:
+        raw = [(name.replace("_", "-").encode(), value.encode()) for name, value in headers.items()]
+        return Request({"type": "http", "headers": raw})
+
+    no_seller = token(sub="7a7a7a7a-0000-4000-8000-00000000000f")
+    assert await auth.idempotency_scope(request()) is None
+    assert await auth.idempotency_scope(request(authorization="Bearer not-a-token")) is None
+    assert await auth.idempotency_scope(request(authorization=f"Bearer {no_seller}")) is None
+    assert await auth.idempotency_scope(request(x_service_token="not-the-token")) is None
+    assert await auth.idempotency_scope(request(x_service_token=SERVICE_TOKEN)) == NIL
+    assert await auth.idempotency_scope(request(authorization=f"Bearer {token()}")) == SELLER
 
 
 def test_fr_081_idempotency_keys_belong_to_the_seller_in_the_token() -> None:

@@ -2,6 +2,7 @@
 
 from vitrina_core.jobs.model import (
     API_KINDS,
+    JOB_FAILURE_TEXT,
     InternalKind,
     Job,
     JobErrorDetail,
@@ -27,6 +28,7 @@ from vitrina_core.jobs.worker import (
 
 __all__ = [
     "API_KINDS",
+    "JOB_FAILURE_TEXT",
     "STALLED_AFTER_S",
     "TASKS_ENTRY_POINT",
     "ClaimedJob",

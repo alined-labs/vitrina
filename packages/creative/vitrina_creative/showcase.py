@@ -292,7 +292,7 @@ async def run_showcase(ctx: JobContext) -> str:
     except LookupError as error:
         await store.fail(showcase_id)
         await _forget(ctx.storage, source_key)
-        raise JobFailedError("PROVIDER_UNAVAILABLE", str(error)) from error
+        raise JobFailedError.safe("PROVIDER_UNAVAILABLE") from error
 
     async def on_stage(stage: str, fraction: float) -> None:
         await ctx.progress(stage, fraction)

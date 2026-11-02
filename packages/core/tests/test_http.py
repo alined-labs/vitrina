@@ -1,3 +1,7 @@
+import asyncio
+import base64
+import json
+import logging
 from datetime import UTC, datetime, timedelta
 from typing import Annotated, Any
 from uuid import UUID
@@ -6,6 +10,7 @@ import pytest
 import sqlalchemy as sa
 import yaml
 from fastapi import Depends, FastAPI, Request
+from fastapi.responses import JSONResponse
 from fastapi.testclient import TestClient
 from pydantic import BaseModel, Field
 
@@ -25,8 +30,9 @@ from vitrina_core.http import (
     next_cursor,
     problem_responses,
 )
+from vitrina_core.http.idempotency import Outcome
 from vitrina_core.ids import NIL
-from vitrina_core.providers import ProviderUnavailableError
+from vitrina_core.providers import ProviderError, ProviderUnavailableError
 from vitrina_core.settings import REPO_ROOT
 
 SELLER_A = UUID("00000000-0000-7000-8000-00000000000a")
@@ -248,6 +254,102 @@ def test_fr_081_keys_expire_after_24_hours() -> None:
     assert calls == ["Bolso", "Gorra"]
 
 
+def post_scope(key: bytes, path: str = "/products") -> Any:
+    return {
+        "type": "http",
+        "method": "POST",
+        "path": path,
+        "query_string": b"",
+        "headers": [(b"idempotency-key", key)],
+    }
+
+
+async def test_fr_081_an_anonymous_request_is_neither_buffered_nor_stored() -> None:
+    class NoStore(InMemoryIdempotencyStore):
+        async def begin(self, scope: UUID, key: str, request_hash: str) -> Outcome:
+            raise AssertionError("an anonymous request must not reach the store")
+
+    reads = 0
+    reads_before_the_route: int | None = None
+    answers: list[Any] = []
+
+    async def receive() -> Any:
+        nonlocal reads
+        reads += 1
+        return {"type": "http.request", "body": b"{}", "more_body": False}
+
+    async def route(scope: Any, inner_receive: Any, send: Any) -> None:
+        nonlocal reads_before_the_route
+        reads_before_the_route = reads
+        await JSONResponse({"ok": True})(scope, inner_receive, send)
+
+    async def send(message: Any) -> None:
+        answers.append(message)
+
+    middleware = IdempotencyMiddleware(route, store=NoStore(), scope=lambda _request: None)
+    await middleware(post_scope(b"anon-key-0001", "/uploads"), receive, send)
+
+    assert reads_before_the_route == 0
+    assert answers[0]["status"] == 200
+
+
+async def test_fr_081_a_stale_in_progress_row_can_be_retried_by_one_caller_only() -> None:
+    now = [datetime(2026, 10, 27, 12, 0, tzinfo=UTC)]
+    store = InMemoryIdempotencyStore(clock=lambda: now[0], stale_after=timedelta(seconds=90))
+    assert (await store.begin(SELLER_A, "key-1", "hash")).kind == "new"
+
+    now[0] += timedelta(seconds=89)
+    assert (await store.begin(SELLER_A, "key-1", "hash")).kind == "in_progress"
+
+    now[0] += timedelta(seconds=2)
+    assert (await store.begin(SELLER_A, "key-1", "other")).kind == "conflict"
+    assert (await store.begin(SELLER_A, "key-1", "hash")).kind == "new"
+    assert (await store.begin(SELLER_A, "key-1", "hash")).kind == "in_progress"
+
+
+async def test_fr_081_a_finished_row_is_replayed_however_old_it_is_within_24_hours() -> None:
+    now = [datetime(2026, 10, 27, 12, 0, tzinfo=UTC)]
+    store = InMemoryIdempotencyStore(clock=lambda: now[0], stale_after=timedelta(seconds=90))
+    await store.begin(SELLER_A, "key-1", "hash")
+    await store.finish(SELLER_A, "key-1", 201, {"id": 1})
+
+    now[0] += timedelta(hours=23)
+
+    assert (await store.begin(SELLER_A, "key-1", "hash")).kind == "replay"
+
+
+async def test_fr_081_a_request_still_running_keeps_its_row_past_the_limit() -> None:
+    now = [datetime(2026, 10, 27, 12, 0, tzinfo=UTC)]
+    store = InMemoryIdempotencyStore(clock=lambda: now[0], stale_after=timedelta(seconds=90))
+    started, release = asyncio.Event(), asyncio.Event()
+
+    async def slow_route(scope: Any, receive: Any, send: Any) -> None:
+        started.set()
+        await release.wait()
+        await JSONResponse({"ok": True})(scope, receive, send)
+
+    middleware = IdempotencyMiddleware(
+        slow_route, store=store, scope=lambda _request: SELLER_A, renew_every_s=0.001
+    )
+
+    async def receive() -> Any:
+        return {"type": "http.request", "body": b"{}", "more_body": False}
+
+    async def send(_message: Any) -> None:
+        return None
+
+    running = asyncio.create_task(middleware(post_scope(b"running-key-1"), receive, send))
+    await started.wait()
+    digest = next(iter(store._entries.values())).request_hash
+
+    now[0] += timedelta(seconds=91)
+    await asyncio.sleep(0.05)  # the renewal runs on the new clock
+
+    assert (await store.begin(SELLER_A, "running-key-1", digest)).kind == "in_progress"
+    release.set()
+    await running
+
+
 def test_fr_081_key_length_follows_the_contract() -> None:
     http, _ = client()
 
@@ -274,6 +376,40 @@ def test_fr_080_cursor_round_trips_and_rejects_garbage() -> None:
     assert decode_cursor(encode_cursor(moment, SELLER_A)) == (moment, SELLER_A)
     with pytest.raises(ProblemError) as raised:
         decode_cursor("not-a-cursor")
+    assert raised.value.code is ProblemCode.VALIDATION_ERROR
+
+
+@pytest.mark.parametrize(
+    "crafted",
+    [
+        ["2026-10-27T12:30:00+00:00", 7],  # an id that is not text
+        ["2026-10-27T12:30:00+00:00", ["a"]],
+        ["2026-10-27T12:30:00+00:00", {"a": 1}],
+        ["2026-10-27T12:30:00+00:00", "not-a-uuid"],
+        [7, "00000000-0000-7000-8000-00000000000a"],
+        ["2026-10-27T12:30:00", "00000000-0000-7000-8000-00000000000a"],  # no time zone
+        ["0001-01-01T00:00:00+23:59", "00000000-0000-7000-8000-00000000000a"],  # out of range
+        ["a"],
+        {"created_at": "x", "id": "y"},
+        7,
+        None,
+    ],
+)
+def test_fr_080_a_crafted_cursor_is_a_validation_error(crafted: object) -> None:
+    cursor = base64.urlsafe_b64encode(json.dumps(crafted).encode()).decode()
+
+    with pytest.raises(ProblemError) as raised:
+        decode_cursor(cursor)
+
+    assert raised.value.code is ProblemCode.VALIDATION_ERROR
+
+
+def test_fr_080_a_deeply_nested_cursor_is_a_validation_error() -> None:
+    cursor = base64.urlsafe_b64encode(b"[" * 2_000_000).decode()
+
+    with pytest.raises(ProblemError) as raised:
+        decode_cursor(cursor)
+
     assert raised.value.code is ProblemCode.VALIDATION_ERROR
 
 
@@ -310,3 +446,30 @@ def test_fr_080_limit_is_bounded_by_the_contract() -> None:
     assert http.get("/items").json() == {"limit": 25, "cursor": None}
     assert http.get("/items", params={"limit": 101}).status_code == 400
     assert http.get("/items", params={"limit": 0}).status_code == 400
+
+
+# ── provider errors reach clients as a safe message ──
+
+
+def test_fr_082_a_provider_error_answers_safely_and_logs_the_detail_with_the_request_id(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    app = FastAPI()
+    install_problem_handlers(app)
+    app.add_middleware(RequestIdMiddleware)
+
+    @app.get("/model")
+    def model() -> None:
+        raise ProviderError("key sk-synthetic rejected at /v1/chat", provider="meta_model_api")
+
+    with caplog.at_level(logging.WARNING, logger="vitrina.http"):
+        response = TestClient(app).get("/model", headers={"X-Request-Id": "req-provider-1"})
+
+    assert response.status_code == 503
+    body = response.json()
+    assert body["code"] == "PROVIDER_UNAVAILABLE"
+    assert "sk-synthetic" not in response.text
+    assert "meta_model_api" not in response.text
+    assert body["request_id"] == "req-provider-1"
+    logged = [record.getMessage() for record in caplog.records]
+    assert any("req-provider-1" in line and "sk-synthetic" in line for line in logged)

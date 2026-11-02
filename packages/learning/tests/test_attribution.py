@@ -1,7 +1,18 @@
-from datetime import date
+from collections.abc import Collection
+from datetime import UTC, date, datetime, timedelta
+from typing import Any
 from uuid import UUID
 
-from vitrina_learning.attribution import AdInfo, build_attribution_report, build_objection_report
+import pytest
+
+from vitrina_core.events import StoredEvent
+from vitrina_learning import attribution
+from vitrina_learning.attribution import (
+    AdInfo,
+    AttributionConsumer,
+    build_attribution_report,
+    build_objection_report,
+)
 
 PRICE = UUID("00000000-0000-7000-8000-0000000000a1")
 GIFT = UUID("00000000-0000-7000-8000-0000000000a2")
@@ -98,3 +109,93 @@ def test_fr_041_objections_report_totals_and_tags_per_ad() -> None:
             {"ad_id": str(GIFT), "code": "A8", "tags": {"price": 1}},
         ],
     }
+
+
+# ── the cursor: ids are handed out at insert, not at commit ──
+
+NOW = datetime(2026, 10, 27, 15, 0, tzinfo=UTC)
+
+
+class FakeSessions:
+    """Enough of a session factory for ``async with sessions() as s, s.begin()``."""
+
+    def __call__(self) -> FakeSessions:
+        return self
+
+    def begin(self) -> FakeSessions:
+        return self
+
+    async def __aenter__(self) -> FakeSessions:
+        return self
+
+    async def __aexit__(self, *_: object) -> None:
+        return None
+
+
+def stored(event_id: int, *, age_s: float) -> StoredEvent:
+    created_at = NOW - timedelta(seconds=age_s)
+    return StoredEvent(event_id, None, "ad.chat_started", {}, created_at)
+
+
+@pytest.fixture
+def visible(monkeypatch: pytest.MonkeyPatch) -> tuple[list[StoredEvent], list[int]]:
+    """The committed events, and the ids copied from them."""
+    events: list[StoredEvent] = []
+    copied: list[int] = []
+
+    async def events_after(
+        _session: Any, after_id: int, *, types: Collection[str], limit: int
+    ) -> list[StoredEvent]:
+        return sorted(
+            (event for event in events if event.id > after_id), key=lambda event: event.id
+        )[:limit]
+
+    async def copy(_session: Any, event: StoredEvent) -> int:
+        if event.id in copied:
+            return 0
+        copied.append(event.id)
+        return 1
+
+    monkeypatch.setattr(attribution, "events_after", events_after)
+    monkeypatch.setattr(attribution, "_copy", copy)
+    return events, copied
+
+
+async def test_as_4_1_an_event_that_commits_after_a_later_id_is_still_copied(
+    visible: tuple[list[StoredEvent], list[int]],
+) -> None:
+    events, copied = visible
+    consumer = AttributionConsumer(commit_grace_s=300)
+    sessions: Any = FakeSessions()
+
+    events.append(stored(6, age_s=1))  # event 5's transaction is still open
+    assert await consumer.sweep(sessions, NOW) == 1
+    events.append(stored(5, age_s=2))  # now it commits
+    assert await consumer.sweep(sessions, NOW) == 1
+
+    assert sorted(copied) == [5, 6]
+
+
+async def test_as_4_1_the_cursor_passes_settled_events_only_and_stops_at_the_first_young_one(
+    visible: tuple[list[StoredEvent], list[int]],
+) -> None:
+    events, _ = visible
+    consumer = AttributionConsumer(commit_grace_s=300)
+    events += [stored(1, age_s=900), stored(2, age_s=900), stored(3, age_s=1), stored(4, age_s=900)]
+
+    assert await consumer.sweep(FakeSessions(), NOW) == 4  # type: ignore[arg-type]
+
+    assert consumer.after_id == 2
+
+
+async def test_as_4_1_a_full_batch_of_young_events_does_not_hold_the_sweep_on_one_page(
+    visible: tuple[list[StoredEvent], list[int]],
+) -> None:
+    events, copied = visible
+    consumer = AttributionConsumer(batch=2, commit_grace_s=300)
+    events += [stored(event_id, age_s=1) for event_id in range(1, 6)]
+
+    assert await consumer.sweep(FakeSessions(), NOW) == 5  # type: ignore[arg-type]
+
+    assert copied == [1, 2, 3, 4, 5]
+    assert consumer.after_id == 0

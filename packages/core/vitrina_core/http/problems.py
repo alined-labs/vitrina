@@ -1,5 +1,6 @@
 """RFC 9457 problem details with the contract's stable codes (FR-082, openapi.yaml ``Problem``)."""
 
+import logging
 from collections.abc import Mapping, Sequence
 from enum import StrEnum
 from typing import Annotated, Any
@@ -13,7 +14,10 @@ from starlette.exceptions import HTTPException as StarletteHTTPException
 from vitrina_core.http.context import current_request_id
 from vitrina_core.providers import ProviderError
 
+logger = logging.getLogger("vitrina.http")
+
 PROBLEM_JSON = "application/problem+json"
+PROVIDER_DOWN = "El servicio no está disponible en este momento. Intenta más tarde."
 
 
 class ProblemCode(StrEnum):
@@ -111,6 +115,17 @@ class ProblemError(Exception):
         self.headers = dict(headers or {})
 
 
+def provider_unavailable(cause: Exception) -> ProblemError:
+    """A 503 that is safe to show; what went wrong goes to the log, under the request id."""
+    logger.warning(
+        "provider unavailable, request %s: %s: %s",
+        current_request_id(),
+        type(cause).__name__,
+        cause,
+    )
+    return ProblemError(ProblemCode.PROVIDER_UNAVAILABLE, detail=PROVIDER_DOWN)
+
+
 def problem_body(
     code: str,
     status: int,
@@ -175,9 +190,7 @@ async def _on_http(_request: Request, error: Exception) -> JSONResponse:
 
 async def _on_provider(_request: Request, error: Exception) -> JSONResponse:
     assert isinstance(error, ProviderError)
-    return problem_response(
-        ProblemError(ProblemCode.PROVIDER_UNAVAILABLE, detail=f"{error.provider}: {error}")
-    )
+    return problem_response(provider_unavailable(error))
 
 
 # ── OpenAPI ──

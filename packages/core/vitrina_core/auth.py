@@ -179,19 +179,26 @@ class Authenticator:
             raise _unauthorized("a valid X-Service-Token is required")
         return Principal(kind="service")
 
-    async def idempotency_scope(self, request: Request) -> UUID:
-        """The seller that owns an Idempotency-Key; NIL for service and anonymous calls."""
-        header = request.headers.get("authorization", "")
-        scheme, _, value = header.partition(" ")
-        if scheme.lower() != "bearer" or not value:
+    async def idempotency_scope(self, request: Request) -> UUID | None:
+        """Who owns an Idempotency-Key: NIL for a valid service token, which goes first as in
+        ``require_seller_or_service``, else the seller in the token. None for anyone else, an
+        account without a seller included; the route itself answers them (401 or 403)."""
+        try:
+            self.service(request.headers.get("x-service-token"))
+        except ProblemError:
+            pass
+        else:
             return NIL
+        scheme, _, value = request.headers.get("authorization", "").partition(" ")
+        if scheme.lower() != "bearer" or not value:
+            return None
         try:
             principal = await self.seller(
                 HTTPAuthorizationCredentials(scheme=scheme, credentials=value)
             )
         except ProblemError:
-            return NIL  # the route itself answers 401 or 403
-        return principal.seller_id or NIL
+            return None
+        return principal.seller_id
 
 
 def authenticator(request: Request) -> Authenticator:

@@ -9,7 +9,7 @@ from typing import Any
 from uuid import UUID
 
 from vitrina_core.ids import new_id
-from vitrina_core.jobs import JobContext, JobFailedError, TaskRegistry
+from vitrina_core.jobs import JOB_FAILURE_TEXT, JobContext, JobFailedError, TaskRegistry
 from vitrina_core.providers import ProviderError
 from vitrina_core.storage import BlobNotFoundError, BlobStore, blob_key, seller_of
 from vitrina_creative.copy import BrandVoice
@@ -51,7 +51,8 @@ async def run_creative_job(ctx: JobContext) -> str:
             store, ctx, "NOT_FOUND", "Una de las fotos ya no está guardada."
         ) from error
     except LookupError as error:  # a model ID is not configured (Q01)
-        raise await _fail(store, ctx, "PROVIDER_UNAVAILABLE", str(error)) from error
+        code = "PROVIDER_UNAVAILABLE"
+        raise await _fail(store, ctx, code, JOB_FAILURE_TEXT[code]) from error
 
     async def on_stage(stage: str, fraction: float) -> None:
         await ctx.progress(stage, fraction)
@@ -72,7 +73,7 @@ async def run_creative_job(ctx: JobContext) -> str:
     except Exception as error:
         if ctx.job.attempt >= ctx.job.max_attempts:  # the worker gives up after this attempt
             code = "PROVIDER_ERROR" if isinstance(error, ProviderError) else "INTERNAL_ERROR"
-            await store.fail(ctx.job_id, code, str(error)[:300])
+            await store.fail(ctx.job_id, code, JOB_FAILURE_TEXT[code])
         raise
 
     product_id = UUID(str(ctx.payload["params"]["product_id"]))

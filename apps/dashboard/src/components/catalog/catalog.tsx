@@ -2,6 +2,7 @@
 
 import { useRouter } from "next/navigation";
 import { useCallback, useState } from "react";
+import { oncePerAction } from "@/lib/api/action-key";
 import { api, type components } from "@/lib/api/client";
 import { formatCop, problemMessage } from "@/lib/format";
 import { useLoad } from "@/lib/use-load";
@@ -46,15 +47,18 @@ export function Catalog() {
     setBusy(product.id);
     setMessage(null);
     // The contract's defaults, spelled out: two formats, three scenes each, ten copy variants.
-    const { data, error } = await api.POST("/creative/jobs", {
-      body: {
-        product_id: product.id,
-        formats: ["story_9x16", "catalog_1x1"],
-        scenes_per_format: 3,
-        copy_variants: 10,
-        overlay_text: false,
-      },
-    });
+    const { data, error } = await oncePerAction(`creative/jobs:${product.id}`, (header) =>
+      api.POST("/creative/jobs", {
+        params: { header },
+        body: {
+          product_id: product.id,
+          formats: ["story_9x16", "catalog_1x1"],
+          scenes_per_format: 3,
+          copy_variants: 10,
+          overlay_text: false,
+        },
+      }),
+    );
     setBusy(null);
     if (error) setMessage(problemMessage(error, "No pudimos empezar los anuncios."));
     else router.push(`/creativos?trabajo=${data.id}`);
@@ -141,14 +145,15 @@ function NewProduct({ onCreated }: { onCreated: () => Promise<void> }) {
     const description = String(fields.get("description") ?? "").trim();
     setSaving(true);
     setError(null);
-    const { error: problem } = await api.POST("/products", {
-      body: {
-        name: String(fields.get("name") ?? "").trim(),
-        price_cop: Number(fields.get("price_cop")),
-        ...(stock ? { stock: Number(stock) } : {}),
-        ...(description ? { description } : {}),
-      },
-    });
+    const body = {
+      name: String(fields.get("name") ?? "").trim(),
+      price_cop: Number(fields.get("price_cop")),
+      ...(stock ? { stock: Number(stock) } : {}),
+      ...(description ? { description } : {}),
+    };
+    const { error: problem } = await oncePerAction(`products:${JSON.stringify(body)}`, (header) =>
+      api.POST("/products", { params: { header }, body }),
+    );
     setSaving(false);
     if (problem) {
       setError(problemMessage(problem, "No pudimos guardar el producto."));

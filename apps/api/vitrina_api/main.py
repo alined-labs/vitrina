@@ -2,6 +2,7 @@
 
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
+from datetime import timedelta
 from importlib.metadata import version
 
 from fastapi import FastAPI
@@ -175,14 +176,20 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         # No database: sellers created through POST /sellers sign in against the same store.
         app.state.sellers = directory = InMemorySellerStore()
     app.state.auth = authenticator(settings, directory)
+    stale_after = timedelta(seconds=settings.idempotency_stale_after_s)
     store: IdempotencyStore = (
-        PostgresIdempotencyStore(app.state.sessions)
+        PostgresIdempotencyStore(app.state.sessions, stale_after=stale_after)
         if app.state.sessions
-        else InMemoryIdempotencyStore()
+        else InMemoryIdempotencyStore(stale_after=stale_after)
     )
-    app.add_middleware(IdempotencyMiddleware, store=store, scope=app.state.auth.idempotency_scope)
-    # Outside idempotency, which buffers a POST body before authentication; inside request ids,
-    # so a 413 carries one too.
+    app.add_middleware(
+        IdempotencyMiddleware,
+        store=store,
+        scope=app.state.auth.idempotency_scope,
+        renew_every_s=settings.idempotency_stale_after_s / 6,
+    )
+    # Outside idempotency, which buffers the POST body of a known caller; inside request ids, so
+    # a 413 carries one too.
     app.add_middleware(BodyLimitMiddleware, limits=BODY_LIMITS)
     # Added late, so outer: every response, errors included, carries X-Request-Id.
     app.add_middleware(RequestIdMiddleware)
