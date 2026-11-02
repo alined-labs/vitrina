@@ -1,4 +1,5 @@
 import type { components } from "@/lib/api/client";
+import { CONNECTION_TEXT, fieldMessage, isConnectionFailure, spanishOr } from "@/lib/problem-text";
 
 type Problem = components["schemas"]["Problem"];
 type Code = Problem["code"];
@@ -84,10 +85,11 @@ const SELLER_DETAIL: ReadonlySet<Code> = new Set(["VALIDATION_ERROR", "CONFLICT"
 /** The sentence to show for a problem+json error, in Spanish. */
 export function problemMessage(error: unknown, fallback = "Algo salió mal. Intenta de nuevo."): string {
   if (!error || typeof error !== "object") return fallback;
+  if (isConnectionFailure(error)) return CONNECTION_TEXT;
   const problem = error as Partial<Problem>;
-  const field = problem.errors?.[0]?.message;
-  if (field) return field;
-  if (problem.code && SELLER_DETAIL.has(problem.code) && problem.detail) return problem.detail;
+  const field = problem.errors?.[0];
+  if (field) return fieldMessage(field);
+  if (problem.code && SELLER_DETAIL.has(problem.code) && problem.detail) return spanishOr(problem.detail, fallback);
   const text = (problem.code && SELLER_TEXT[problem.code]) || fallback;
   const debug = process.env.NODE_ENV !== "production" && problem.detail ? ` (${problem.detail})` : "";
   return text + debug;

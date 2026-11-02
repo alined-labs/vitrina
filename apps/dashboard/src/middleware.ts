@@ -5,8 +5,9 @@ import { sessionCookieOptions } from "@/lib/supabase/cookie-options";
 
 // Refreshes the seller's Supabase session on every page request and sends signed-out
 // visitors to /login. In local mode (no Supabase settings) every page stays open.
-// Foto → Vitrina is public (FR-072): the upload page and the shareable /v/{slug} pages.
-const PUBLIC_PAGES = /^\/(foto|v\/[a-z0-9-]+)\/?$/;
+// Foto → Vitrina is public (FR-072): the upload page and the shareable /v/{slug} pages. So is the
+// page that explains the product, where those pages send a visitor who wants to know more.
+const PUBLIC_PAGES = /^\/(foto|como-funciona|v\/[a-z0-9-]+)\/?$/;
 
 // The API proxy drops forwarding headers, so behind Cloudflare the API would see every visitor
 // at the proxy's address. The visitor's address travels in the first header instead, and the
@@ -18,6 +19,9 @@ const PROXY_SECRET_HEADER = "x-vitrina-proxy-secret";
 
 function withVisitor(request: NextRequest): NextResponse {
   const headers = new Headers(request.headers);
+  // The API authenticates with the Authorization header alone. The cookies hold the Supabase
+  // session, refresh token included, and have no business leaving the dashboard.
+  headers.delete("cookie");
   const visitor = request.headers.get("cf-connecting-ip");
   // A Worker secret, read on every request; never a NEXT_PUBLIC_ value. Unset in local work.
   const secret = process.env.VISITOR_PROXY_SECRET;

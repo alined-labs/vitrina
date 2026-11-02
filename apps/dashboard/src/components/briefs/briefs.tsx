@@ -3,9 +3,12 @@
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useCallback, useEffect, useState } from "react";
+import { RetryNotice } from "@/components/retry-notice";
 import { api, type components } from "@/lib/api/client";
 import { bogotaDate, jobErrorMessage, problemMessage } from "@/lib/format";
 import { ANGLE, HOOK, OBJECTION } from "@/lib/labels";
+import { isTemporaryFailure } from "@/lib/problem-text";
+import { usePoll, type PollStep } from "@/lib/use-poll";
 
 type Brief = components["schemas"]["Brief"];
 type Applied = { creative_job_ids?: string[]; reactivation_campaign_id?: string | null };
@@ -39,26 +42,24 @@ export function Briefs() {
   }, [load, selected, router]);
 
   // A brief is a background job: poll it until Wonder finishes, then open the new brief.
-  useEffect(() => {
-    if (!running) return;
-    let timer: ReturnType<typeof setTimeout> | undefined;
-    const tick = async () => {
-      const { data } = await api.GET("/jobs/{job_id}", { params: { path: { job_id: running } } });
-      if (data?.status === "queued" || data?.status === "running" || !data) {
-        timer = setTimeout(() => void tick(), POLL_MS);
-        return;
-      }
+  const step = useCallback(async (): Promise<PollStep> => {
+    if (!running) return "done";
+    const { data, error, response } = await api.GET("/jobs/{job_id}", { params: { path: { job_id: running } } });
+    if (!data) {
+      if (isTemporaryFailure(response)) return "failed";
       setRunning(null);
-      if (data.status === "succeeded") {
-        const items = await load();
-        if (items[0]) router.push(`/informes?informe=${items[0].id}`);
-      } else setMessage(jobErrorMessage(data.error));
-    };
-    void tick();
-    return () => {
-      if (timer) clearTimeout(timer);
-    };
+      setMessage(problemMessage(error, "No pudimos saber cómo terminó tu informe."));
+      return "done";
+    }
+    if (data.status === "queued" || data.status === "running") return "again";
+    setRunning(null);
+    if (data.status === "succeeded") {
+      const items = await load();
+      if (items[0]) router.push(`/informes?informe=${items[0].id}`);
+    } else setMessage(jobErrorMessage(data.error));
+    return "done";
   }, [running, load, router]);
+  const { stalled, retryNow } = usePoll(step, POLL_MS, running !== null);
 
   async function generate() {
     setMessage(null);
@@ -101,6 +102,11 @@ export function Briefs() {
           <p role="alert" className="notice notice--danger">
             {message}
           </p>
+        )}
+        {stalled && (
+          <RetryNotice onRetry={retryNow}>
+            No pudimos ver cómo va tu informe. Revisa tu conexión; seguimos intentando.
+          </RetryNotice>
         )}
         {selected && <BriefDetail key={selected} id={selected} onApplied={load} />}
       </div>

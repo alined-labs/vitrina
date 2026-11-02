@@ -33,6 +33,8 @@ const { data, error } = await api.GET("/products", { params: { query: { limit: 2
 ## Layout
 
 - `src/app/(panel)/` signed-in shell: sidebar, header, one route per section of the loop; `[seccion]` is a placeholder that real pages override.
-- `src/app/login/` Supabase email and password sign-in.
-- `src/middleware.ts` session refresh and the redirect to `/login`.
+- `src/app/login/` Supabase email and password sign-in, the optional demo account (`NEXT_PUBLIC_DEMO_EMAIL`, `NEXT_PUBLIC_DEMO_PASSWORD`) and the way to the public pages.
+- `src/app/foto/`, `src/app/v/`, `src/app/como-funciona/` the public pages, open without an account.
+- `src/middleware.ts` session refresh, the redirect to `/login`, and what the API proxy forwards: never the session cookies.
+- `src/components/seller-access.tsx` the panel's one message for an account that has no shop yet.
 - `src/lib/api/` the generated schema and the typed client; `src/lib/supabase/` browser and server clients.

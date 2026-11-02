@@ -54,29 +54,36 @@ export function Metrics() {
 
   const evals = summary.latest_eval.metrics ?? {};
   const live = summary.live;
+  const evaluated = Object.values(evals).some((value) => value != null);
   return (
     <div className="space-y-10">
-      <InventedPrices metrics={evals} finishedAt={summary.latest_eval.finished_at} />
-      <TileGroup
-        title="Calidad del agente"
-        note="De la última evaluación con conversaciones grabadas."
-        tiles={[
-          ["Respuestas con fuente citada", rate(evals.groundedness_rate)],
-          ["Traspasos correctos", rate(evals.handoff_precision)],
-          ["Traspasos detectados", rate(evals.handoff_recall)],
-          ["Voz de marca", evals.brand_voice_mean == null ? null : `${evals.brand_voice_mean.toFixed(1).replace(".", ",")} / 5`],
-          ["Preguntas fuera de tema rechazadas", rate(evals.off_topic_refusal_rate)],
-          ["Tiempo de respuesta (p95)", evals.latency_p95_ms == null ? null : formatLatency(evals.latency_p95_ms)],
-        ]}
-      />
-      <TileGroup
-        title="Verificador y horario legal"
-        tiles={[
-          ["Escenas que pasan la verificación", rate(evals.verifier_pass_rate)],
-          ["Productos alterados que se bloquean", rate(evals.verifier_block_rate_on_altered)],
-          ["Decisiones de envío correctas", rate(evals.consent_scheduler_accuracy)],
-        ]}
-      />
+      {evaluated ? (
+        <>
+          <InventedPrices metrics={evals} finishedAt={summary.latest_eval.finished_at} />
+          <TileGroup
+            title="Calidad del agente"
+            note="De la última evaluación con conversaciones grabadas."
+            tiles={[
+              ["Respuestas con fuente citada", rate(evals.groundedness_rate)],
+              ["Traspasos correctos", rate(evals.handoff_precision)],
+              ["Traspasos detectados", rate(evals.handoff_recall)],
+              ["Voz de marca", evals.brand_voice_mean == null ? null : `${evals.brand_voice_mean.toFixed(1).replace(".", ",")} / 5`],
+              ["Preguntas fuera de tema rechazadas", rate(evals.off_topic_refusal_rate)],
+              ["Tiempo de respuesta (p95)", evals.latency_p95_ms == null ? null : formatLatency(evals.latency_p95_ms)],
+            ]}
+          />
+          <TileGroup
+            title="Verificador y horario legal"
+            tiles={[
+              ["Escenas que pasan la verificación", rate(evals.verifier_pass_rate)],
+              ["Productos alterados que se bloquean", rate(evals.verifier_block_rate_on_altered)],
+              ["Decisiones de envío correctas", rate(evals.consent_scheduler_accuracy)],
+            ]}
+          />
+        </>
+      ) : (
+        <NoEvaluationYet />
+      )}
       <TileGroup
         title="Hoy"
         tiles={[
@@ -91,6 +98,23 @@ export function Metrics() {
       <CostTable costs={costs} />
       <ProviderHealth providers={providers} />
     </div>
+  );
+}
+
+/** Until an evaluation is published there is nothing to measure, so no score is shown at all. */
+function NoEvaluationYet() {
+  return (
+    <section className="empty space-y-2 text-left">
+      <h2 className="text-lg font-semibold text-fg">Aún no hay evaluaciones publicadas</h2>
+      <p>
+        Aquí verás si el agente inventó algún precio, cuántas respuestas citan su fuente, si los traspasos a ti fueron
+        correctos, qué bloquea el verificador de imágenes y si las decisiones de envío respetan el horario legal.
+      </p>
+      <p>
+        Esas cifras salen de una evaluación con conversaciones grabadas, no de una estimación. Aparecen cuando se publica
+        el resultado de una; hasta entonces no mostramos ningún número.
+      </p>
+    </section>
   );
 }
 

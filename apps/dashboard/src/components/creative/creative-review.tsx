@@ -3,9 +3,12 @@
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useCallback, useEffect, useState } from "react";
+import { RetryNotice } from "@/components/retry-notice";
 import { api, type components } from "@/lib/api/client";
 import { formatDateTime, jobErrorMessage, problemMessage } from "@/lib/format";
 import { ANGLE, FORMAT, HOOK, STAGE, copyPreview, decimal, percent } from "@/lib/labels";
+import { isTemporaryFailure } from "@/lib/problem-text";
+import { usePoll, type PollStep } from "@/lib/use-poll";
 
 type Job = components["schemas"]["CreativeJob"];
 type Creative = components["schemas"]["Creative"];
@@ -40,7 +43,7 @@ export function CreativeReview() {
         <h2 className="text-sm font-semibold uppercase tracking-wide text-fg-subtle">Trabajos</h2>
         {message && <p className="text-sm text-danger-fg">{message}</p>}
         {jobs === null ? (
-          <p className="text-sm text-fg-subtle">Cargando…</p>
+          !message && <p className="text-sm text-fg-subtle">Cargando…</p>
         ) : jobs.length === 0 ? (
           <p className="text-sm text-fg-subtle">
             Aún no hay trabajos. Empieza desde el <Link href="/catalogo" className="underline">catálogo</Link>.
@@ -82,28 +85,23 @@ function JobDetail({ jobId, productName }: { jobId: string; productName: Record<
   const [approved, setApproved] = useState<Ad | null>(null);
   const [busy, setBusy] = useState(false);
 
-  const load = useCallback(async () => {
-    const { data, error } = await api.GET("/creative/jobs/{job_id}", { params: { path: { job_id: jobId } } });
-    if (error) setMessage(problemMessage(error, "No pudimos cargar el trabajo."));
-    else setJob(data);
-    return data;
-  }, [jobId]);
+  const load = useCallback(
+    () => api.GET("/creative/jobs/{job_id}", { params: { path: { job_id: jobId } } }),
+    [jobId],
+  );
 
-  useEffect(() => {
-    let timer: ReturnType<typeof setTimeout> | undefined;
-    let alive = true;
-    const tick = async () => {
-      const data = await load();
-      if (alive && data && (data.status === "queued" || data.status === "running")) {
-        timer = setTimeout(() => void tick(), POLL_MS);
-      }
-    };
-    void tick();
-    return () => {
-      alive = false;
-      if (timer) clearTimeout(timer);
-    };
+  // A failed round keeps the last progress on screen and tries again; only a refusal ends the watch.
+  const step = useCallback(async (): Promise<PollStep> => {
+    const { data, error, response } = await load();
+    if (data) {
+      setJob(data);
+      return data.status === "queued" || data.status === "running" ? "again" : "done";
+    }
+    if (isTemporaryFailure(response)) return "failed";
+    setMessage(problemMessage(error, "No pudimos cargar el trabajo."));
+    return "done";
   }, [load]);
+  const { stalled, retryNow } = usePoll(step, POLL_MS);
 
   async function approve() {
     if (!creativeId || !copyId) return;
@@ -122,11 +120,29 @@ function JobDetail({ jobId, productName }: { jobId: string; productName: Record<
       setApproved(done.data);
       setCreativeId(null);
       setCopyId(null);
-      void load();
+      void load().then(({ data }) => {
+        if (data) setJob(data);
+      });
     }
   }
 
-  if (!job) return <p className="text-sm text-fg-subtle">{message ?? "Cargando el trabajo…"}</p>;
+  if (!job) {
+    if (message) {
+      return (
+        <p role="alert" className="notice notice--danger">
+          {message}
+        </p>
+      );
+    }
+    if (stalled) {
+      return (
+        <RetryNotice onRetry={retryNow}>
+          No pudimos cargar el trabajo. Revisa tu conexión; seguimos intentando.
+        </RetryNotice>
+      );
+    }
+    return <p className="text-sm text-fg-subtle">Cargando el trabajo…</p>;
+  }
   const running = job.status === "queued" || job.status === "running";
   const creatives = job.creatives ?? [];
   const copies = job.copy_variants ?? [];
@@ -148,6 +164,11 @@ function JobDetail({ jobId, productName }: { jobId: string; productName: Record<
           >
             <div style={{ width: `${Math.round((job.progress ?? 0) * 100)}%` }} />
           </div>
+        )}
+        {running && stalled && (
+          <RetryNotice onRetry={retryNow}>
+            No pudimos actualizar el progreso: lo que ves puede estar atrasado. Revisa tu conexión; seguimos intentando.
+          </RetryNotice>
         )}
         {job.status === "failed" && (
           <p role="alert" className="notice notice--danger">
@@ -237,8 +258,9 @@ function SceneCard({ creative, chosen, onChoose }: { creative: Creative; chosen:
   return (
     <li className={`card overflow-hidden ${chosen ? "card--chosen" : ""}`}>
       {/* Signed links from the blob store; next/image would need every storage host configured. */}
+      {/* Whole, never cropped: the seller is approving exactly what the customer will see. */}
       {/* eslint-disable-next-line @next/next/no-img-element */}
-      <img src={creative.image_url} alt={`Escena ${FORMAT[creative.format]}`} className={`aspect-square w-full object-cover ${passed ? "" : "opacity-60 grayscale"}`} />
+      <img src={creative.image_url} alt={`Escena ${FORMAT[creative.format]}`} className={`h-auto w-full ${passed ? "" : "opacity-60 grayscale"}`} />
       <div className="space-y-2 p-3 text-sm">
         <div className="flex items-center justify-between">
           <span className="text-fg-muted">{FORMAT[creative.format]}</span>

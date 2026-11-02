@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
+import { RetryNotice } from "@/components/retry-notice";
 import { api, type components } from "@/lib/api/client";
 import { formatDateTime, problemMessage } from "@/lib/format";
 import { CONSENT, CONSENT_CHANNEL, CONSENT_PURPOSE, OBJECTION, RECORDED_BY } from "@/lib/labels";
@@ -117,15 +118,15 @@ function ContactRow({
   onError: (message: string) => void;
 }) {
   const [open, setOpen] = useState(false);
-  const [ledger, setLedger] = useState<ConsentRecord[] | null>(null);
+  const [ledger, setLedger] = useState<ConsentRecord[] | "failed" | null>(null);
   const [busy, setBusy] = useState(false);
   const [erasing, setErasing] = useState(false);
 
   const loadLedger = useCallback(async () => {
     const { data } = await api.GET("/contacts/{contact_id}/consents", { params: { path: { contact_id: contact.id } } });
-    setLedger(data ?? []);
+    // No answer says nothing about consent: only a real answer may read as an empty history.
+    setLedger(data ?? "failed");
   }, [contact.id]);
-
 
   async function refresh() {
     const { data } = await api.GET("/contacts/{contact_id}", { params: { path: { contact_id: contact.id } } });
@@ -183,7 +184,13 @@ function ContactRow({
           {contact.last_marketing_sent_at && (
             <p className="text-fg-muted">Última promoción: {formatDateTime(contact.last_marketing_sent_at)}</p>
           )}
-          <Ledger records={ledger} />
+          <Ledger
+            records={ledger}
+            onRetry={() => {
+              setLedger(null);
+              void loadLedger();
+            }}
+          />
           {active && (
             <div className="flex flex-wrap gap-2">
               {contact.marketing_consent !== "granted" && <ManualConsent contactId={contact.id} onRecorded={refresh} onError={onError} />}
@@ -204,8 +211,16 @@ function ContactRow({
 }
 
 /** The consent ledger, newest first: what was asked, what the customer answered, and where. */
-function Ledger({ records }: { records: ConsentRecord[] | null }) {
+function Ledger({ records, onRetry }: { records: ConsentRecord[] | "failed" | null; onRetry: () => void }) {
   if (records === null) return <p className="text-fg-subtle">Cargando historial…</p>;
+  if (records === "failed") {
+    return (
+      <RetryNotice tone="danger" action="Intentar de nuevo" onRetry={onRetry}>
+        No pudimos cargar el historial de autorizaciones. Eso no significa que esté vacío: esta persona puede haber
+        autorizado o retirado su autorización.
+      </RetryNotice>
+    );
+  }
   if (records.length === 0) return <p className="text-fg-subtle">Nunca se le pidió autorización.</p>;
   return (
     <ol className="space-y-2">

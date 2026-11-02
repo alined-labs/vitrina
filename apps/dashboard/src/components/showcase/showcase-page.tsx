@@ -1,10 +1,12 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useState } from "react";
+import { useCallback, useState } from "react";
 import { Loader, Logo, LogoMark } from "@/components/brand/logo";
+import { RetryNotice } from "@/components/retry-notice";
 import { api, type components } from "@/lib/api/client";
 import { FORMAT } from "@/lib/labels";
+import { usePoll, type PollStep } from "@/lib/use-poll";
 
 type Showcase = components["schemas"]["PublicShowcase"];
 
@@ -16,24 +18,19 @@ export function ShowcasePage({ slug }: { slug: string }) {
   const [missing, setMissing] = useState(false);
   const [copied, setCopied] = useState<number | null>(null);
 
-  useEffect(() => {
-    let timer: ReturnType<typeof setTimeout> | undefined;
-    let alive = true;
-    const tick = async () => {
-      const { data, response } = await api.GET("/public/showcases/{slug}", { params: { path: { slug } } });
-      if (!alive) return;
-      if (data) {
-        setShowcase(data);
-        if (data.status === "processing") timer = setTimeout(() => void tick(), POLL_MS);
-      } else if (response.status === 404 || response.status === 400) setMissing(true);
-      else timer = setTimeout(() => void tick(), POLL_MS * 2);
-    };
-    void tick();
-    return () => {
-      alive = false;
-      if (timer) clearTimeout(timer);
-    };
+  const step = useCallback(async (): Promise<PollStep> => {
+    const { data, response } = await api.GET("/public/showcases/{slug}", { params: { path: { slug } } });
+    if (data) {
+      setShowcase(data);
+      return data.status === "processing" ? "again" : "done";
+    }
+    if (response.status === 404 || response.status === 400) {
+      setMissing(true);
+      return "done";
+    }
+    return "failed";
   }, [slug]);
+  const { stalled, retryNow } = usePoll(step, POLL_MS);
 
   async function copy(text: string, index: number) {
     await navigator.clipboard.writeText(text);
@@ -55,10 +52,18 @@ export function ShowcasePage({ slug }: { slug: string }) {
     return (
       <Frame>
         <h1 className="text-2xl font-semibold">{showcase?.product_name ?? "Tu vitrina"}</h1>
-        <Loader size={48} />
-        <p role="status" className="text-fg-muted">
-          Estamos creando tus escenas y verificando que muestren tu producto tal como es. Tarda un par de minutos.
-        </p>
+        {stalled ? (
+          <RetryNotice onRetry={retryNow}>
+            No pudimos conectar con Vitrina para ver cómo va esta página. Revisa tu conexión; seguimos intentando.
+          </RetryNotice>
+        ) : (
+          <>
+            <Loader size={48} />
+            <p role="status" className="text-fg-muted">
+              Estamos creando tus escenas y verificando que muestren tu producto tal como es. Tarda un par de minutos.
+            </p>
+          </>
+        )}
       </Frame>
     );
   }
@@ -126,11 +131,9 @@ export function ShowcasePage({ slug }: { slug: string }) {
         <p className="text-sm text-fg-inverse-muted">
           Vitrina atiende tu WhatsApp con los precios de tu catálogo y te avisa cuando un cliente te necesita.
         </p>
-        {showcase.cta_url && (
-          <a href={showcase.cta_url} className="btn btn--inverse">
-            Crear mi cuenta
-          </a>
-        )}
+        <Link href="/como-funciona" className="btn btn--inverse">
+          Ver cómo funciona
+        </Link>
       </section>
       <p className="flex items-center justify-center gap-2 text-xs text-fg-subtle">
         <LogoMark size={16} />

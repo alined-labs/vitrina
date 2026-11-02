@@ -135,6 +135,13 @@ The dashboard (`apps/dashboard`, Next.js 16) runs as one Worker built with the O
 
   Sign-in is email and password, so Supabase needs no redirect URL for the domain.
 
+  Optionally, to show a demo account on the sign-in page, add both of these. They are fixed into the public page, so anyone can read them: the account must hold only demo data. Create it first, with its seller linked (`scripts/seed-demo.py`), or it signs in to the message for an account with no shop.
+
+  ```sh
+  NEXT_PUBLIC_DEMO_EMAIL=<the demo account's email>
+  NEXT_PUBLIC_DEMO_PASSWORD=<the demo account's password>
+  ```
+
 ### Deploy
 
 ```sh

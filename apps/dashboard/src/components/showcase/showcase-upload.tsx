@@ -4,6 +4,7 @@ import { useRouter } from "next/navigation";
 import { useState } from "react";
 import { api } from "@/lib/api/client";
 import { problemMessage } from "@/lib/format";
+import { CONNECTION_TEXT } from "@/lib/problem-text";
 
 /** The public upload form of Foto → Vitrina (FR-072): no account, five tries an hour. */
 export function ShowcaseUpload() {
@@ -22,25 +23,31 @@ export function ShowcaseUpload() {
     const city = String(fields.get("city") ?? "").trim();
     setSending(true);
     setError(null);
-    const { data, error: problem } = await api.POST("/public/showcases", {
-      body: {
-        image: image as unknown as string,
-        product_name: String(fields.get("product_name") ?? "").trim(),
-        ...(price ? { price_cop: Number(price) } : {}),
-        ...(city ? { city } : {}),
-      },
-      bodySerializer(body) {
-        const payload = new FormData();
-        for (const [name, value] of Object.entries(body)) {
-          const item: unknown = value; // the photo is a File although the generated type says string
-          if (item !== undefined) payload.append(name, item instanceof Blob ? item : String(item));
-        }
-        return payload;
-      },
-    });
-    setSending(false);
-    if (data) router.push(`/v/${data.slug}`);
-    else setError(problemMessage(problem, "No pudimos recibir tu foto. Intenta de nuevo."));
+    try {
+      const { data, error: problem } = await api.POST("/public/showcases", {
+        body: {
+          image: image as unknown as string,
+          product_name: String(fields.get("product_name") ?? "").trim(),
+          ...(price ? { price_cop: Number(price) } : {}),
+          ...(city ? { city } : {}),
+        },
+        bodySerializer(body) {
+          const payload = new FormData();
+          for (const [name, value] of Object.entries(body)) {
+            const item: unknown = value; // the photo is a File although the generated type says string
+            if (item !== undefined) payload.append(name, item instanceof Blob ? item : String(item));
+          }
+          return payload;
+        },
+      });
+      if (data) router.push(`/v/${data.slug}`);
+      else setError(problemMessage(problem, "No pudimos recibir tu foto. Intenta de nuevo."));
+    } catch {
+      // An answer that could not be read: the button must not stay on "Enviando…".
+      setError(CONNECTION_TEXT);
+    } finally {
+      setSending(false);
+    }
   }
 
   return (

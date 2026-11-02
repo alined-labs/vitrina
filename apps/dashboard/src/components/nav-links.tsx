@@ -2,12 +2,15 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
+import { useSellerAccess } from "@/components/seller-access";
 import { sections } from "@/lib/nav";
 
 const items = [{ slug: "", label: "Inicio" }, ...sections];
 
 export function NavLinks() {
   const pathname = usePathname();
+  // Without a shop every section would say the same thing.
+  if (useSellerAccess() === "no_shop") return null;
   return (
     <nav className="flex gap-1 overflow-x-auto px-3 pb-3 md:flex-col md:overflow-visible">
       {items.map((item) => {

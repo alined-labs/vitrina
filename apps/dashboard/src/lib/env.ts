@@ -17,3 +17,15 @@ export const devAccessToken =
 /** Seller sign-in (spec §2, Supabase JWT) is on only when both settings hold real values. */
 export const authEnabled =
   /^https?:\/\//.test(supabaseUrl) && supabaseAnonKey !== "" && !supabaseAnonKey.startsWith("<");
+
+/**
+ * A demo account to show on the sign-in page. Public by nature: the values are fixed into the
+ * page, so they may only ever name an account that holds nothing but demo data. Null unless both
+ * settings hold real values.
+ */
+const demoEmail = process.env.NEXT_PUBLIC_DEMO_EMAIL ?? "";
+const demoPassword = process.env.NEXT_PUBLIC_DEMO_PASSWORD ?? "";
+export const demoAccount =
+  demoEmail && demoPassword && !demoEmail.startsWith("<") && !demoPassword.startsWith("<")
+    ? { email: demoEmail, password: demoPassword }
+    : null;

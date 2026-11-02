@@ -58,7 +58,7 @@ export function Ads() {
         </p>
       )}
       {ads === null ? (
-        <p className="text-sm text-fg-subtle">Cargando…</p>
+        !message && <p className="text-sm text-fg-subtle">Cargando…</p>
       ) : ads.length === 0 ? (
         <p className="text-sm text-fg-subtle">
           {status === "approved" ? "Aún no hay anuncios aprobados. Apruébalos desde Creativos." : "No hay anuncios aquí."}
@@ -135,7 +135,7 @@ function AdCard({
       {image && (
         // Signed links from the blob store; next/image would need every storage host configured.
         // eslint-disable-next-line @next/next/no-img-element
-        <img src={image} alt={`Anuncio ${ad.code ?? ""}`} className="aspect-video w-full object-cover" />
+        <img src={image} alt={`Anuncio ${ad.code ?? ""}`} className="h-auto w-full" />
       )}
       <div className="space-y-3 p-4 text-sm">
         <div className="flex items-start justify-between gap-3">
