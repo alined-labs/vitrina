@@ -24,6 +24,7 @@ from vitrina_core.jobs import PostgresJobQueue, TaskRegistry, Worker, load_tasks
 from vitrina_core.settings import Settings
 
 SECRET = "reactivation-db-test-secret-with-32-bytes"
+SERVICE_TOKEN = "service-token-for-tests"
 SUBJECT = "6b2f0c1e-3d4a-4e5b-8f6a-7b8c9d0e1f2a"
 PROMPT = "¿Te aviso cuando llegue tu talla o haya promo? Responde SÍ"
 NEXT_WEDNESDAY_10 = datetime(2026, 11, 4, 10, 0, tzinfo=BOGOTA)
@@ -44,6 +45,7 @@ async def test_db_as_6_7_a_campaign_from_preview_to_the_worker(
     settings = Settings(
         _env_file=None,
         database_url=url,
+        service_token=SERVICE_TOKEN,
         db_schema=schema,
         supabase_jwt_secret=SECRET,
         contact_hash_pepper="reactivation-db-pepper",
@@ -60,7 +62,7 @@ async def test_db_as_6_7_a_campaign_from_preview_to_the_worker(
                 "whatsapp_number": "+573000000311",
                 "city": "Medellín",
             },
-            headers=bearer(),
+            headers={**bearer(), "X-Service-Token": SERVICE_TOKEN},
         )
         seller_id = UUID(signup.json()["id"])
         compliance = PostgresCompliance(db_sessions, app.state.compliance.identity)

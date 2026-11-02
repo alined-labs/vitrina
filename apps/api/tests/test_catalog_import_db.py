@@ -19,6 +19,7 @@ from vitrina_core.settings import Settings
 from vitrina_core.storage import seller_of
 
 SECRET = "catalog-import-db-test-secret-32-bytes+"
+SERVICE_TOKEN = "service-token-for-tests"
 SUBJECT = "0b9e4f8a-55c1-4c3e-8f0e-6a1d2c3b4a5f"
 PNG = b"\x89PNG\r\n\x1a\n synthetic menu photo"
 ANSWER = {
@@ -57,6 +58,7 @@ async def test_db_as_1_3_a_menu_photo_becomes_drafts_through_the_worker(
     settings = Settings(
         _env_file=None,
         database_url=url,
+        service_token=SERVICE_TOKEN,
         db_schema=schema,
         supabase_jwt_secret=SECRET,
         storage_dir=tmp_path,
@@ -73,7 +75,7 @@ async def test_db_as_1_3_a_menu_photo_becomes_drafts_through_the_worker(
                 "whatsapp_number": "+573000000003",
                 "city": "Medellín",
             },
-            headers=bearer(),
+            headers={**bearer(), "X-Service-Token": SERVICE_TOKEN},
         )
         seller_id = UUID(signup.json()["id"])
         accepted = client.post(

@@ -53,7 +53,7 @@ paths:
       tags: [Sellers]
       operationId: createSeller
       summary: Create a seller account
-      security: []
+      security: [{ serviceAuth: [] }]
       parameters: [{ $ref: '#/components/parameters/IdempotencyKey' }]
       requestBody:
         required: true
@@ -67,6 +67,7 @@ paths:
             application/json:
               schema: { $ref: '#/components/schemas/Seller' }
         '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
         '409': { $ref: '#/components/responses/Conflict' }
 
   /sellers/me:

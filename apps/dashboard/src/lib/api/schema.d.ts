@@ -1963,6 +1963,7 @@ export interface operations {
                 };
             };
             400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
             409: components["responses"]["Conflict"];
         };
     };
