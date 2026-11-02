@@ -52,6 +52,11 @@ LONG_CHAT = "573000000104"
 CLOSED_CHAT = "573000000105"
 REFUSED_CHAT = "573000000106"
 COUNTERS = iter(range(1, 100_000))
+SIGN_IN_HELP = """To sign in from the dashboard, from the repo root:
+  1. Export SUPABASE_JWT_SECRET with the value of JWT_SECRET at the top of this script.
+  2. Export NEXT_PUBLIC_DEV_ACCESS_TOKEN=$(SUPABASE_URL= make -s dev-token SUB=dev-seller)
+  3. Start the dashboard from apps/dashboard with pnpm dev, and open it at localhost.
+"""
 
 
 class RefusingMessenger:
@@ -221,8 +226,8 @@ def _serve(port: int) -> None:
     settings = _settings()
     app = create_app(settings)
     chats = asyncio.run(_seed(app))
-    token = f"SUPABASE_URL= SUPABASE_JWT_SECRET={JWT_SECRET} make -s dev-token SUB={SUBJECT}"
-    print(f"Token for the dashboard:\n  {token}\n\nSample chats:")
+    print(SIGN_IN_HELP)
+    print("Sample chats:")
     for name, chat_id in chats.items():
         print(f"  {name:8} /conversaciones/{chat_id}")
     sys.stdout.flush()
