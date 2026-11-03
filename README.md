@@ -12,6 +12,8 @@
 
 Vitrina is a closed-loop AI storefront for WhatsApp sellers in Colombia, built in the open during the **Meta Global AI Developer Hackathon** (Indie Developer Track, theme "Build for Your World"), October 26 – November 4, 2026.
 
+**Live:** [vitrina.alinedlabs.co](https://vitrina.alinedlabs.co). The public "Foto → Vitrina" page at [/foto](https://vitrina.alinedlabs.co/foto) turns one product photo into a shareable showcase, with no account.
+
 ## What it does
 
 1. **Catalog.** The seller pastes prices and FAQ and uploads two or three phone photos per product. A menu photo can be imported as draft products, which the seller approves before the agent may cite them.
@@ -70,19 +72,27 @@ Constitution Article I: every line of product code was committed after the kicko
 | Oct 26, 12:00 ET | Kickoff |
 | Oct 27 | Constitution, spec and frozen contracts. Then the uv workspace, CI (lint, types, tests, contract drift, replay evals, image smoke test) and the core: settings, auth, problem+json errors, idempotency, job queue, model-call ledger, blob storage. Catalog with hybrid search and menu import. Creative pipeline (segment, compose, verify, copy grid, brand-voice judge, ads with codes). Compliance (legal-hours calendar, eligibility order, consent ledger, opt-out, erasure) and its eval suite. Price validator and answer review. Dashboard pages for catalog, creatives, ads, conversations and metrics, plus the public "Foto → Vitrina" showcase |
 | Oct 28 | Agent loop and `POST /agent/turns`. Inbound pipeline from webhook to reply, with voice notes, photos, off-topic declines and handoffs. Live adapters for Muse Image, SAM 3.1 and Voice Transcribe. First fully live creative job: 6 of 6 scenes passed the verifier, 10 copy variants. Live agent turns on Spark with cited replies. Dashboard pages for contacts, campaigns and the weekly brief |
+| Oct 29 | Price check reads more Colombian price forms ("palos", spelled short prices, lists of prices). Consent: Colombian yeses, longer opt-out requests, and an opt-out that wins over a later yes. The first fallback hands the chat to the owner. Hardening: request size limits, pixel-bomb refusal, media downloads, security headers. Vitrina's logo, type and design tokens. Deploy scripts and the demo-shop seed |
+| Oct 30 – Nov 1 | Deployed: API and workers on Azure Container Apps, dashboard on Cloudflare Workers, database and storage on Supabase |
+| Nov 3 | Fixes from a full code audit. Seller creation needs a service token. The price and offer check fails closed. Daily limits and a spend limit on paid model calls. Customer messages get their own worker. Stuck creative jobs end. Large photos are verified in memory and kept upright. The seller reads and answers a conversation in the dashboard. Eval runs fail below target |
 
 ## Evaluation
 
-The suites live in `evals/fixtures`: Spanish conversations, consent and scheduler cases, and webhook payloads. `make evals` replays recorded model outputs with no network. Results of the final run are added here at feature freeze.
+The suites live in `evals/fixtures`: Spanish conversations, consent and scheduler cases, and webhook payloads. `make evals` replays recorded model outputs with no network.
 
-| Metric | Target |
-| --- | --- |
-| Invented-price rate | 0 % (CI gate) |
-| Consent scheduler cases | 100 % (CI gate) |
-| Groundedness rate | ≥ 95 % (CI gate) |
-| Handoff precision / recall | ≥ 0.9 / ≥ 0.9 (CI gate) |
-| Brand-voice mean | ≥ 4.0 / 5 (not measured: no suite computes it yet) |
-| Verifier: pass on good scenes / block on altered scenes | ≥ 80 % / 100 % (CI gate) |
+Final run: `make evals` on `main` at `6901284`, November 3, 2026, in replay mode. Every case passed in all four suites.
+
+| Metric | Target | Result |
+| --- | --- | --- |
+| Invented-price rate | 0 % (CI gate) | 0 % (conversations 60 cases, price check 276 cases) |
+| Consent scheduler cases | 100 % (CI gate) | 100 % (40 of 40) |
+| Groundedness rate | ≥ 95 % (CI gate) | 100 % |
+| Handoff precision / recall | ≥ 0.9 / ≥ 0.9 (CI gate) | 1.0 / 1.0 |
+| Off-topic refusal rate | — | 100 % |
+| Brand-voice mean | ≥ 4.0 / 5 | not measured: no suite computes it yet |
+| Verifier: pass on good scenes / block on altered scenes | ≥ 80 % / 100 % (CI gate) | 100 % / 100 % (20 scenes) |
+
+Replay plays back model outputs recorded from live calls, so these figures show the validators and rules on recorded behavior. They do not measure how the live models behave today.
 
 ## Legal by design
 
@@ -98,7 +108,10 @@ The suites live in `evals/fixtures`: Spanish conversations, consent and schedule
 ## Known limits
 
 - **WhatsApp test number.** The business behind this demo is not verified with Meta. The demo and the deployment use Meta's WhatsApp test number, which can message only verified recipients (up to five). Running the WhatsApp Business app and the Cloud API on one number (coexistence) is out of scope: it needs a verified business and a Tech Provider.
-- **Free offers.** The price check reads every amount in a reply, but not "gratis" or "sin costo". A reply that promises something free still has to cite the seller's facts and pass the confidence check; the price check alone does not catch it.
+- **Price and offer check.** The check fails closed on the forms it recognises: amounts, currencies, percentages, 2x1, instalments, discounts and free shipping must come from a cited fact. It does not catch every invented price. Still passing: an uncited product name next to a cited price, a bundle such as "Las dos te quedan en $85.000", and slang or spelled-out amounts it does not read.
+- **Reply after a failed attempt.** If a reply fails after the customer's message was taken, that message can go unanswered until the customer writes again. A fix is written but not merged.
+- **Photo metadata.** Photos that need no rotation keep their EXIF data, including any GPS location.
+- **Eval runs.** `GET /evals/runs` lists every seller's runs to any signed-in seller.
 - **Handoff summaries.** When the agent hands a chat to the owner, the summary goes to the dashboard's waiting list, not to the owner's own WhatsApp.
 - **Consent wording.** The consent and opt-out texts follow Ley 1581 and Ley 2300, but no lawyer has reviewed them.
 - **Search.** No embedding model is available to our key, so catalog search runs on full text, trigrams and Spanish word stems.
