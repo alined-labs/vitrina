@@ -124,6 +124,31 @@ class TaskRegistry:
     def names(self) -> frozenset[str]:
         return frozenset(self._tasks)
 
+    def narrowed(self, *, only: Iterable[str] = (), exclude: Iterable[str] = ()) -> TaskRegistry:
+        """What one worker process claims; with neither limit, everything.
+
+        ``only`` makes a dedicated worker, which runs no sweeps. ``exclude`` makes the general
+        worker, which keeps them, so one set of limits never runs a sweep in two processes.
+        A name no package registered raises ``ValueError``: a worker waiting for a task that
+        does not exist would claim nothing and say nothing.
+        """
+        kept, dropped = frozenset(only), frozenset(exclude)
+        if kept and dropped:
+            raise ValueError("give either the tasks to claim or the tasks to leave, not both")
+        unknown = (kept | dropped) - self.names()
+        if unknown:
+            raise ValueError(
+                f"unknown task names: {', '.join(sorted(unknown))}; "
+                f"registered: {', '.join(sorted(self.names()))}"
+            )
+        chosen = kept or self.names() - dropped
+        if not chosen:
+            raise ValueError("these limits leave no task left for this worker to claim")
+        return TaskRegistry(
+            {name: task for name, task in self._tasks.items() if name in chosen},
+            {} if kept else dict(self._periodic),
+        )
+
 
 def load_tasks(registry: TaskRegistry, points: Iterable[EntryPoint] | None = None) -> None:
     for point in points if points is not None else entry_points(group=TASKS_ENTRY_POINT):
@@ -172,13 +197,15 @@ class Worker:
         self._next_sweep: dict[str, float] = {}
 
     async def run(self, stop: asyncio.Event) -> None:
-        """Process jobs one at a time until ``stop`` is set (one dev process per machine)."""
+        """Process jobs one at a time until ``stop`` is set."""
         next_sweep = 0.0
         while not stop.is_set():
             ran = False
             try:
                 if time.monotonic() >= next_sweep:
-                    await self.queue.requeue_stalled(timedelta(seconds=self.stalled_after_s))
+                    await self.queue.requeue_stalled(
+                        timedelta(seconds=self.stalled_after_s), self.registry.names()
+                    )
                     next_sweep = time.monotonic() + self.stalled_after_s / 3
                 await self.run_sweeps()
                 ran = await self.run_once()

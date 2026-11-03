@@ -2,8 +2,10 @@
 
 Sends to one recipient are serialized, and each waits until the spacing has passed since
 the previous one to that recipient ended; different recipients never wait for each other.
-The pacer lives in the process: a deployment runs one worker; a second process would need
-the spacing kept in the database.
+The pacer lives in the process, so sends from different processes are not spaced from each
+other: a reply (inbound worker) and a campaign template (general worker) to one recipient can
+land closer together when the customer writes at the moment their template goes out. Meta's
+pair rate error is retried. Spacing across processes would need to be kept in the database.
 """
 
 import asyncio

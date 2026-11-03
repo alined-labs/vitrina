@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Deploys the API and the worker to Azure Container Apps with the az CLI (deploy/README.md).
+# Deploys the API and the two workers to Azure Container Apps with the az CLI (deploy/README.md).
 #
 #   deploy/azure.sh [config]     config: deploy/azure.env (copy of deploy/azure.env.example)
 #   DRY_RUN=1 deploy/azure.sh    prints every az command instead, secret values as ***
@@ -15,6 +15,16 @@ secrets_file=${SECRETS_FILE:-$root/.env}
 [[ -f $secrets_file ]] || { echo "missing $secrets_file: the production values" >&2; exit 2; }
 # shellcheck source=/dev/null
 source "$config"
+
+# A config written before the inbound worker existed still deploys it.
+INBOUND_WORKER_APP=${INBOUND_WORKER_APP:-vitrina-worker-inbound}
+INBOUND_WORKER_CPU=${INBOUND_WORKER_CPU:-0.25}
+INBOUND_WORKER_MEMORY=${INBOUND_WORKER_MEMORY:-0.5Gi}
+# Customer messages run in their own worker, so they never wait behind a long job. One replica
+# claiming these two tasks is what runs them one at a time: two messages of a customer never
+# overlap, and an erasure never runs while an answer is being written, which it would miss. So no
+# other app may claim them.
+INBOUND_WORKER_TASKS=conversation.process_inbound,compliance.erase_contact
 
 dry=${DRY_RUN:-0}
 tag=${IMAGE_TAG:-$(git -C "$root" rev-parse --short=12 HEAD)}
@@ -36,7 +46,7 @@ declare -A SECRET_OF=(
   [CONTACT_ENCRYPTION_KEY]=contact-key
   [VISITOR_PROXY_SECRET]=visitor-proxy
 )
-# Secrets only the API reads; the worker never receives them.
+# Secrets only the API reads; the workers never receive them.
 API_ONLY=(VISITOR_PROXY_SECRET)
 # .env values that are configuration, passed as they are.
 PLAIN_FROM_ENV=(
@@ -101,6 +111,9 @@ env_args+=("DB_SCHEMA=$DB_SCHEMA" "${SETTINGS[@]}")
 # The API gets what the worker gets, plus its own secrets.
 api_secret_args=("${secret_args[@]}" "${api_only_secrets[@]}")
 api_env_args=("${env_args[@]}" "${api_only_env[@]}")
+# Each worker gets what the other gets, plus the limit that keeps them apart.
+worker_env_args=("${env_args[@]}" "WORKER_EXCLUDE_TASKS=$INBOUND_WORKER_TASKS")
+inbound_worker_env_args=("${env_args[@]}" "WORKER_TASKS=$INBOUND_WORKER_TASKS")
 
 step() { printf '\n== %s\n' "$*"; }
 
@@ -187,13 +200,36 @@ deploy_app() {
   fi
 }
 
+# require_running <app> <what its failure means>: stops the deploy unless the app's new revision
+# runs (deploy/check-running.sh).
+require_running() {
+  step "is $1 running?"
+  if ! DRY_RUN=$dry bash "$root/deploy/check-running.sh" "$1" "$AZURE_RESOURCE_GROUP" "$image"; then
+    echo "DEPLOY FAILED: $1 is not running; $2" >&2
+    exit 1
+  fi
+}
+
 step "API $API_APP: public ingress on 8080"
 deploy_app "$API_APP" "$API_CPU" "$API_MEMORY" api_secret_args api_env_args \
   --ingress external --target-port 8080
 
-step "worker $WORKER_APP: no ingress, one replica takes the jobs"
-deploy_app "$WORKER_APP" "$WORKER_CPU" "$WORKER_MEMORY" secret_args env_args \
+# In this order: on the deploy that adds the inbound worker, the general worker gets its limit
+# first. az returning does not mean its old replica has stopped, and that replica keeps claiming
+# customer messages until it does, so for that moment both workers may claim them. If its new
+# revision fails, its old one keeps running, so the deploy stops here: that old revision and a new
+# inbound worker must not run side by side. If the inbound step fails, messages and erasures wait
+# in the queue until the script runs again.
+step "worker $WORKER_APP: no ingress, one replica takes every job but messages and erasures"
+deploy_app "$WORKER_APP" "$WORKER_CPU" "$WORKER_MEMORY" secret_args worker_env_args \
   --command vitrina-worker
+require_running "$WORKER_APP" "its old revision may still be running, so the inbound worker was not touched"
+
+step "inbound worker $INBOUND_WORKER_APP: no ingress, one replica takes messages and erasures"
+deploy_app "$INBOUND_WORKER_APP" "$INBOUND_WORKER_CPU" "$INBOUND_WORKER_MEMORY" \
+  secret_args inbound_worker_env_args --command vitrina-worker
+
+require_running "$INBOUND_WORKER_APP" "customer messages and erasures wait in the queue until it is"
 
 step "check"
 if [[ $dry == 1 ]]; then

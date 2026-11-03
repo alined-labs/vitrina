@@ -47,6 +47,7 @@ def claimed(
 class FakeQueue:
     pending: list[ClaimedJob] = field(default_factory=list)
     events: list[tuple[Any, ...]] = field(default_factory=list)
+    requeued_for: list[frozenset[str]] = field(default_factory=list)
 
     async def claim(self, worker_id: str, tasks: frozenset[str]) -> ClaimedJob | None:
         for job in self.pending:
@@ -67,7 +68,8 @@ class FakeQueue:
     async def fail(self, job_id: UUID, error: dict[str, Any], retry_at: datetime | None) -> None:
         self.events.append(("fail", error, retry_at))
 
-    async def requeue_stalled(self, stalled_after: timedelta) -> int:
+    async def requeue_stalled(self, stalled_after: timedelta, tasks: frozenset[str]) -> int:
+        self.requeued_for.append(tasks)
         return 0
 
 
@@ -295,3 +297,98 @@ def test_sweep_names_are_unique() -> None:
     registry.every("sweep", every_s=60, sweep=sweep)
     with pytest.raises(ValueError, match="already registered"):
         registry.every("sweep", every_s=60, sweep=sweep)
+
+
+INBOUND = "conversation.process_inbound"
+CAMPAIGN = "compliance.campaign_send"
+
+
+async def _noop(ctx: JobContext) -> None:
+    return None
+
+
+async def _no_sweep(sessions: Any, now: datetime) -> int:
+    return 0
+
+
+def lanes_registry() -> TaskRegistry:
+    registry = TaskRegistry()
+    registry.add(INBOUND, _noop)
+    registry.add(CAMPAIGN, _noop)
+    registry.every("catalog.expire_reservations", every_s=600, sweep=_no_sweep)
+    return registry
+
+
+async def test_a_worker_excluding_inbound_never_claims_it_even_when_it_is_oldest() -> None:
+    general = lanes_registry().narrowed(exclude={INBOUND})
+    queue = FakeQueue([claimed(task=INBOUND), claimed(task=CAMPAIGN)])
+
+    assert general.names() == {CAMPAIGN}
+    assert await worker(queue, general).run_once() is True
+    assert await worker(queue, general).run_once() is False
+    assert [job.task for job in queue.pending] == [INBOUND]
+
+
+async def test_a_worker_limited_to_inbound_claims_only_inbound() -> None:
+    inbound = lanes_registry().narrowed(only={INBOUND})
+    queue = FakeQueue([claimed(task=CAMPAIGN), claimed(task=INBOUND)])
+
+    assert inbound.names() == {INBOUND}
+    assert await worker(queue, inbound).run_once() is True
+    assert await worker(queue, inbound).run_once() is False
+    assert [job.task for job in queue.pending] == [CAMPAIGN]
+
+
+async def test_a_worker_with_no_limit_claims_every_task() -> None:
+    registry = lanes_registry().narrowed()
+    queue = FakeQueue([claimed(task=CAMPAIGN), claimed(task=INBOUND)])
+
+    assert registry.names() == {INBOUND, CAMPAIGN}
+    assert await worker(queue, registry).run_once() is True
+    assert await worker(queue, registry).run_once() is True
+    assert queue.pending == []
+
+
+def test_only_the_general_worker_keeps_the_sweeps() -> None:
+    names = [item.name for item in lanes_registry().narrowed(exclude={INBOUND}).periodic()]
+
+    assert names == ["catalog.expire_reservations"]
+    assert lanes_registry().narrowed(only={INBOUND}).periodic() == ()
+    assert len(lanes_registry().narrowed().periodic()) == 1
+
+
+@pytest.mark.parametrize("limit", ["only", "exclude"])
+def test_a_task_name_that_does_not_exist_is_refused(limit: str) -> None:
+    with pytest.raises(ValueError, match=r"unknown task.*conversation\.process_inbund"):
+        lanes_registry().narrowed(**{limit: {"conversation.process_inbund"}})
+
+
+def test_only_and_exclude_cannot_be_combined() -> None:
+    with pytest.raises(ValueError, match="either"):
+        lanes_registry().narrowed(only={INBOUND}, exclude={CAMPAIGN})
+
+
+def test_excluding_every_task_is_refused() -> None:
+    with pytest.raises(ValueError, match="no task left"):
+        lanes_registry().narrowed(exclude={INBOUND, CAMPAIGN})
+
+
+@pytest.mark.parametrize(
+    "limits", [{"only": {INBOUND}}, {"exclude": {INBOUND}}, {}], ids=["only", "exclude", "none"]
+)
+async def test_a_worker_requeues_only_the_stalled_jobs_of_the_tasks_it_claims(
+    limits: dict[str, set[str]],
+) -> None:
+    stop = asyncio.Event()
+
+    class OneLoop(FakeQueue):
+        async def claim(self, worker_id: str, tasks: frozenset[str]) -> ClaimedJob | None:
+            stop.set()
+            return None
+
+    registry = lanes_registry().narrowed(**limits)
+    queue = OneLoop()
+
+    await worker(queue, registry).run(stop)
+
+    assert queue.requeued_for == [registry.names()]
