@@ -128,6 +128,12 @@ class Settings(BaseSettings):
     scope_reasoning_effort: ReasoningEffort = "minimal"
     retrieval_top_k: int = 5  # plan.md §4.1
     idempotency_ttl_hours: int = 24  # data-model.md idempotency_keys
+    # A request in progress renews its key; one not renewed for this long lost its process (a
+    # restart), and the same request may run again.
+    idempotency_stale_after_s: float = Field(default=90.0, gt=0)
+    # The event cursor stays behind events younger than this, so one whose transaction commits
+    # late is still read. Longer than any transaction that emits an event.
+    event_commit_grace_s: float = Field(default=300.0, ge=0)
 
     @field_validator(
         "visitor_proxy_secret",

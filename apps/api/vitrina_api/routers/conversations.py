@@ -31,6 +31,7 @@ from vitrina_core.http import (
     ProblemCode,
     ProblemError,
     problem_responses,
+    provider_unavailable,
 )
 from vitrina_core.providers import OutboundText, ProviderError
 from vitrina_creative.api import AdStore
@@ -178,7 +179,7 @@ async def send_human_message(
     try:
         phone = await request.app.state.compliance.phone(seller_id, record.state.contact_id)
     except LookupError as error:  # no CONTACT_HASH_PEPPER / CONTACT_ENCRYPTION_KEY
-        raise ProblemError(ProblemCode.PROVIDER_UNAVAILABLE, detail=str(error)) from error
+        raise provider_unavailable(error) from error
     if phone is None:
         raise ProblemError(ProblemCode.CONFLICT, detail="this customer's number was erased")
     recipient = "+" + phone.removeprefix("+")  # E.164, the key the pipeline paces by

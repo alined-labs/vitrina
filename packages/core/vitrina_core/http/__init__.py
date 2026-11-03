@@ -31,6 +31,7 @@ from vitrina_core.http.problems import (
     ProblemError,
     install_problem_handlers,
     problem_responses,
+    provider_unavailable,
 )
 from vitrina_core.http.request_id import RequestIdMiddleware
 
@@ -60,4 +61,5 @@ __all__ = [
     "keyset_page",
     "next_cursor",
     "problem_responses",
+    "provider_unavailable",
 ]

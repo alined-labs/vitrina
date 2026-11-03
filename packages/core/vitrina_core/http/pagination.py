@@ -8,7 +8,7 @@ import base64
 import binascii
 import json
 from collections.abc import Mapping, Sequence
-from datetime import datetime
+from datetime import UTC, datetime
 from typing import Annotated, Any
 from uuid import UUID
 
@@ -49,8 +49,19 @@ def decode_cursor(cursor: str) -> tuple[datetime, UUID]:
     try:
         raw = base64.urlsafe_b64decode(cursor + "=" * (-len(cursor) % 4))
         created_at, row_id = json.loads(raw)
-        return datetime.fromisoformat(created_at), UUID(row_id)
-    except (binascii.Error, ValueError, TypeError) as error:
+        moment = datetime.fromisoformat(created_at)
+        if moment.tzinfo is None:
+            raise ValueError("every cursor this API issues has a time zone")
+        # Out-of-range offsets overflow here rather than in the database driver.
+        return moment.astimezone(UTC), UUID(row_id)
+    except (
+        binascii.Error,
+        ValueError,
+        TypeError,
+        AttributeError,  # UUID() of anything but text
+        OverflowError,
+        RecursionError,  # deeply nested JSON
+    ) as error:
         raise ProblemError(
             ProblemCode.VALIDATION_ERROR,
             detail="cursor is not one this API issued",

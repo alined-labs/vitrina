@@ -164,8 +164,12 @@ async def test_fr_050_an_answer_without_a_required_part_fails(missing: str) -> N
     del broken[missing]
     wonder = Wonder(json.dumps(broken), json.dumps(broken))
 
-    with pytest.raises(JobFailedError, match=r"brief did not validate"):
+    with pytest.raises(JobFailedError) as failure:
         await write_brief(wonder, fixture_dataset(), model="wonder-test")
+
+    assert failure.value.code == "BRIEF_SCHEMA_INVALID"
+    assert failure.value.message == "El informe salió incompleto. Intenta generarlo de nuevo."
+    assert missing in str(failure.value.__cause__)  # for the worker's log, not for the seller
 
 
 async def test_as_5_1_wonder_writes_a_valid_brief_from_the_recorded_dataset(

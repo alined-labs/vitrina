@@ -7,8 +7,10 @@ task never edits a shared file:
     catalog = "vitrina_catalog.tasks:register"     # def register(registry: TaskRegistry)
 
 A handler gets a ``JobContext`` and returns the job's ``result_ref`` (or None). Raise
-``JobFailedError`` for a final failure with a stable code; any other exception, a provider
-outage or a timeout is retried with backoff until ``max_attempts``.
+``JobFailedError`` for a final failure with a stable code; its message reaches the seller as
+written, so never put an exception's text in it. Any other exception, a provider outage or a
+timeout is retried with backoff until ``max_attempts``, and the job's error says only
+``JOB_FAILURE_TEXT``: the real error goes to the log under the job's id.
 """
 
 import asyncio
@@ -27,6 +29,7 @@ from uuid import UUID
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from vitrina_core.http.context import seller_id_var
+from vitrina_core.jobs.model import JOB_FAILURE_TEXT
 from vitrina_core.jobs.queue import ClaimedJob, JobQueue
 from vitrina_core.providers import ProviderError
 from vitrina_core.providers.compose import Providers
@@ -45,6 +48,11 @@ class JobFailedError(Exception):
         super().__init__(message)
         self.code = code
         self.message = message
+
+    @classmethod
+    def safe(cls, code: str) -> JobFailedError:
+        """A final failure no task wording fits; raise it ``from`` the error for the log."""
+        return cls(code, JOB_FAILURE_TEXT[code])
 
 
 @dataclass(frozen=True)
@@ -246,11 +254,12 @@ class Worker:
                 job.id,
                 {
                     "code": "UNKNOWN_TASK",
-                    "message": f"no handler for {job.task}",
+                    "message": JOB_FAILURE_TEXT["UNKNOWN_TASK"],
                     "retryable": False,
                 },
                 None,
             )
+            logger.error("job %s: no handler for %s", job.id, job.task)
             return
         beat = asyncio.create_task(self._heartbeat(job.id))
         seller_token = seller_id_var.set(job.owner_seller_id)
@@ -264,6 +273,8 @@ class Worker:
                 task.timeout_s,
             )
         except JobFailedError as error:
+            if error.__cause__ is not None:
+                logger.warning("job %s (%s) %s: %r", job.id, job.task, error.code, error.__cause__)
             await self.queue.fail(
                 job.id, {"code": error.code, "message": error.message, "retryable": False}, None
             )
@@ -273,9 +284,14 @@ class Worker:
             if error.retryable:
                 await self._failed(job, "PROVIDER_UNAVAILABLE", str(error))
             else:
+                logger.warning("job %s (%s) PROVIDER_ERROR: %s", job.id, job.task, error)
                 await self.queue.fail(
                     job.id,
-                    {"code": "PROVIDER_ERROR", "message": str(error), "retryable": False},
+                    {
+                        "code": "PROVIDER_ERROR",
+                        "message": JOB_FAILURE_TEXT["PROVIDER_ERROR"],
+                        "retryable": False,
+                    },
                     None,
                 )
         except Exception as error:
@@ -287,9 +303,10 @@ class Worker:
             seller_id_var.reset(seller_token)
             beat.cancel()
 
-    async def _failed(self, job: ClaimedJob, code: str, message: str) -> None:
+    async def _failed(self, job: ClaimedJob, code: str, detail: str) -> None:
+        logger.warning("job %s (%s) %s: %s", job.id, job.task, code, detail)
         retry = job.attempt < job.max_attempts
-        error = {"code": code, "message": message[:500], "retryable": retry}
+        error = {"code": code, "message": JOB_FAILURE_TEXT[code], "retryable": retry}
         await self.queue.fail(job.id, error, self.clock() + backoff(job.attempt) if retry else None)
 
     async def _heartbeat(self, job_id: UUID) -> None:

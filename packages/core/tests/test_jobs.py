@@ -1,4 +1,5 @@
 import asyncio
+import logging
 from dataclasses import dataclass, field
 from datetime import UTC, datetime, timedelta
 from importlib.metadata import EntryPoint
@@ -9,6 +10,7 @@ from uuid import UUID
 import pytest
 
 from vitrina_core.jobs import (
+    JOB_FAILURE_TEXT,
     ClaimedJob,
     Job,
     JobContext,
@@ -113,9 +115,122 @@ async def test_failures_are_retried_with_backoff_until_the_last_attempt() -> Non
     assert last_retry is None
     assert last_error == {
         "code": "PROVIDER_UNAVAILABLE",
-        "message": "upstream 503",
+        "message": JOB_FAILURE_TEXT["PROVIDER_UNAVAILABLE"],
         "retryable": False,
     }
+
+
+async def test_a_job_that_crashes_keeps_the_raw_error_out_of_its_result(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    registry = TaskRegistry()
+    sql = "(psycopg.errors.UniqueViolation) [SQL: INSERT INTO sellers (id) VALUES (%(id)s)]"
+
+    @registry.task("catalog.import_products")
+    async def crash(ctx: JobContext) -> None:
+        raise RuntimeError(sql)
+
+    queue = FakeQueue([claimed(attempt=3)])
+    with caplog.at_level(logging.WARNING, logger="vitrina.jobs"):
+        await worker(queue, registry).run_once()
+
+    assert queue.events == [
+        (
+            "fail",
+            {
+                "code": "INTERNAL_ERROR",
+                "message": "Algo falló de nuestro lado. Intenta de nuevo.",
+                "retryable": False,
+            },
+            None,
+        )
+    ]
+    assert sql in caplog.text
+    assert str(JOB) in caplog.text
+
+
+async def test_a_refused_provider_call_stores_a_safe_message_and_logs_the_detail(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    registry = TaskRegistry()
+
+    @registry.task("catalog.import_products")
+    async def refused(ctx: JobContext) -> None:
+        raise ProviderError("400 key sk-synthetic rejected", provider="meta_model_api")
+
+    queue = FakeQueue([claimed()])
+    with caplog.at_level(logging.WARNING, logger="vitrina.jobs"):
+        await worker(queue, registry).run_once()
+
+    assert queue.events == [
+        (
+            "fail",
+            {
+                "code": "PROVIDER_ERROR",
+                "message": JOB_FAILURE_TEXT["PROVIDER_ERROR"],
+                "retryable": False,
+            },
+            None,
+        )
+    ]
+    assert "sk-synthetic" in caplog.text
+
+
+async def test_a_task_that_words_its_failure_for_the_seller_keeps_its_text() -> None:
+    registry = TaskRegistry()
+    spanish = "No pudimos leer los productos de la foto. Inténtalo de nuevo."
+
+    @registry.task("catalog.import_products")
+    async def unreadable(ctx: JobContext) -> None:
+        raise JobFailedError("PROVIDER_ERROR", spanish)
+
+    queue = FakeQueue([claimed()])
+    await worker(queue, registry).run_once()
+
+    assert queue.events[0][1]["message"] == spanish
+
+
+async def test_a_missing_setting_behind_a_failed_job_only_reaches_the_log(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    registry = TaskRegistry()
+
+    @registry.task("catalog.import_products")
+    async def unconfigured(ctx: JobContext) -> None:
+        try:
+            ctx.settings.model_id("agent")
+        except LookupError as error:
+            raise JobFailedError.safe("PROVIDER_UNAVAILABLE") from error
+
+    queue = FakeQueue([claimed()])
+    with caplog.at_level(logging.WARNING, logger="vitrina.jobs"):
+        await worker(queue, registry).run_once()
+
+    assert queue.events[0][1]["message"] == JOB_FAILURE_TEXT["PROVIDER_UNAVAILABLE"]
+    assert "MODEL_AGENT" in caplog.text
+
+
+def test_a_stored_internal_error_is_never_shown_as_written() -> None:
+    row = {
+        "id": JOB,
+        "kind": "brief",
+        "status": "failed",
+        "result_ref": None,
+        "created_at": NOW,
+        "started_at": NOW,
+        "finished_at": NOW,
+        "error": {
+            "code": "INTERNAL_ERROR",
+            "message": "ProgrammingError: [SQL: SELECT * FROM sellers]",
+            "retryable": False,
+        },
+    }
+
+    job = Job.from_row(row)
+
+    assert job.error is not None
+    assert job.error.code == "INTERNAL_ERROR"
+    assert "SQL" not in job.model_dump_json()
 
 
 async def test_job_failed_error_is_final_and_keeps_its_code() -> None:

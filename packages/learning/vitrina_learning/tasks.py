@@ -1,6 +1,7 @@
 """Learning sweeps and jobs, found by the worker through the ``vitrina.tasks`` entry point."""
 
 from vitrina_core.jobs import TaskRegistry
+from vitrina_core.settings import get_settings
 from vitrina_learning.attribution import AttributionConsumer
 from vitrina_learning.briefs import GENERATE_TASK, generate_brief
 
@@ -10,8 +11,7 @@ ATTRIBUTION_EVERY_S = 30.0
 
 
 def register(registry: TaskRegistry) -> None:
-    registry.every(
-        ATTRIBUTION_SWEEP, every_s=ATTRIBUTION_EVERY_S, sweep=AttributionConsumer().sweep
-    )
+    consumer = AttributionConsumer(commit_grace_s=get_settings().event_commit_grace_s)
+    registry.every(ATTRIBUTION_SWEEP, every_s=ATTRIBUTION_EVERY_S, sweep=consumer.sweep)
     # The dataset, one Wonder call within PROVIDER_JOB_TIMEOUT_S, and one more on a bad answer.
     registry.add(GENERATE_TASK, generate_brief, timeout_s=300)

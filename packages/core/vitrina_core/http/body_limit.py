@@ -1,8 +1,8 @@
 """Request body limits: a body over its route's limit is refused before anything reads it.
 
 Neither uvicorn nor Starlette limits a request body. Without this, the idempotency middleware
-would buffer a whole POST body before authentication, FastAPI would parse a whole JSON body
-before the route checks anything, and uploads would be spooled in full before a route could
+would buffer a known caller's whole POST body, FastAPI would parse a whole JSON body before the
+route checks anything, and uploads would be spooled in full before a route could
 count them. The API is one small replica that also receives the WhatsApp webhook, so one
 oversized request must not take it down.
 

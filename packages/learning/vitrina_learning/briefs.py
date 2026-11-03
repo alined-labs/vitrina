@@ -255,6 +255,7 @@ mano, urgency urgencia, gift regalo, local_pride orgullo local.
 Responde solo con el JSON del esquema."""
 
 RETRY = "Tu respuesta no sirve: {problem}. Responde de nuevo solo con el JSON corregido."
+BRIEF_UNUSABLE = "El informe salió incompleto. Intenta generarlo de nuevo."
 
 
 def brief_request(dataset: BriefDataset, *, model: str) -> ChatRequest:
@@ -484,7 +485,7 @@ async def write_brief(
 ) -> tuple[BriefContent, list[CallMeta]]:
     request = brief_request(dataset, model=model)
     calls: list[CallMeta] = []
-    problem = ""
+    unusable: _UnusableError | None = None
     for _ in range(2):
         response = await with_backoff(partial(chat.complete, request))
         calls.append(response.meta)
@@ -492,17 +493,17 @@ async def write_brief(
         try:
             return _content(text, dataset), calls
         except _UnusableError as error:
-            problem = str(error)
+            unusable = error
             request = request.model_copy(
                 update={
                     "messages": (
                         *request.messages,
                         ChatMessage(role="assistant", content=text or ""),
-                        ChatMessage(role="user", content=RETRY.format(problem=problem)),
+                        ChatMessage(role="user", content=RETRY.format(problem=error)),
                     )
                 }
             )
-    raise JobFailedError("BRIEF_SCHEMA_INVALID", f"the brief did not validate twice: {problem}")
+    raise JobFailedError("BRIEF_SCHEMA_INVALID", BRIEF_UNUSABLE) from unusable
 
 
 # ── storage ──
@@ -697,7 +698,7 @@ async def generate_brief(ctx: JobContext) -> str:
     try:
         model = ctx.settings.model_id("strategist")
     except LookupError as error:
-        raise JobFailedError("PROVIDER_UNAVAILABLE", str(error)) from error
+        raise JobFailedError.safe("PROVIDER_UNAVAILABLE") from error
     await ctx.progress("dataset", 0.2)
     dataset = await build_dataset(
         ctx.sessions,

@@ -2,6 +2,7 @@
 
 import { useRouter, useSearchParams } from "next/navigation";
 import { useCallback, useEffect, useState } from "react";
+import { oncePerAction } from "@/lib/api/action-key";
 import { api, type components } from "@/lib/api/client";
 import { formatCount, formatDate, formatDateTime, problemMessage } from "@/lib/format";
 import { CAMPAIGN_STATUS, DECISION, DECISION_REASON, OBJECTION } from "@/lib/labels";
@@ -193,7 +194,9 @@ function CampaignDetail({ id, onChange }: { id: string; onChange: () => Promise<
     if (!window.confirm(question)) return;
     setBusy(true);
     setMessage(null);
-    const { data, error } = await api.POST("/reactivation/campaigns/{campaign_id}/send", { params: { path: { campaign_id: id } } });
+    const { data, error } = await oncePerAction(`reactivation/send:${id}`, (header) =>
+      api.POST("/reactivation/campaigns/{campaign_id}/send", { params: { path: { campaign_id: id }, header } }),
+    );
     setBusy(false);
     if (data) {
       setCampaign(data);

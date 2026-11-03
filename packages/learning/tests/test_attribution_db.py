@@ -102,6 +102,25 @@ async def test_db_as_4_1_ad_events_become_the_funnel_tags_and_ad_stats(
 
 
 @pytest.mark.db
+async def test_db_as_4_1_an_event_that_commits_after_a_later_id_is_still_copied(
+    db_sessions: async_sessionmaker[AsyncSession],
+) -> None:
+    async with db_sessions() as session, session.begin():
+        ad = await approved_ad(session, SELLER, "+573000000004")
+        chat = await conversation(session, SELLER)
+    payload = {"ad_id": str(ad), "conversation_id": str(chat)}
+    consumer = AttributionConsumer()
+
+    async with db_sessions() as slow, slow.begin():
+        await emit(slow, "ad.chat_started", payload, seller_id=SELLER)  # the lower id, uncommitted
+        async with db_sessions() as quick, quick.begin():
+            await emit(quick, "ad.handoff", payload | {"reason": "other"}, seller_id=SELLER)
+        assert await consumer.sweep(db_sessions, datetime.now(UTC)) == 1
+
+    assert await consumer.sweep(db_sessions, datetime.now(UTC)) == 1
+
+
+@pytest.mark.db
 async def test_db_as_4_1_a_chat_that_never_names_an_ad_counts_as_unattributed(
     db_sessions: async_sessionmaker[AsyncSession],
 ) -> None:

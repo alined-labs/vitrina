@@ -22,6 +22,7 @@ from vitrina_core.http import (
     ProblemCode,
     ProblemError,
     problem_responses,
+    provider_unavailable,
 )
 from vitrina_core.ids import new_id
 from vitrina_core.providers.compose import ProviderMode, compose
@@ -71,7 +72,7 @@ async def run_agent_turn(
     try:
         model = settings.model_id("agent")
     except LookupError as error:
-        raise ProblemError(ProblemCode.PROVIDER_UNAVAILABLE, detail=str(error)) from error
+        raise provider_unavailable(error) from error
     # Recorded model outputs count too: retrieval can still call the live embedding model.
     await take_quota(request, seller_id, "agent_turns")
     chat = (

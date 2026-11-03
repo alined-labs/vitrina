@@ -13,7 +13,7 @@ import uuid
 from collections import defaultdict
 from collections.abc import Iterable, Mapping
 from dataclasses import dataclass
-from datetime import UTC, date, datetime
+from datetime import UTC, date, datetime, timedelta
 from typing import Any, Protocol
 from uuid import UUID
 
@@ -83,21 +83,32 @@ class AttributionConsumer:
 
     The cursor lives in the process. After a restart the consumer reads the events again from
     the start and skips the rows it already copied.
+
+    Ids are handed out at insert, not at commit: event 6 can be visible while event 5's
+    transaction is still open. So the cursor only passes events older than ``commit_grace_s``,
+    and younger ones are read again on the next sweep, where the copy skips them.
     """
 
-    def __init__(self, *, batch: int = 500) -> None:
+    def __init__(self, *, batch: int = 500, commit_grace_s: float = 300.0) -> None:
         self.after_id = 0
         self.batch = batch
+        self.commit_grace_s = commit_grace_s
 
     async def sweep(self, sessions: async_sessionmaker[AsyncSession], now: datetime) -> int:
         copied = 0
+        position = self.after_id
+        reached_young = False
+        settled_before = now - timedelta(seconds=self.commit_grace_s)
         while True:
             async with sessions() as session, session.begin():
-                found = await events_after(session, self.after_id, types=KINDS, limit=self.batch)
+                found = await events_after(session, position, types=KINDS, limit=self.batch)
                 for event in found:
                     copied += await _copy(session, event)
-            if found:
-                self.after_id = found[-1].id
+            for event in found:
+                position = event.id
+                reached_young = reached_young or event.created_at >= settled_before
+                if not reached_young:
+                    self.after_id = event.id
             if len(found) < self.batch:
                 return copied
 

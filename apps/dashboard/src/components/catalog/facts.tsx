@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useState } from "react";
+import { oncePerAction } from "@/lib/api/action-key";
 import { api, type components } from "@/lib/api/client";
 import { problemMessage } from "@/lib/format";
 import { useLoad } from "@/lib/use-load";
@@ -35,9 +36,10 @@ export function Facts() {
     const fields = new FormData(form);
     setSaving(true);
     setMessage(null);
-    const { error } = await api.POST("/facts", {
-      body: { kind: fields.get("kind") as FactKind, text: String(fields.get("text") ?? "").trim() },
-    });
+    const body = { kind: fields.get("kind") as FactKind, text: String(fields.get("text") ?? "").trim() };
+    const { error } = await oncePerAction(`facts:${JSON.stringify(body)}`, (header) =>
+      api.POST("/facts", { params: { header }, body }),
+    );
     setSaving(false);
     if (error) {
       setMessage(problemMessage(error, "No pudimos guardar la respuesta."));
