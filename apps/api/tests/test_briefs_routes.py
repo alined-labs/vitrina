@@ -20,6 +20,7 @@ from vitrina_learning.briefs import BriefDataset, DatasetProduct
 from vitrina_learning.testing import approved_ad, conversation
 
 SECRET = "briefs-routes-test-secret-with-32-bytes+"
+SERVICE_TOKEN = "service-token-for-tests"
 SELLER = UUID("00000000-0000-7000-8000-00000000000a")
 OTHER = UUID("00000000-0000-7000-8000-00000000000b")
 TODAY = datetime.now(UTC).date()
@@ -139,6 +140,7 @@ async def test_db_as_5_1_ten_attributed_chats_give_a_brief_the_seller_reads(
     settings = Settings(
         _env_file=None,
         database_url=url,
+        service_token=SERVICE_TOKEN,
         db_schema=schema,
         supabase_jwt_secret=SECRET,
         model_strategist="wonder-test",
@@ -194,7 +196,11 @@ async def test_db_as_5_2_applying_a_brief_queues_its_creative_jobs_and_a_campaig
 ) -> None:
     url, schema = migrated_schema
     settings = Settings(
-        _env_file=None, database_url=url, db_schema=schema, supabase_jwt_secret=SECRET
+        _env_file=None,
+        database_url=url,
+        service_token=SERVICE_TOKEN,
+        db_schema=schema,
+        supabase_jwt_secret=SECRET,
     )  # type: ignore[call-arg]
 
     with TestClient(create_app(settings)) as client:
@@ -206,7 +212,7 @@ async def test_db_as_5_2_applying_a_brief_queues_its_creative_jobs_and_a_campaig
                 "whatsapp_number": "+573000000003",
                 "city": "Medellín",
             },
-            headers=owner(),
+            headers={**owner(), "X-Service-Token": SERVICE_TOKEN},
         )
         assert seller.status_code == 201, seller.text
         seller_id = UUID(seller.json()["id"])

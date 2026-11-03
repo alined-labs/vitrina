@@ -39,7 +39,7 @@ seller_bearer = HTTPBearer(
 service_header = APIKeyHeader(
     name="X-Service-Token",
     scheme_name="serviceAuth",
-    description="Internal workers.",
+    description="Internal workers, and the operator creating a seller.",
     auto_error=False,
 )
 whatsapp_signature_header = APIKeyHeader(
@@ -165,12 +165,12 @@ class Authenticator:
         if seller_id is None:
             raise ProblemError(
                 ProblemCode.FORBIDDEN,
-                detail="this account has no seller yet; create one with POST /sellers",
+                detail="this account has no seller yet; the operator creates it",
             )
         return Principal(kind="seller", seller_id=seller_id, subject=subject)
 
     def service(self, token: str | None) -> Principal:
-        expected = self.service_token.get_secret_value() if self.service_token else ""
+        expected = self.service_token.get_secret_value().strip() if self.service_token else ""
         if (
             not expected
             or token is None

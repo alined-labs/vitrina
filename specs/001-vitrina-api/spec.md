@@ -34,6 +34,7 @@ Pitch: *"Tus fotos se vuelven anuncios, tus anuncios se vuelven ventas, y cada c
 | **Seller** (owner) | Micro-business owner using the dashboard. One per seller account. | Bearer JWT (Supabase) scoped to `seller_id` |
 | **Customer** | WhatsApp user chatting with the seller's number. Never calls the API directly. | Arrives through the WhatsApp webhook |
 | **Worker** | Internal background process (creative jobs, Wonder brief, reactivation scheduler, evals). | Service token (`X-Service-Token`) |
+| **Operator** | Whoever runs this deployment and creates its seller accounts. | Service token (`X-Service-Token`) |
 | **WhatsApp Cloud API** | Meta's platform delivering inbound messages and status callbacks. | HMAC `X-Hub-Signature-256` |
 | **Public visitor** | Anonymous user of the viral "Foto → Vitrina" tool. | None; rate limited by IP |
 | **Judge / demo operator** | Uses replay mode and the metrics page. | Seller token on the demo account |
@@ -46,7 +47,7 @@ Scenarios use Given/When/Then. Each has a stable ID that tests must reference. *
 
 > As a seller, I paste my prices and FAQ, upload 2–3 photos per product, and the system knows my business well enough to answer customers.
 
-- **AS-1.1** Given a new seller, when they `POST /sellers` with a business name, WhatsApp number and city, then a seller is created with default business hours, handoff thresholds and brand-voice settings, and a `201` is returned.
+- **AS-1.1** Given a new seller, when the operator `POST /sellers` with the service token, a business name, WhatsApp number and city, then a seller is created with default business hours, handoff thresholds and brand-voice settings, and a `201` is returned. Without a valid service token the call gets `401` and nothing is created, because inbound messages are routed by that number.
 - **AS-1.2** Given an authenticated seller, when they `POST /products` with name, price in COP, stock and attributes, then the product is stored, embedded for retrieval, and returned with `status: active`.
 - **AS-1.3** Given a photo of a handwritten menu or price list, when the seller `POST /products/import` with the image, then the response is a `202` job; on completion the job yields **draft** products (`status: draft`) that must be approved before the agent can cite them.
 - **AS-1.4** Given a seller, when they `POST /facts` with a shipping policy ("Envío a Medellín $12.000, 2–3 días"), then the fact is stored with a `fact_id`, a `kind: shipping` and is retrievable by semantic search.

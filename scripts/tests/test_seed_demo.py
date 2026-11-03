@@ -25,12 +25,18 @@ _spec.loader.exec_module(seed_demo)
 
 SECRET = "seed-demo-test-secret-of-32-bytes-or-more"
 NUMBER = "+573000000999"
+SERVICE_TOKEN = "service-token-for-tests"
 SHOP: dict[str, Any] = json.loads(seed_demo.FIXTURE.read_text(encoding="utf-8"))
 
 
 @pytest.fixture
 def client(tmp_path: Path) -> TestClient:
-    settings = Settings(_env_file=None, supabase_jwt_secret=SECRET, storage_dir=tmp_path)  # type: ignore[call-arg]
+    settings = Settings(
+        _env_file=None,
+        supabase_jwt_secret=SECRET,
+        storage_dir=tmp_path,
+        service_token=SERVICE_TOKEN,
+    )  # type: ignore[call-arg]
     app = create_app(settings)
     app.state.catalog = InMemoryCatalog()
     claims = {"sub": "seed-demo-owner", "aud": "authenticated", "exp": 4102444800}
@@ -50,7 +56,13 @@ def photo(tmp_path: Path) -> Path:
 def test_the_demo_shop_is_made_from_the_fixture_and_a_second_run_keeps_it(
     client: TestClient, photo: Path
 ) -> None:
-    first = seed_demo.seed(client, SHOP, whatsapp_number=NUMBER, photos={"mochila-azul": photo})
+    first = seed_demo.seed(
+        client,
+        SHOP,
+        whatsapp_number=NUMBER,
+        photos={"mochila-azul": photo},
+        service_token=SERVICE_TOKEN,
+    )
 
     assert first["seller"] == "created"
     assert first["products"] == {item["key"]: "created" for item in SHOP["products"]}
@@ -81,6 +93,20 @@ def test_a_photo_for_a_product_the_fixture_lacks_stops_before_any_call(
     with pytest.raises(seed_demo.SeedError, match="no product with the key bolso-rosa"):
         seed_demo.seed(client, SHOP, whatsapp_number=NUMBER, photos={"bolso-rosa": photo})
     assert client.get("/sellers/me").status_code == 403  # nothing was created
+
+
+def test_a_new_shop_without_the_operator_token_stops_and_says_how(client: TestClient) -> None:
+    with pytest.raises(seed_demo.SeedError, match="SERVICE_TOKEN"):
+        seed_demo.seed(client, SHOP, whatsapp_number=NUMBER, photos={})
+    assert client.get("/sellers/me").status_code == 403  # nothing was created
+
+
+def test_a_shop_that_exists_needs_no_operator_token(client: TestClient) -> None:
+    seed_demo.seed(client, SHOP, whatsapp_number=NUMBER, photos={}, service_token=SERVICE_TOKEN)
+
+    again = seed_demo.seed(client, SHOP, whatsapp_number=NUMBER, photos={})
+
+    assert again["seller"] == "kept"
 
 
 def test_without_a_token_the_script_says_how_to_get_one(

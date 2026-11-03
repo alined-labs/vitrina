@@ -13,6 +13,7 @@ from vitrina_core.jobs import PostgresJobQueue, TaskRegistry, Worker, load_tasks
 from vitrina_core.settings import Settings
 
 SECRET = "sellers-db-test-secret-with-32-bytes-plus"
+SERVICE_TOKEN = "service-token-for-tests"
 SUBJECT = "6f1c2a64-3c2e-4d55-9a1c-5c0d1e2f3a4b"
 EXPORT = """27/10/26, 14:05 - Ana Bolsos: Hola veci! ¿Cómo vas? 😊
 27/10/26, 14:06 - Cliente Uno: Buenas, ¿cuánto vale? mi número es 3000000009
@@ -31,7 +32,11 @@ async def test_db_as_1_5_an_export_becomes_the_sellers_voice_through_the_worker(
 ) -> None:
     url, schema = migrated_schema
     settings = Settings(
-        _env_file=None, database_url=url, db_schema=schema, supabase_jwt_secret=SECRET
+        _env_file=None,
+        database_url=url,
+        service_token=SERVICE_TOKEN,
+        db_schema=schema,
+        supabase_jwt_secret=SECRET,
     )  # type: ignore[call-arg]
     with TestClient(create_app(settings)) as client:
         signup = client.post(
@@ -42,7 +47,7 @@ async def test_db_as_1_5_an_export_becomes_the_sellers_voice_through_the_worker(
                 "whatsapp_number": "+573000000001",
                 "city": "Medellín",
             },
-            headers=bearer(),
+            headers={**bearer(), "X-Service-Token": SERVICE_TOKEN},
         )
         assert signup.status_code == 201
         settings_row = await PostgresSellerStore(db_sessions).settings(UUID(signup.json()["id"]))

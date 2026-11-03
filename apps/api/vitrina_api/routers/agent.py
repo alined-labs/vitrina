@@ -50,9 +50,7 @@ async def run_agent_turn(
         raise ProblemError(ProblemCode.VALIDATION_ERROR, detail="a text turn needs message.text")
     seller: SellerSettings | None = await request.app.state.sellers.settings(seller_id)
     if seller is None:
-        raise ProblemError(
-            ProblemCode.VALIDATION_ERROR, detail="this seller has no settings yet (POST /sellers)"
-        )
+        raise ProblemError(ProblemCode.VALIDATION_ERROR, detail="this seller has no settings yet")
     settings: Settings = request.app.state.settings
     try:
         model = settings.model_id("agent")

@@ -230,7 +230,8 @@ class IdempotencyMiddleware:
             await self.store.abandon(owner, key)
             raise
         status = captured["status"]
-        if status >= 500 or status == 429 or not captured["json"]:
+        # A refused call says nothing about the key: the caller may retry it with credentials.
+        if status >= 500 or status in {401, 403, 429} or not captured["json"]:
             await self.store.abandon(owner, key)
             return
         await self.store.finish(

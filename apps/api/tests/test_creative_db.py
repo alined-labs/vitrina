@@ -31,6 +31,7 @@ from vitrina_creative.testing import (
 )
 
 SECRET = "creative-db-test-secret-with-32-bytes+"
+SERVICE_TOKEN = "service-token-for-tests"
 OWNER = "6b1f0c2e-3d4a-4e5f-8a9b-0c1d2e3f4a5b"
 STRANGER = "7c2a1d3f-4e5b-4f6a-9b0c-1d2e3f4a5b6c"
 BLUE = next(scene for scene in altered_scenes() if scene.name == "blue")
@@ -50,7 +51,7 @@ def sign_up(client: TestClient, subject: str, number: str) -> str:
             "whatsapp_number": number,
             "city": "Medellín",
         },
-        headers=bearer(subject),
+        headers={**bearer(subject), "X-Service-Token": SERVICE_TOKEN},
     )
     assert response.status_code == 201, response.text
     return str(response.json()["id"])
@@ -88,6 +89,7 @@ async def test_db_as_2_1_a_creative_job_runs_from_the_route_through_the_worker(
     settings = Settings(
         _env_file=None,
         database_url=url,
+        service_token=SERVICE_TOKEN,
         db_schema=schema,
         supabase_jwt_secret=SECRET,
         storage_dir=tmp_path,
@@ -193,6 +195,7 @@ async def test_db_a_photo_without_the_product_fails_the_job_with_a_reason(
     settings = Settings(
         _env_file=None,
         database_url=url,
+        service_token=SERVICE_TOKEN,
         db_schema=schema,
         supabase_jwt_secret=SECRET,
         storage_dir=tmp_path,
