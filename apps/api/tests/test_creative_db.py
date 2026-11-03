@@ -121,6 +121,7 @@ def creative_settings(url: str, schema: str, storage_dir: Path) -> Settings:
         database_url=url,
         db_schema=schema,
         supabase_jwt_secret=SECRET,
+        service_token=SERVICE_TOKEN,
         storage_dir=storage_dir,
         model_agent="spark-test",
         model_image="muse-test",
