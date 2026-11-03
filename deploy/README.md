@@ -110,7 +110,13 @@ which still claims messages until it stops.
   `SERVICE_TOKEN` only to create the seller and never prints it. A second run
   changes nothing; a 409 means the number or the account already has a seller.
 - In the Meta app, set the WhatsApp webhook to `https://<api address>/v1/webhooks/whatsapp`
-  with the same `WHATSAPP_VERIFY_TOKEN`.
+  with the same `WHATSAPP_VERIFY_TOKEN`, and subscribe it to `messages` and
+  `message_template_status_update`. Keep the app in Live mode: Meta holds some webhooks back in
+  Dev mode.
+- Campaigns can be sent once Meta has approved the `vitrina_reactivacion` template. Set
+  `WHATSAPP_BUSINESS_ACCOUNT_ID` and `WHATSAPP_BUSINESS_NUMBER` in `.env` and deploy again: Meta's
+  events then update the seller with that number. For a template Meta had already approved, run
+  `uv run --env-file .env scripts/sync-template-status.py --api https://<api address>/v1`.
 - `GET /v1/health/providers` with a seller's token shows every dependency. In production each
   row should read `ok`, not `mocked`.
 - Check the production settings: `WHATSAPP_MOCK=false` (the mock phone's routes have no sign-in)

@@ -25,6 +25,7 @@ from vitrina_conversation.ingest import (
     InvalidSignatureError,
     PayloadTooLargeError,
     SellerResolver,
+    TemplateAccount,
 )
 from vitrina_conversation.pacing import Pacer
 from vitrina_conversation.pipeline import Inbound, InboundOutcome, PipelineDeps, process_inbound
@@ -122,6 +123,7 @@ __all__ = [
     "Review",
     "SellerResolver",
     "StoredMessage",
+    "TemplateAccount",
     "ToolCallRecord",
     "TurnActions",
     "TurnRequest",

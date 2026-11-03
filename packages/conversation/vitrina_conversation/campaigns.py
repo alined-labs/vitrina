@@ -211,19 +211,30 @@ async def campaign_send_job(
         pace=paced(pacer),
         clock=lambda: datetime.now(UTC),  # each contact is checked at its own send time
     )
+    pauses = int(ctx.payload.get("pauses", 0))
     try:
         run = await run_send(
-            deps, seller_id, campaign_id, business_name=seller.business_name, now=datetime.now(UTC)
+            deps,
+            seller_id,
+            campaign_id,
+            business_name=seller.business_name,
+            now=datetime.now(UTC),
+            pauses=pauses,
         )
     except LookupError as error:
         raise JobFailedError("NOT_FOUND", str(error)) from error
+    if run.stopped is not None:  # the campaign is finished; the job's row says why it ended early
+        raise JobFailedError("PROVIDER_ERROR", run.stopped)
     if run.next_at is not None:
         async with ctx.sessions() as session, session.begin():
             await PostgresJobQueue(ctx.sessions).enqueue(
                 session,
                 kind="campaign_send",
                 task=CAMPAIGN_SEND,
-                payload={"campaign_id": str(campaign_id)},
+                payload={
+                    "campaign_id": str(campaign_id),
+                    "pauses": pauses + 1 if run.paused else 0,
+                },
                 owner_seller_id=seller_id,
                 run_after=run.next_at,
             )

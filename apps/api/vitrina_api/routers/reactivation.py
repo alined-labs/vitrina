@@ -129,11 +129,13 @@ async def send_campaign(
     campaign_id: UUID,
     _key: IdempotencyKey = None,
 ) -> ReactivationCampaign:
-    seller = await request.app.state.sellers.get(seller_id)
-    approved = seller is not None and seller.marketing_template_status == "approved"
+    seller = await request.app.state.sellers.settings(seller_id)
     try:
         campaign = await schedule_send(
-            campaigns.store, seller_id, campaign_id, template_approved=approved
+            campaigns.store,
+            seller_id,
+            campaign_id,
+            approved_template=seller.approved_template if seller is not None else None,
         )
     except LookupError as error:
         raise _not_found(campaign_id) from error

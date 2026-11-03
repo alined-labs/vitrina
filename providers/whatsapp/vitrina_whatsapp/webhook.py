@@ -3,10 +3,13 @@
 Meta batches notifications (one POST may carry several entries, changes, messages and statuses)
 and retries any delivery that did not get a ``200``, for up to 7 days, so the same message can
 arrive more than once: consumers deduplicate on ``InboundMessage.message_id`` (AS-3.1). Changes
-whose ``field`` is not ``messages`` (template reviews, account alerts) are listed in
-``ignored_fields`` rather than rejected. Each message and status is read on its own: one this
-adapter cannot read is listed in ``unreadable``, and the rest of the delivery still comes
-through.
+whose ``field`` is neither ``messages`` nor ``message_template_status_update`` (account alerts,
+for one) are listed in ``ignored_fields`` rather than rejected. Each message, status and template
+event is read on its own: one this adapter cannot read is listed in ``unreadable``, and the rest
+of the delivery still comes through.
+
+A template event names no phone number: templates belong to the business account, whose ID is the
+entry's ``id`` (message_template_status_update webhook reference, read 2026-11-01).
 
 A customer with a WhatsApp username may write without their number: Meta then leaves out
 ``from`` and ``wa_id`` and sends their business-scoped user ID (``from_user_id``,
@@ -40,6 +43,27 @@ _KINDS: dict[str, MessageKind] = {
     "document": "document",
     "interactive": "interactive",
     "button": "interactive",  # quick-reply button on a template
+}
+TEMPLATE_STATUS_FIELD = "message_template_status_update"
+
+MarketingTemplateStatus = Literal["none", "pending", "approved", "rejected"]
+"""openapi.yaml ``Seller.marketing_template_status``."""
+
+# Meta's template events in the four statuses a seller can have. Only the two events Meta describes
+# as sendable open the send gate. An event left out changes nothing: it keeps the template as it
+# was (FLAGGED, LOCKED, LIMIT_EXCEEDED), names no status (UNARCHIVED returns to a previous one) or
+# is new, and a new event must never open the gate.
+_TEMPLATE_STATUSES: dict[str, MarketingTemplateStatus] = {
+    "APPROVED": "approved",
+    "REINSTATED": "approved",
+    "PENDING": "pending",
+    "IN_APPEAL": "pending",
+    "PAUSED": "pending",  # cannot be sent for now, and may come back
+    "REJECTED": "rejected",
+    "DISABLED": "rejected",
+    "ARCHIVED": "none",
+    "DELETED": "none",
+    "PENDING_DELETION": "none",
 }
 _WEBHOOK_STATUSES: frozenset[str] = frozenset({"sent", "delivered", "read", "failed"})
 _PROGRESS: dict[DeliveryStatus, int] = {"queued": 0, "sent": 1, "delivered": 2, "read": 3}
@@ -102,12 +126,22 @@ class StatusUpdate:
 
 
 @dataclass(frozen=True, slots=True)
+class TemplateStatusUpdate:
+    account_id: str
+    """The WhatsApp Business Account the template belongs to (the entry's ``id``)."""
+    template_name: str
+    language: str
+    event: str
+
+
+@dataclass(frozen=True, slots=True)
 class WebhookBatch:
     messages: tuple[InboundMessage, ...] = ()
     statuses: tuple[StatusUpdate, ...] = ()
     ignored_fields: tuple[str, ...] = ()
     unreadable: tuple[str, ...] = ()
     """What could not be read, by location and reason only (``messages.2: id: Field required``)."""
+    template_updates: tuple[TemplateStatusUpdate, ...] = ()
 
     @property
     def message_ids(self) -> tuple[str, ...]:
@@ -157,8 +191,39 @@ def parse_webhook(body: bytes | str | Mapping[str, Any]) -> WebhookBatch:
             # keeps them.
             if status.status in _WEBHOOK_STATUSES:
                 statuses.append(_status(status, value.metadata))
-    ignored = tuple(change.field for change in changes if change.field != "messages")
-    return WebhookBatch(tuple(messages), tuple(statuses), ignored, tuple(unreadable))
+    templates: list[TemplateStatusUpdate] = []
+    position = 0
+    for entry in envelope.entry:
+        for change in entry.changes:
+            if change.field != TEMPLATE_STATUS_FIELD:
+                continue
+            try:
+                event = _TemplateEvent.model_validate(change.value)
+            except ValidationError as exc:
+                unreadable.append(_describe(exc, f"templates.{position}"))
+            else:
+                templates.append(
+                    TemplateStatusUpdate(
+                        account_id=entry.id,
+                        template_name=event.message_template_name,
+                        language=event.message_template_language,
+                        event=event.event,
+                    )
+                )
+            position += 1
+    ignored = tuple(
+        change.field
+        for change in changes
+        if change.field not in ("messages", TEMPLATE_STATUS_FIELD)
+    )
+    return WebhookBatch(
+        tuple(messages), tuple(statuses), ignored, tuple(unreadable), tuple(templates)
+    )
+
+
+def marketing_status(event: str) -> MarketingTemplateStatus | None:
+    """The seller's status after a template event; None when the event does not change it."""
+    return _TEMPLATE_STATUSES.get(event)
 
 
 def merge_delivery_status(
@@ -372,6 +437,12 @@ class _Value(_Wire):
     contacts: tuple[dict[str, Any], ...] = ()
     messages: tuple[dict[str, Any], ...] = ()
     statuses: tuple[dict[str, Any], ...] = ()
+
+
+class _TemplateEvent(_Wire):
+    event: str
+    message_template_name: str
+    message_template_language: str
 
 
 class _Change(_Wire):

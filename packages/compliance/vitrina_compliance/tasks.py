@@ -3,9 +3,14 @@
 from datetime import UTC, datetime
 from uuid import UUID
 
+from vitrina_compliance.campaigns import finish_stranded_campaigns
 from vitrina_compliance.consents import PostgresCompliance
 from vitrina_compliance.erasure import ERASURE_TASK, load_erasers
 from vitrina_core.jobs import JobContext, JobFailedError, TaskRegistry
+
+FINISH_STRANDED = "compliance.finish_stranded_campaigns"
+# A campaign whose send job died reads as unfinished for at most this long.
+FINISH_STRANDED_EVERY_S = 300.0
 
 
 async def erase_contact(ctx: JobContext) -> str:
@@ -34,3 +39,6 @@ async def erase_contact(ctx: JobContext) -> str:
 
 def register(registry: TaskRegistry) -> None:
     registry.add(ERASURE_TASK, erase_contact, timeout_s=600)
+    registry.every(
+        FINISH_STRANDED, every_s=FINISH_STRANDED_EVERY_S, sweep=finish_stranded_campaigns
+    )

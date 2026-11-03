@@ -2,20 +2,38 @@
 
 A campaign starts as a preview: every contact the segment finds gets a ``SendDecision`` from
 ``evaluate``, at the scheduled time (the next legal window by default). Nothing is sent until
-``schedule_send``, which needs the seller's approved marketing template. ``run_send`` (the
-``campaign_send`` job) evaluates each contact again at send time; only ``allowed`` contacts get
-the template, personalised to their last objection and the newest approved ad for what they
+``schedule_send``, which needs Meta's approval of the very template the campaign sends.
+``run_send`` (the ``campaign_send`` job) evaluates each contact again at send time; only
+``allowed`` contacts get the template, personalised to their last objection and the newest approved ad for what they
 asked about. A contact blocked in the preview stays blocked for this campaign; a deferred one
 waits for its ``next_allowed_at``. Every evaluation is kept (FR-064), and the campaign shows
 the latest decision per contact.
+
+A campaign posts a contact's template at most once, unless Meta's answer proves that post sent
+nothing. Just before the request leaves, ``claim_send`` records the contact as ``failed`` and
+stamps ``last_marketing_sent_at``, in one transaction that refuses a contact already taken or
+inside the 7-day cap (Art. II.3); ``sent`` replaces the decision afterwards. So a pass killed in
+between, a read timeout or a server error leaves a contact who is reported as failed, is not tried
+again by this campaign, and is held by the cap in the next one, even if the message never arrived.
+Only an answer that proves nothing went out (a refusal, a rate limit) gives the slot back. What this
+cannot promise: that ``sent`` means delivered (it means the API accepted the message) or that a
+customer never gets two if Meta refuses a request it had in fact taken.
+
+What a refused send does to the pass depends on whom it concerns: one customer fails alone; an
+outage or a rate limit pauses the pass and the others keep waiting, and after ``MAX_PAUSES`` ends
+it; an account-wide refusal (a bad token, a disabled template) ends it at once, without trying
+anyone else. A contact is read again after every wait, and no send starts inside ``CLOSING_MARGIN``.
+An ended campaign is ``sent``, and its counts say what happened: nobody is left waiting. The same
+goes for a campaign whose job has run out of attempts (``finish_stranded_campaigns``).
 
 Who the candidates are, which ad matches and where the sent message is recorded belong to
 other modules; they arrive as the callables in ``CampaignDeps`` (Art. VI.3).
 """
 
+import logging
 from collections.abc import Awaitable, Callable, Mapping, Sequence
 from dataclasses import dataclass, field, replace
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import Annotated, Any, Literal, Protocol
 from uuid import UUID
 
@@ -24,9 +42,10 @@ from pydantic import MISSING, BaseModel, Field
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from vitrina_compliance.calendar import is_legal, next_legal
-from vitrina_compliance.consents import ComplianceStore, InMemoryCompliance
-from vitrina_compliance.contacts import ObjectionTag
+from vitrina_compliance.consents import ComplianceStore, InMemoryCompliance, PostgresCompliance
+from vitrina_compliance.contacts import Contact, ObjectionTag
 from vitrina_compliance.eligibility import (
+    FREQUENCY_WINDOW,
     REASON_TEXT_ES,
     ContactState,
     Decision,
@@ -34,16 +53,21 @@ from vitrina_compliance.eligibility import (
     evaluate,
 )
 from vitrina_compliance.tables import contacts, reactivation_campaigns, send_decisions
+from vitrina_core.db.tables import jobs
 from vitrina_core.http import keyset_page, next_cursor
 from vitrina_core.ids import new_id
-from vitrina_core.providers import Messenger, OutboundTemplate
+from vitrina_core.providers import Messenger, OutboundTemplate, ProviderError
+
+logger = logging.getLogger(__name__)
 
 CAMPAIGN_SEND = "compliance.campaign_send"
 CampaignStatus = Literal["preview", "scheduled", "sending", "sent", "cancelled"]
 ConflictCode = Literal["TEMPLATE_NOT_APPROVED", "CAMPAIGN_ALREADY_SENT"]
+ClaimOutcome = Literal["claimed", "taken", "capped"]
 
 # The template's name in WhatsApp Manager, language es (Q04).
 TEMPLATE_NAME = "vitrina_reactivacion"
+TEMPLATE_LANGUAGE = "es"
 # The approved marketing template (Q04: submitted by Daniel in WhatsApp Manager). Four body
 # parameters, no price, no claim about stock: the objection line only invites a reply.
 TEMPLATE_BODY = (
@@ -65,6 +89,23 @@ OBJECTION_LINES: dict[ObjectionTag | None, str] = {
 }
 ANY_PRODUCT = "lo que tenemos"
 
+# How long a send pass waits out a temporary failure, doubling each time: our choice, not Meta's.
+# Together they span about an hour, then the campaign ends rather than wait on forever.
+FIRST_PAUSE = timedelta(minutes=1)
+MAX_PAUSES = 6
+# Failures of unknown scope (delivery unknown, a code Meta's page does not place) that pause the
+# pass when they come in a row: each one costs a contact, and they may all share one cause.
+UNKNOWN_IN_A_ROW = 3
+# No send starts this close to the window's end. Legal hours stay as they are (``calendar``): the
+# margin is for a request that starts in time and reaches Meta late, since the client's timeouts
+# and retries can stretch one send (``WhatsAppClient.longest_send_s``, a little over 2 minutes;
+# a test keeps this margin above it).
+CLOSING_MARGIN = timedelta(minutes=3)
+# SEND_FAILED is the only reason the contract has for a send that did not end in ``sent``. It covers
+# cases its text would misdescribe, so each of these says what is actually known.
+SEND_UNCONFIRMED_ES = "No se pudo confirmar el envío; no se reintenta para no repetir el mensaje"
+SEND_NOT_TRIED_ES = "No se intentó el envío a este contacto"
+
 
 class Segment(BaseModel):
     """openapi.yaml ``ReactivationCampaignCreate.segment``; every filter is optional."""
@@ -77,7 +118,7 @@ class Segment(BaseModel):
 class ReactivationCampaignCreate(BaseModel):
     brief_id: UUID | None = None
     template_name: str
-    template_language: str = "es"
+    template_language: str = TEMPLATE_LANGUAGE
     segment: Segment | MISSING = MISSING
     ad_id: UUID | None = None
     scheduled_for: datetime | None = None
@@ -182,7 +223,21 @@ class CampaignStore(Protocol):
 
     async def add_decisions(self, campaign_id: UUID, decisions: Sequence[SendDecision]) -> None: ...
 
-    async def marketing_sent(self, seller_id: UUID, contact_id: UUID, at: datetime) -> None: ...
+    async def claim_send(
+        self, campaign_id: UUID, claim: SendDecision, *, at: datetime
+    ) -> ClaimOutcome:
+        """Records ``claim`` and stamps the contact's last marketing send as ``at``, atomically.
+
+        ``taken`` if a pass already claimed them in this campaign, ``capped`` if another campaign
+        reached them inside the 7-day window; either way nothing is written.
+        """
+        ...
+
+    async def release_send(
+        self, seller_id: UUID, contact_id: UUID, *, claimed_at: datetime, previous: datetime | None
+    ) -> None:
+        """Gives back a slot Meta proved unused: only if the stamp is still ``claimed_at``."""
+        ...
 
 
 @dataclass(frozen=True)
@@ -202,7 +257,9 @@ class CampaignDeps:
 @dataclass(frozen=True)
 class SendRun:
     campaign: ReactivationCampaign
-    next_at: datetime | None  # the earliest deferred contact: run again then
+    next_at: datetime | None  # the earliest deferred contact or the pause's end: run again then
+    paused: bool = False  # the pass stopped on a temporary failure; the job counts these
+    stopped: str | None = None  # why the campaign ended early: no customer data, safe to log
 
 
 class CampaignConflictError(Exception):
@@ -265,16 +322,21 @@ async def check_eligibility(
 
 
 async def schedule_send(
-    store: CampaignStore, seller_id: UUID, campaign_id: UUID, *, template_approved: bool
+    store: CampaignStore, seller_id: UUID, campaign_id: UUID, *, approved_template: str | None
 ) -> ReactivationCampaign:
-    """``POST …/send``: the preview becomes ``scheduled``; the caller queues the job."""
+    """``POST …/send``: the preview becomes ``scheduled``; the caller queues the job.
+
+    ``approved_template`` is the template Meta approved for the seller. Only that one can go out,
+    in the language its status is tracked in.
+    """
     row = await store.row(seller_id, campaign_id)
     if row is None:
         raise LookupError(f"no campaign {campaign_id} for this seller")
-    if not template_approved:
+    if (row.template_name, row.template_language) != (approved_template, TEMPLATE_LANGUAGE):
         raise CampaignConflictError(
             "TEMPLATE_NOT_APPROVED",
-            "the seller's marketing template is not approved in WhatsApp Manager yet",
+            f"{row.template_name}/{row.template_language} is not the seller's marketing template "
+            "approved in WhatsApp Manager",
         )
     if not await store.set_status(seller_id, campaign_id, "scheduled", expect="preview"):
         raise CampaignConflictError("CAMPAIGN_ALREADY_SENT", f"the campaign is {row.status}")
@@ -290,8 +352,12 @@ async def run_send(
     *,
     business_name: str,
     now: datetime,
+    pauses: int = 0,
 ) -> SendRun:
-    """One pass of the ``campaign_send`` job; ``next_at`` says when to run again."""
+    """One pass of the ``campaign_send`` job; ``next_at`` says when to run again.
+
+    ``pauses`` is how many passes in a row have stopped on a temporary failure.
+    """
     row = await deps.store.row(seller_id, campaign_id)
     campaign = await deps.store.get(seller_id, campaign_id)
     if row is None or campaign is None:
@@ -304,13 +370,36 @@ async def run_send(
     found = await deps.candidates(seller_id, row.segment, now=now, contact_ids=waiting)
     by_contact = {candidate.contact_id: candidate for candidate in found}
     next_at: datetime | None = None
+    unknown = 0
     for contact_id in waiting:
         candidate = by_contact.get(contact_id, Candidate(contact_id))
         state, ad = await _state(deps, seller_id, candidate, row.ad_id)
         at = deps.clock() if deps.clock is not None else now
-        decision = _for(evaluate(state, at), campaign_id)
+        decision = _for(_at_send(state, at), campaign_id)
         if decision.decision == "allowed" and ad is not None:
-            decision = await _send(deps, row, candidate, ad, state, decision, business_name, at)
+            sent = await _send(deps, row, candidate, ad, state, decision, business_name, at)
+            if sent is None:  # another pass took the contact, or its claim already says failed
+                continue
+            if isinstance(sent, _Refused):
+                refusal = sent.error
+                logger.warning("campaign %s: send refused: %s", campaign_id, refusal)
+                scope = refusal.scope if isinstance(refusal, ProviderError) else "recipient"
+                if scope == "recipient":
+                    unknown = 0
+                    continue  # already recorded: this contact failed, the next one may not
+                if isinstance(refusal, ProviderError) and refusal.retryable:
+                    return await _pause(
+                        deps, row, at, pauses, next_at, str(refusal), refusal.retry_after_s
+                    )
+                if scope == "account":
+                    return await _end_early(deps, row, at, str(refusal))
+                unknown += 1
+                if unknown >= UNKNOWN_IN_A_ROW:
+                    return await _pause(deps, row, at, pauses, next_at, str(refusal), None)
+                continue
+            decision = sent
+            if decision.decision == "sent":
+                unknown = 0
         if decision.decision == "deferred" and decision.next_allowed_at is not None:
             next_at = min(next_at or decision.next_allowed_at, decision.next_allowed_at)
         await deps.store.add_decisions(campaign_id, [decision])
@@ -319,6 +408,92 @@ async def run_send(
     done = await deps.store.get(seller_id, campaign_id)
     assert done is not None
     return SendRun(done, next_at)
+
+
+async def abandon_send(
+    store: CampaignStore,
+    compliance: ComplianceStore,
+    seller_id: UUID,
+    campaign_id: UUID,
+    *,
+    now: datetime,
+) -> ReactivationCampaign:
+    """Finishes a campaign that will send no more: nobody it still holds was tried.
+
+    A contact who would be blocked now says why; everyone else is ``failed``, the one word the
+    contract has for a contact the campaign did not reach, with a text that says so.
+    """
+    campaign = await store.get(seller_id, campaign_id)
+    if campaign is None:
+        raise LookupError(f"no campaign {campaign_id} for this seller")
+    if campaign.status not in ("scheduled", "sending"):
+        return campaign
+    rest = []
+    for waiting in campaign.decisions:
+        if waiting.decision not in ("allowed", "deferred"):
+            continue
+        contact = await compliance.contact(seller_id, waiting.contact_id)
+        # No ad is going out any more, so whether one matches does not matter.
+        now_it_says = evaluate(_contact_state(waiting.contact_id, contact, new_id()), now)
+        untried = waiting.model_copy(update={"evaluated_at": now, "next_allowed_at": None})
+        rest.append(
+            _for(
+                now_it_says
+                if now_it_says.decision == "blocked"
+                else _failed(untried, SEND_NOT_TRIED_ES),
+                campaign_id,
+            )
+        )
+    if rest:
+        await store.add_decisions(campaign_id, rest)
+    await store.set_status(seller_id, campaign_id, "sent", expect=campaign.status)
+    done = await store.get(seller_id, campaign_id)
+    assert done is not None
+    return done
+
+
+async def finish_stranded_campaigns(
+    sessions: async_sessionmaker[AsyncSession], now: datetime
+) -> int:
+    """The worker's sweep: a campaign whose job is out of attempts cannot stay unfinished."""
+    store = PostgresCampaigns(sessions)
+    compliance = PostgresCompliance(sessions, None)  # reads consent and opt-out, never a number
+    stranded = await store.stranded()
+    for seller_id, campaign_id in stranded:
+        logger.warning("campaign %s: its send job ended early; finishing it", campaign_id)
+        await abandon_send(store, compliance, seller_id, campaign_id, now=now)
+    return len(stranded)
+
+
+async def _pause(
+    deps: CampaignDeps,
+    row: CampaignRow,
+    at: datetime,
+    pauses: int,
+    next_at: datetime | None,
+    why: str,
+    retry_after_s: float | None,
+) -> SendRun:
+    """Stops the pass and says when to try again; past ``MAX_PAUSES`` the campaign ends."""
+    if pauses >= MAX_PAUSES:
+        return await _end_early(deps, row, at, why)
+    wait = max(FIRST_PAUSE * 2**pauses, timedelta(seconds=retry_after_s or 0))
+    resume = at + wait
+    campaign = await deps.store.get(row.seller_id, row.id)
+    assert campaign is not None
+    return SendRun(campaign, min(next_at or resume, resume), paused=True)
+
+
+async def _end_early(deps: CampaignDeps, row: CampaignRow, at: datetime, why: str) -> SendRun:
+    done = await abandon_send(deps.store, deps.compliance, row.seller_id, row.id, now=at)
+    return SendRun(done, None, stopped=why)
+
+
+@dataclass(frozen=True)
+class _Refused:
+    """The messenger raised; what it means for this contact is already recorded."""
+
+    error: ProviderError | ValueError
 
 
 async def _send(
@@ -330,31 +505,70 @@ async def _send(
     decision: SendDecision,
     business_name: str,
     now: datetime,
-) -> SendDecision:
+) -> SendDecision | _Refused | None:
+    """The contact's new decision; None when the recorded claim is already the last word."""
     number = await deps.compliance.phone(row.seller_id, candidate.contact_id)
     if deps.messenger is None or number is None:
-        return _failed(decision)
+        return _failed(decision, SEND_NOT_TRIED_ES)
     if deps.pace is not None:
         await deps.pace(number)
+        # The wait may have brought an opt-out, or taken the ad away.
+        state, ad_now = await _state(deps, row.seller_id, candidate, row.ad_id)
+        ad = ad_now if ad_now is not None else ad
     if deps.clock is not None:  # the wait may have run past the window
         now = deps.clock()
-        again = _for(evaluate(state, now), row.id)
-        if again.decision != "allowed":
-            return again
+    again = _for(_at_send(state, now), row.id)
+    if again.decision != "allowed":
+        return again
     components, text = render_template(
         business_name, candidate.product_name, candidate.objection_tag, ad.code
     )
-    result = await deps.messenger.send(
-        OutboundTemplate(
-            to=number,
-            template_name=row.template_name,
-            language=row.template_language,
-            components=components,
+    claim = _for(_failed(decision, SEND_UNCONFIRMED_ES), row.id)
+    outcome = await deps.store.claim_send(row.id, claim, at=now)
+    if outcome == "taken":
+        return None
+    if outcome == "capped":
+        return decision.model_copy(
+            update={
+                "decision": "blocked",
+                "reason": "FREQUENCY_CAP",
+                "reason_text_es": REASON_TEXT_ES["FREQUENCY_CAP"],
+            }
         )
-    )
+
+    async def nothing_went_out() -> None:
+        await deps.store.release_send(
+            row.seller_id,
+            candidate.contact_id,
+            claimed_at=now,
+            previous=state.last_marketing_sent_at,
+        )
+
+    try:
+        result = await deps.messenger.send(
+            OutboundTemplate(
+                to=number,
+                template_name=row.template_name,
+                language=row.template_language,
+                components=components,
+            )
+        )
+    except (ProviderError, ValueError) as error:  # ValueError: a stored number it cannot use
+        # Anything else may have gone out: the claim stands, and so does the stamp.
+        if not isinstance(error, ProviderError) or error.nothing_sent:
+            await nothing_went_out()
+            waits = (
+                isinstance(error, ProviderError) and error.retryable and error.scope != "recipient"
+            )
+            why = REASON_TEXT_ES["SEND_FAILED"]
+            if not isinstance(error, ProviderError):  # WhatsApp was never asked
+                why = SEND_NOT_TRIED_ES
+            next_row = decision if waits else _for(_failed(decision, why), row.id)
+            await deps.store.add_decisions(row.id, [next_row])
+        return _Refused(error)
     if result.status == "failed":
+        await nothing_went_out()
         return _failed(decision)
-    await deps.store.marketing_sent(row.seller_id, candidate.contact_id, now)
     message_id = None
     if deps.outbox is not None:
         message_id = await deps.outbox(
@@ -363,13 +577,17 @@ async def _send(
     return decision.model_copy(update={"decision": "sent", "message_id": message_id})
 
 
-def _failed(decision: SendDecision) -> SendDecision:
+def _at_send(state: ContactState, at: datetime) -> SendDecision:
+    """``evaluate`` for a send about to start: inside ``CLOSING_MARGIN``, the next window."""
+    decision = evaluate(state, at)
+    if decision.decision == "allowed" and not is_legal(at + CLOSING_MARGIN):
+        return evaluate(state, at + CLOSING_MARGIN).model_copy(update={"evaluated_at": at})
+    return decision
+
+
+def _failed(decision: SendDecision, text: str = REASON_TEXT_ES["SEND_FAILED"]) -> SendDecision:
     return decision.model_copy(
-        update={
-            "decision": "failed",
-            "reason": "SEND_FAILED",
-            "reason_text_es": REASON_TEXT_ES["SEND_FAILED"],
-        }
+        update={"decision": "failed", "reason": "SEND_FAILED", "reason_text_es": text}
     )
 
 
@@ -380,15 +598,20 @@ async def _state(
     ad = None
     if candidate.product_id is not None:
         ad = await deps.ads(seller_id, candidate.product_id, ad_id=ad_id)
-    state = ContactState(
-        contact_id=candidate.contact_id,
+    return _contact_state(candidate.contact_id, contact, ad.ad_id if ad else None), ad
+
+
+def _contact_state(
+    contact_id: UUID, contact: Contact | None, matching_ad_id: UUID | None
+) -> ContactState:
+    return ContactState(
+        contact_id=contact_id,
         # An unknown contact is never written to; erasure also opts the contact out.
         opted_out=contact is None or contact.opted_out_at is not None,
         marketing_consent=contact is not None and contact.marketing_consent == "granted",
         last_marketing_sent_at=contact.last_marketing_sent_at if contact else None,
-        matching_ad_id=ad.ad_id if ad else None,
+        matching_ad_id=matching_ad_id,
     )
-    return state, ad
 
 
 def _for(decision: SendDecision, campaign_id: UUID) -> SendDecision:
@@ -473,8 +696,28 @@ class InMemoryCampaigns:
     async def add_decisions(self, campaign_id: UUID, decisions: Sequence[SendDecision]) -> None:
         self.decisions[campaign_id].extend(decisions)
 
-    async def marketing_sent(self, seller_id: UUID, contact_id: UUID, at: datetime) -> None:
-        self.compliance._row(seller_id, contact_id).last_marketing_sent_at = at
+    async def claim_send(
+        self, campaign_id: UUID, claim: SendDecision, *, at: datetime
+    ) -> ClaimOutcome:
+        latest = _latest(
+            [d for d in self.decisions[campaign_id] if d.contact_id == claim.contact_id]
+        )
+        if latest and latest[0].decision not in ("allowed", "deferred"):
+            return "taken"
+        contact = self.compliance._row(self.rows[campaign_id].seller_id, claim.contact_id)
+        last = contact.last_marketing_sent_at
+        if last is not None and at - last < FREQUENCY_WINDOW:
+            return "capped"
+        contact.last_marketing_sent_at = at
+        self.decisions[campaign_id].append(claim)
+        return "claimed"
+
+    async def release_send(
+        self, seller_id: UUID, contact_id: UUID, *, claimed_at: datetime, previous: datetime | None
+    ) -> None:
+        contact = self.compliance._row(seller_id, contact_id)
+        if contact.last_marketing_sent_at == claimed_at:
+            contact.last_marketing_sent_at = previous
 
 
 class PostgresCampaigns:
@@ -570,13 +813,82 @@ class PostgresCampaigns:
             ).scalar_one()
             await self._insert(session, seller_id, decisions)
 
-    async def marketing_sent(self, seller_id: UUID, contact_id: UUID, at: datetime) -> None:
+    async def claim_send(
+        self, campaign_id: UUID, claim: SendDecision, *, at: datetime
+    ) -> ClaimOutcome:
+        async with self.sessions() as session, session.begin():
+            # The campaign's row lock makes reading the latest decision and adding one atomic.
+            seller_id = (
+                await session.execute(
+                    sa.select(reactivation_campaigns.c.seller_id)
+                    .where(reactivation_campaigns.c.id == campaign_id)
+                    .with_for_update()
+                )
+            ).scalar_one()
+            latest = await session.scalar(
+                sa.select(send_decisions.c.decision)
+                .where(
+                    send_decisions.c.campaign_id == campaign_id,
+                    send_decisions.c.contact_id == claim.contact_id,
+                )
+                .order_by(send_decisions.c.created_at.desc(), send_decisions.c.evaluated_at.desc())
+                .limit(1)
+            )
+            if latest is not None and latest not in ("allowed", "deferred"):
+                return "taken"
+            # One statement, so two campaigns reaching one contact cannot both pass the cap.
+            stamped = await session.execute(
+                sa.update(contacts)
+                .where(
+                    contacts.c.seller_id == seller_id,
+                    contacts.c.id == claim.contact_id,
+                    sa.or_(
+                        contacts.c.last_marketing_sent_at.is_(None),
+                        contacts.c.last_marketing_sent_at <= at - FREQUENCY_WINDOW,
+                    ),
+                )
+                .values(last_marketing_sent_at=at)
+                .returning(contacts.c.id)
+            )
+            if stamped.first() is None:
+                return "capped"
+            await self._insert(session, seller_id, [claim])
+            return "claimed"
+
+    async def release_send(
+        self, seller_id: UUID, contact_id: UUID, *, claimed_at: datetime, previous: datetime | None
+    ) -> None:
         async with self.sessions() as session, session.begin():
             await session.execute(
                 sa.update(contacts)
-                .where(contacts.c.seller_id == seller_id, contacts.c.id == contact_id)
-                .values(last_marketing_sent_at=at)
+                .where(
+                    contacts.c.seller_id == seller_id,
+                    contacts.c.id == contact_id,
+                    contacts.c.last_marketing_sent_at == claimed_at,
+                )
+                .values(last_marketing_sent_at=previous)
             )
+
+    async def stranded(self) -> list[tuple[UUID, UUID]]:
+        """``(seller, campaign)`` not finished though all its send jobs have ended.
+
+        A campaign with no job at all is left alone: ``POST …/send`` queues the job just after
+        scheduling, so it may be a moment away.
+        """
+        its_job = sa.and_(
+            jobs.c.kind == "campaign_send",
+            jobs.c.payload["campaign_id"].astext == sa.cast(reactivation_campaigns.c.id, sa.Text),
+        )
+        statement = sa.select(
+            reactivation_campaigns.c.seller_id, reactivation_campaigns.c.id
+        ).where(
+            reactivation_campaigns.c.status.in_(("scheduled", "sending")),
+            sa.exists().where(its_job),
+            ~sa.exists().where(its_job, jobs.c.status.in_(("queued", "running"))),
+        )
+        async with self.sessions() as session:
+            found = (await session.execute(statement)).all()
+        return [(row.seller_id, row.id) for row in found]
 
     async def _insert(
         self, session: AsyncSession, seller_id: UUID, decisions: Sequence[SendDecision]

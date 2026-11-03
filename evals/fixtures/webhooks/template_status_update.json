@@ -10,7 +10,9 @@
             "event": "APPROVED",
             "message_template_id": 1000000000000201,
             "message_template_name": "vitrina_reactivacion",
-            "message_template_language": "es"
+            "message_template_language": "es",
+            "reason": "NONE",
+            "message_template_category": "MARKETING"
           },
           "field": "message_template_status_update"
         }

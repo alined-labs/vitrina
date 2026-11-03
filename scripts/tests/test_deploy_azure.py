@@ -635,6 +635,20 @@ def test_optional_values_may_be_left_out(tmp_path: Path) -> None:
     assert "missing" not in result.stderr
 
 
+def test_fr_064_the_template_account_settings_reach_the_apps(tmp_path: Path) -> None:
+    values = {name: f"fake-{name.lower()}-value" for name in secret_map()} | PLAIN
+    values |= {
+        "WHATSAPP_BUSINESS_ACCOUNT_ID": "100000000000002",
+        "WHATSAPP_BUSINESS_NUMBER": "+573000000000",
+    }
+
+    result = deploy(tmp_path, values)
+
+    assert result.returncode == 0, result.stderr
+    assert "WHATSAPP_BUSINESS_ACCOUNT_ID=100000000000002" in result.stdout
+    assert "WHATSAPP_BUSINESS_NUMBER=+573000000000" in result.stdout
+
+
 def test_without_its_config_the_script_says_what_is_missing(tmp_path: Path) -> None:
     result = subprocess.run(
         ["bash", str(SCRIPT), str(tmp_path / "azure.env")],
