@@ -9,18 +9,26 @@ discount, a draft product's price), sometimes as plain digits after a price word
 reply twice, so a stopped reply ends in the fallback after the guided retry. The cases come
 from a fixed seed, so every run is the same set; no model is called.
 
+``evals/fixtures/price_attacks.yaml`` adds a list written by hand, apart from the generated
+cases: forms an invented price or deal can take, and honest replies that look like them. Each
+goes straight to the validators as the engine sends it, on the first answer and on the retry.
+
 ``invented_price_rate`` is the share of slipped-in amounts that reached the customer and must
-be 0.0 (AS-7.2); ``groundedness_rate`` is the share of honest replies that got through.
+be 0.0 (AS-7.2); ``groundedness_rate`` is the share of honest replies that got through. A run
+fails on any invented amount that reaches the customer and any honest reply that is stopped.
 """
 
 import random
 from collections.abc import Sequence
 from dataclasses import dataclass
+from pathlib import Path
 from uuid import UUID, uuid5
+
+import yaml
 
 from vitrina_conversation import api as conversation
 from vitrina_conversation.testing import ScriptedChat, final_answer
-from vitrina_evals.cases import Scene, build_scene, fixture_id, load_business
+from vitrina_evals.cases import FIXTURES, Scene, build_scene, fixture_id, load_business
 from vitrina_evals.runner import SuiteResult
 from vitrina_evals.schemas import EvalMetrics
 from vitrina_evals.scoring import CaseScore
@@ -29,6 +37,7 @@ BUSINESS = "mochilas_ana"
 SEED = 2026_10_28
 CASES = 120
 NAMESPACE = UUID("0192f330-5b7e-7c3d-9a41-6e2f8b0c1d77")
+ATTACKS = FIXTURES / "price_attacks.yaml"
 
 _UNITS = ["", "un", "dos", "tres", "cuatro", "cinco", "seis", "siete", "ocho", "nueve"]
 _TEENS = [
@@ -179,9 +188,88 @@ async def _verdict(case: PriceCase, scene: Scene) -> CaseScore:
     )
 
 
-async def run_price_validator(cases: Sequence[PriceCase] | None = None) -> SuiteResult:
+@dataclass(frozen=True)
+class AttackCase:
+    """One hand-written reply: ``rejected`` if the validators must stop it."""
+
+    case_id: str
+    reply: str
+    cites: tuple[str, ...]
+    rejected: bool
+    message: str | None = None
+
+
+def load_attack_cases(path: Path = ATTACKS) -> list[AttackCase]:
+    return [
+        AttackCase(
+            case_id=case["id"],
+            reply=case["reply"],
+            cites=tuple(case["cites"]),
+            rejected=case["rejected"],
+            message=case.get("message"),
+        )
+        for case in yaml.safe_load(path.read_text(encoding="utf-8"))
+    ]
+
+
+async def _attack_verdict(case: AttackCase, scene: Scene) -> CaseScore:
+    """Both reviews of the engine's retry: a rejected reply is retried, then falls back."""
+    cited = [scene.ids[key] for key in case.cites]
+    citations = await scene.catalog.citations(scene.seller.seller_id, cited)
+    output = conversation.AgentTurnOutput(
+        reply=case.reply,
+        cited_fact_ids=tuple(cited),
+        confidence=0.9,
+        handoff_reason=None,
+        objection_tag=None,
+        proposed_consent_prompt=False,
+    )
+    first, second = (
+        conversation.review(
+            output,
+            citations,
+            owner_name=scene.seller.owner_name,
+            business_name=scene.seller.business_name,
+            customer_message=case.message,
+            consent_prompt=scene.seller.consent_prompt_text,
+            cited_texts=[scene.texts[item] for item in cited],
+            low_confidence_threshold=scene.seller.low_confidence_threshold,
+            retried=retried,
+        )
+        for retried in (False, True)
+    )
+    stopped = (first.outcome, second.outcome, second.handoff_reason) == (
+        "retry",
+        "fallback",
+        "price_unverified",
+    )
+    delivered = first.final_reply == case.reply and second.final_reply == case.reply
+    passed = stopped if case.rejected else delivered
+    if passed:
+        notes = "ok"
+    else:
+        notes = "an invented claim got through" if case.rejected else "an honest reply was stopped"
+    return CaseScore(
+        case_id=case.case_id,
+        passed=passed,
+        notes=notes,
+        expected={"rejected": case.rejected},
+        actual={"reply": case.reply, "outcomes": [first.outcome, second.outcome]},
+        grounded=None if case.rejected else delivered,
+        invented_amounts=(0,) if case.rejected and not stopped else (),
+    )
+
+
+async def run_price_validator(
+    cases: Sequence[PriceCase] | None = None, *, attacks: Sequence[AttackCase] | None = None
+) -> SuiteResult:
+    """The generated cases and the hand-written list; given ``cases`` alone, only those."""
     scene = await build_scene(load_business(BUSINESS))
-    scores = [await _verdict(case, scene) for case in cases or price_cases(scene)]
+    if attacks is None:
+        attacks = load_attack_cases() if cases is None else ()
+    generated = price_cases(scene) if cases is None else cases
+    scores = [await _verdict(case, scene) for case in generated]
+    scores += [await _attack_verdict(case, scene) for case in attacks]
     honest = [score for score in scores if score.grounded is not None]
     traps = [score for score in scores if score.grounded is None]
     reached = sum(bool(score.invented_amounts) for score in traps)
@@ -191,6 +279,12 @@ async def run_price_validator(cases: Sequence[PriceCase] | None = None) -> Suite
             round(sum(bool(score.grounded) for score in honest) / len(honest), 4) if honest else 0.0
         ),
     )
-    if reached:
-        return SuiteResult("failed", metrics, scores, f"{reached} invented amounts got through")
+    stopped = sum(not score.grounded for score in honest)
+    if reached or stopped:
+        return SuiteResult(
+            "failed",
+            metrics,
+            scores,
+            f"{reached} invented amounts got through; {stopped} honest replies were stopped",
+        )
     return SuiteResult("passed", metrics, scores)

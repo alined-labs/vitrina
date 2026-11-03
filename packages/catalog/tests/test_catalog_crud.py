@@ -45,6 +45,42 @@ async def test_as_1_2_a_new_product_is_active_and_its_amounts_are_extracted(
     assert [result.id for result in await catalog.search(SELLER, "bolso rojo")] == [product.id]
 
 
+async def test_r2_a_bare_number_in_an_attribute_is_no_amount(catalog: InMemoryCatalog) -> None:
+    product = await catalog.create_product(
+        SELLER,
+        ProductCreate(
+            name="Cartera",
+            price_cop=60000,
+            attributes={"sku": "45000", "estuche": "$5.000"},
+        ),
+    )
+
+    [citation] = await catalog.citations(SELLER, [product.id])
+
+    assert citation.amounts_cop == (5000, 60000)
+
+
+async def test_r2_a_citation_says_what_it_names_and_what_it_states(
+    catalog: InMemoryCatalog,
+) -> None:
+    product = await catalog.create_product(
+        SELLER,
+        ProductCreate(
+            name="Bolso tejido",
+            description="Con 30 % de descuento",
+            price_cop=85000,
+            attributes={"color": "rojo"},
+        ),
+    )
+    fact = catalog.add_fact(SELLER, "faq", "Cuotas con tarjeta.")
+
+    bag, faq = await catalog.citations(SELLER, [product.id, fact])
+
+    assert (bag.name, bag.text) == ("Bolso tejido", "Bolso tejido Con 30 % de descuento rojo")
+    assert bag.attributes == ("rojo",)
+    assert (faq.name, faq.text) == ("", "Cuotas con tarjeta.")
+
+
 async def test_fr_003_draft_products_stay_out_of_retrieval_until_approved(
     catalog: InMemoryCatalog,
 ) -> None:

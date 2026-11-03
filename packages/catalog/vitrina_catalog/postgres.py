@@ -41,7 +41,13 @@ from vitrina_catalog.schemas import (
     ProductUpdate,
 )
 from vitrina_catalog.tables import facts, products, reservations
-from vitrina_catalog.text import describe_product, named_kinds, product_amounts, tokens
+from vitrina_catalog.text import (
+    citable_text,
+    describe_product,
+    named_kinds,
+    product_amounts,
+    tokens,
+)
 from vitrina_core.http import keyset_page, next_cursor
 from vitrina_core.ids import new_id
 from vitrina_core.money import amounts_cop
@@ -571,7 +577,13 @@ class PostgresCatalog:
         async with self.sessions() as session:
             product_rows = (
                 await session.execute(
-                    sa.select(products.c.id, products.c.amounts_cop).where(
+                    sa.select(
+                        products.c.id,
+                        products.c.amounts_cop,
+                        products.c.name,
+                        products.c.description,
+                        products.c.attributes,
+                    ).where(
                         products.c.id.in_(wanted),
                         products.c.seller_id == seller_id,
                         products.c.status == "active",
@@ -580,7 +592,7 @@ class PostgresCatalog:
             ).all()
             fact_rows = (
                 await session.execute(
-                    sa.select(facts.c.id, facts.c.kind, facts.c.amounts_cop).where(
+                    sa.select(facts.c.id, facts.c.kind, facts.c.amounts_cop, facts.c.text).where(
                         facts.c.id.in_(wanted),
                         facts.c.seller_id == seller_id,
                         facts.c.status == "active",
@@ -588,13 +600,23 @@ class PostgresCatalog:
                 )
             ).all()
         found: dict[UUID, Citation] = {
-            row.id: Citation(id=row.id, kind="product", amounts_cop=tuple(sorted(row.amounts_cop)))
+            row.id: Citation(
+                id=row.id,
+                kind="product",
+                amounts_cop=tuple(sorted(row.amounts_cop)),
+                name=row.name,
+                attributes=tuple((row.attributes or {}).values()),
+                text=citable_text(row.name, row.description, row.attributes),
+            )
             for row in product_rows
         }
         found.update(
             {
                 row.id: Citation(
-                    id=row.id, kind=row.kind, amounts_cop=tuple(sorted(row.amounts_cop))
+                    id=row.id,
+                    kind=row.kind,
+                    amounts_cop=tuple(sorted(row.amounts_cop)),
+                    text=row.text,
                 )
                 for row in fact_rows
             }

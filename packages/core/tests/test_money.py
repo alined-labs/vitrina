@@ -2,7 +2,7 @@ import pytest
 from hypothesis import given
 from hypothesis import strategies as st
 
-from vitrina_core.money import amounts_cop, format_cop
+from vitrina_core.money import amounts_cop, format_cop, marked_amounts
 
 UNITS = ["", "uno", "dos", "tres", "cuatro", "cinco", "seis", "siete", "ocho", "nueve"]
 TEENS = [
@@ -233,6 +233,198 @@ def test_fr_026_colombian_ways_of_writing_a_price_are_read_whole(
 )
 def test_fr_026_numbers_that_are_not_money_are_ignored(text: str) -> None:
     assert amounts_cop(text) == []
+
+
+@pytest.mark.parametrize(
+    ("text", "expected"),
+    [
+        # A plain number from 1.000 up is money, with or without a word that says so
+        ("La mochila te la vendo a 45000.", [45000]),
+        ("Mochila: 45000", [45000]),
+        ("Mochila 45000 azul", [45000]),
+        ("Mochila 45000 gracias", [45000]),
+        ("Mochila-45000", [45000]),
+        ("COP85000", [85000]),
+        ("Vale45000", [45000]),
+        ("Tu pedido vale 45000", [45000]),
+        ("El total de tu pedido es 45000", [45000]),
+        ("Tu pedido te sale 45000", [45000]),
+        ("Pedido a 45000", [45000]),
+        ("Con 45000 llevas la mochila", [45000]),
+        ("45000 pagas y es tuya", [45000]),
+        ("La mochila 45000 ambas", [45000]),
+        ("Mochila 45000 apenas", [45000]),
+        ("Mochila a 45000 nomás", [45000]),
+        ("En45000 te la dejo", [45000]),
+        ("20 dolarcitos", [20]),
+        ("45 luquitas", [45000]),
+        ("Vale 45000 unidad.", [45000]),
+        ("A 45000 unidad.", [45000]),
+        ("Cuesta 45000 par", [45000]),
+        ("Te queda en 70m.", [70]),
+        ("$85.000.00", [85000]),
+        ("Mochila 45.000.00", [45000]),
+        ("\U0001f4b04\ufe0f\u20e35\ufe0f\u20e3.0\ufe0f\u20e30\ufe0f\u20e30\ufe0f\u20e3", [45000]),
+        ("Te queda en solo 85", [85]),
+        ("Hoy 1500", [1500]),
+        ("Combo 2:45000", [45000]),
+        # A short number after a selling word, as a price word does
+        ("Te la vendo a 45", [45]),
+        ("Te la doy en cuarenta y cinco", [45]),
+        # A colon or a slash between numbers is not always a time or a date
+        ("Talla 38: 85 mil, combo 2: 45.000", [85000, 45000]),
+        ("Talla 38: 45000", [45000]),
+        ("$85.000/unidad", [85000]),
+        # Other currencies, before or after the number, in digits or in words
+        ("La mochila vale USD 20.", [20]),
+        ("US$ 20", [20]),
+        ("EUR 20", [20]),
+        ("€20", [20]),
+        ("20€", [20]),
+        ("20$", [20]),
+        ("Talla 38 $85.000", [85000]),
+        ("Llevo 2 $85.000", [85000]),
+        ("20 dólares", [20]),
+        ("Son veinte dólares", [20]),
+        ("veinte euros", [20]),
+        # A year-like number where a price goes
+        ("Mochila: 2000", [2000]),
+        ("Empanadas a 2000", [2000]),
+        ("Vale 2000", [2000]),
+        # A decimal with a multiplier keeps its exact value
+        ("4.1 millones", [4100000]),
+        ("4,1 millones", [4100000]),
+        ("1.1 millones", [1100000]),
+        ("2,3 mil", [2300]),
+        ("$12.000,75", [12000]),
+    ],
+)
+def test_as_3_4_a_plain_number_from_a_thousand_up_counts_as_money(
+    text: str, expected: list[int]
+) -> None:
+    assert amounts_cop(text) == expected
+
+
+@pytest.mark.parametrize(
+    "text",
+    [
+        # Phone numbers (synthetic), however they are grouped
+        "Escríbenos al 3000000101",
+        "Escríbenos al +573000000101",
+        "Escríbenos al +57 300 000 0101",
+        "Llama al 300 000 0101",
+        "Llama al 300-000-0101",
+        "Llama al 300 000 01 01",
+        "Línea 601 000 0101",
+        "Tel: 6040101",
+        "Línea gratuita 018000 000101",
+        # Addresses
+        "Calle 100 # 15-20",
+        "Carrera 7 # 45-1020",
+        "Estamos en el local 1204",
+        "Apto 1502, torre 2",
+        "Oficina: 1001",
+        "Of. 1001",
+        "Avenida 1500 con 30",
+        # Hours and dates
+        "Abrimos 8:00 a 18:00",
+        "De 9:00 a. m. a 6:00 p. m.",
+        "Llega el 27/10/2026",
+        "Hasta 12/2026",
+        # Years
+        "Desde 2015 tejemos mochilas",
+        "Colección 2026",
+        "De 2019 a 2024",
+        "Fundada en 1998",
+        # Units and quantities
+        "Batería de 5000 mAh",
+        "Bolso de 1500 gramos",
+        "Termo de 1200 ml",
+        "Hilo de 2000 metros",
+        "Monitor 1080p",
+        "Motor de 1500 W",
+        "Tenemos 1000 unidades",
+        "Tenemos 1.000 unidades",
+        "Necesito 1000 mochilas",
+        "Más de 2000 clientes",
+        "Sábanas de 1000 hilos",
+        # Codes, orders and links: the clause says what the number is
+        "Tu código de reserva es 58213",
+        "Tu reserva quedó con código 58213",
+        "Reserva 58213",
+        "Pedido No. 58213",
+        "Tu pedido N° 58213 va en camino",
+        "El número de guía es 7045123",
+        "Tu guía de envío es 7045123",
+        "Tu orden es la 5821",
+        "El código es 1234",
+        "Código postal 110111",
+        "CP 050021",
+        "Consigna a la cuenta de ahorros Bancolombia 123-456789-01",
+        "Pedidos por wa.me/573000000101",
+        "Aquí está el link: https://tienda.co/p/45000",
+        "Nuestro número es (604) 444 1234",
+        "Llámanos al 4441234",
+        "Llámanos al 444 1234",
+        "Llama al 01 8000 123456",
+        "Torre 1203, Bloque 1500",
+        "Casa 1205, Manzana 1010",
+        "Año: 2025",
+        "Colección: 2026",
+        "Tengo 1200 en bodega",
+        "Envío en 24h",
+        "Domicilio en 30 min",
+        "Domicilio a 5 cuadras",
+        "Son 3000 BTU",
+        "Referencia 2310",
+        "Ref: 2310",
+        "Tu pedido #1234 va en camino",
+        "Tu pedido 12345 va en camino",
+        "Tu código es ABC1234",
+        "Reloj XR2000",
+        # Stock is no price, even after a word that can introduce one
+        "Quedan solo 3",
+        "Te quedan apenas 2",
+        "Guía 123456",
+        "NIT 900000101",
+    ],
+)
+def test_as_3_4_numbers_that_clearly_are_not_money_stay_out(text: str) -> None:
+    assert amounts_cop(text) == []
+
+
+@pytest.mark.parametrize(
+    "text",
+    [
+        "Mi pedido es el 58213, ¿ya salió?",
+        "Vivo en el apto 1203 del bloque 1500",
+        "Mi código postal es 110111",
+        "Soy 1036123456",
+        "Necesito 1200 para mi empresa",
+        "¿Llegan a la 45 # 12-1030?",
+        "45000",
+        "Tengo 2000 en la mano",
+    ],
+)
+def test_as_3_4_a_number_a_customer_wrote_is_no_offer_without_a_mark(text: str) -> None:
+    assert marked_amounts(text) == []
+
+
+@pytest.mark.parametrize(
+    ("text", "expected"),
+    [
+        ("¿Me la deja en 60 mil?", [60000]),
+        ("¿Me la deja en 60000?", [60000]),
+        ("Le doy 60000", [60000]),
+        ("Se la compro por 60000", [60000]),
+        ("$60000", [60000]),
+        ("60.000", [60000]),
+        ("60000 pesos", [60000]),
+        ("El precio de la camisa es 60000", [60000]),
+    ],
+)
+def test_as_3_4_a_price_a_customer_marks_or_cues_is_read(text: str, expected: list[int]) -> None:
+    assert marked_amounts(text) == expected
 
 
 @given(st.integers(min_value=1000, max_value=50_000_000))

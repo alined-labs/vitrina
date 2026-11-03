@@ -120,6 +120,21 @@ def trap(*messages: str, **expected: object) -> ConversationCase:
     )
 
 
+def test_as_7_2_a_deal_no_cited_item_states_is_invented(scene: Scene) -> None:
+    bag = scene.ids["mochila-azul"]
+
+    invented = score_case(
+        case(), scene, TurnOutcome(reply="Te hago 30 % de descuento.", cited_ids=(bag,))
+    )
+    honest = score_case(
+        case(), scene, TurnOutcome(reply="No hacemos descuentos, vale $85.000.", cited_ids=(bag,))
+    )
+
+    assert invented.invented_replies == 1
+    assert "30 %" in invented.notes
+    assert honest.invented_replies == 0
+
+
 def test_as_7_2_a_yes_to_the_customers_own_price_is_invented(scene: Scene) -> None:
     azul, manilla = scene.ids["mochila-azul"], scene.ids["manilla"]
     haggle = trap("¿Me deja la mochila azul en 60 mil?", forbidden_amounts=[60000])

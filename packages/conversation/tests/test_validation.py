@@ -4,6 +4,7 @@ The amounts come from ``vitrina_core.money``, the same normalizer that filled th
 ``amounts_cop``, so a reply is judged with the exact rules its citations were stored with.
 """
 
+from typing import Any
 from uuid import UUID, uuid4
 
 import pytest
@@ -701,3 +702,286 @@ def test_r3_a_request_that_states_a_fact_is_still_a_claim(reply: str) -> None:
     result = review(answer(reply, confidence=0.9), [], owner_name=OWNER)
 
     assert (result.outcome, result.final_reply) == ("fallback", FALLBACK)
+
+
+# Fail closed: the price check reads every form a price or a deal can take (AS-3.4).
+NAMED_BAG = Citation(
+    id=uuid4(),
+    kind="product",
+    amounts_cop=(85000,),
+    name="Mochila tejida azul",
+    attributes=("azul", "hilo"),
+    text="Mochila tejida azul. Tejida a mano, 30 cm de alto, con correa ajustable.",
+)
+NAMED_BRACELET = Citation(
+    id=uuid4(), kind="product", amounts_cop=(15000,), name="Manilla tejida", text="Manilla tejida."
+)
+NAMED_STRAP = Citation(
+    id=uuid4(), kind="product", amounts_cop=(30000,), name="Correa de cuero", text="Correa."
+)
+NAMED_SHIRT = Citation(
+    id=uuid4(),
+    kind="product",
+    amounts_cop=(45000,),
+    name="Camiseta básica",
+    attributes=("negra",),
+    text="Camiseta básica en algodón.",
+)
+NAMED_SHIPPING = Citation(
+    id=uuid4(),
+    kind="shipping",
+    amounts_cop=(8000,),
+    text="Envío dentro de Medellín: $8.000, llega en 1 día hábil.",
+)
+
+
+def _rejected(reply: str, *citations: Citation, **kwargs: Any) -> bool:
+    output = answer(reply, *(citation.id for citation in citations))
+    first = review(output, citations, owner_name="Ana", **kwargs)
+    second = review(output, citations, owner_name="Ana", retried=True, **kwargs)
+    if first.outcome == "retry":
+        assert (second.outcome, second.handoff_reason) == ("fallback", "price_unverified")
+        return True
+    assert first.outcome == second.outcome == "accept", (first.outcome, second.outcome)
+    return False
+
+
+@pytest.mark.parametrize(
+    "reply",
+    [
+        "La mochila te la vendo a 45000.",
+        "Mochila: 45000",
+        "Talla 38: 85 mil, combo 2: 45.000",
+        "La mochila vale USD 20.",
+        "Te hago 30 % de descuento",
+        "La mochila vale 45000",
+        "La mochila vale 45 mil",
+        "Te la dejo en 3 cuotas sin interés",
+        "Tenemos 2x1 en mochilas",
+        "Te la dejo a mitad de precio",
+        "Tiene envío gratis",
+    ],
+)
+def test_as_3_4_invented_prices_and_offers_are_rejected(reply: str) -> None:
+    assert _rejected(reply, NAMED_BAG)
+    assert _rejected(reply, BAG)  # a citation without a name or a text says no less
+
+
+@pytest.mark.parametrize(
+    "reply",
+    [
+        "La mochila cuesta 85 mil.",
+        "La mochila cuesta $85.000.",
+        "La mochila cuesta 85.000 pesos.",
+        "Te la dejo en $85.000, talla única, quedan 3 unidades.",
+        "Mochila tejida azul: $85.000, 30 cm de alto.",
+        "Si llevas 2 son $85.000 cada una.",
+        "Escríbele a Ana al +57 300 000 0101. La mochila vale $85.000.",
+        "Estamos en la Calle 100 # 15-20, local 1204. Abrimos de 9:00 a. m. a 6:00 p. m.",
+        "Tejemos desde 2015. La mochila vale $85.000.",
+        "La mochila es 100 % hilo, ideal para regalar. Vale $85.000.",
+        "No manejamos cuotas ni descuentos. La mochila vale $85.000.",
+        "No tenemos 2x1, la mochila vale $85.000.",
+        "Te comunico con Ana para revisar lo del descuento.",
+    ],
+)
+def test_as_3_4_honest_replies_keep_passing(reply: str) -> None:
+    assert not _rejected(reply, NAMED_BAG)
+
+
+@pytest.mark.parametrize(
+    ("reply", "cited"),
+    [
+        # A price on the wrong product, in every way a chat writes it
+        ("La correa cuesta $85.000", (NAMED_BAG, NAMED_STRAP)),
+        ("La negra vale $85.000", (NAMED_BAG, NAMED_SHIRT)),
+        ("La manilla cuesta $85.000", (NAMED_BAG, NAMED_BRACELET)),
+        ("Manilla: 85 mil", (NAMED_BAG, NAMED_BRACELET)),
+        ("Correa: $85.000", (NAMED_BAG, NAMED_STRAP)),
+        ("Manilla $85.000, mochila $15.000", (NAMED_BAG, NAMED_BRACELET)),
+        ("La mochila azul vale $15.000 y la manilla $85.000", (NAMED_BAG, NAMED_BRACELET)),
+        # A shipping fee is no price for a product, and a product's price no shipping fee
+        ("La mochila vale $8.000", (NAMED_BAG, NAMED_SHIPPING)),
+        ("El envío cuesta $85.000", (NAMED_BAG, NAMED_SHIPPING)),
+    ],
+)
+def test_as_3_4_a_price_must_be_the_one_of_the_product_it_is_attached_to(
+    reply: str, cited: tuple[Citation, ...]
+) -> None:
+    assert _rejected(reply, *cited)
+
+
+@pytest.mark.parametrize(
+    ("reply", "cited"),
+    [
+        ("La mochila cuesta $85.000 y la manilla $15.000", (NAMED_BAG, NAMED_BRACELET)),
+        ("Manilla $15.000, mochila $85.000", (NAMED_BAG, NAMED_BRACELET)),
+        ("Las manillas valen $15.000", (NAMED_BAG, NAMED_BRACELET)),
+        ("La mochila azul y la manilla valen $85.000 y $15.000", (NAMED_BAG, NAMED_BRACELET)),
+        ("La tejida azul cuesta $85.000", (NAMED_BAG, NAMED_BRACELET)),
+        ("La mochila con correa de cuero vale $85.000", (NAMED_BAG, NAMED_STRAP)),
+        ("La mochila vale $85.000 y el envío $8.000", (NAMED_BAG, NAMED_SHIPPING)),
+        ("El envío dentro de Medellín cuesta $8.000", (NAMED_BAG, NAMED_SHIPPING)),
+        ("Vale $85.000 más $8.000 de envío", (NAMED_BAG, NAMED_SHIPPING)),
+        ("Es la mochila, vale ochenta y cinco mil pesos", (NAMED_BAG,)),
+        ("Cuesta $85.000", (NAMED_BAG, NAMED_BRACELET)),
+        ("Esa cuesta $85.000", (NAMED_BAG,)),
+        ("La que te gusta vale $85.000", (NAMED_BAG,)),
+        ("El precio es $85.000", (NAMED_BAG,)),
+        ("El total te queda en $85.000", (NAMED_BAG,)),
+        ("La unidad vale $85.000", (NAMED_BAG,)),
+        ("La de 30 cm cuesta $85.000", (NAMED_BAG,)),
+        # A word the citations do not know names nothing, so it cannot fail a cited price
+        ("Precio final: $85.000", (NAMED_BAG,)),
+        ("Total a pagar: $85.000", (NAMED_BAG,)),
+        ("Tu pedido: $85.000", (NAMED_BAG,)),
+        ("Perfecto: te queda en $85.000.", (NAMED_BAG,)),
+        ("La mochilita vale $85.000", (NAMED_BAG,)),
+        ("El morral cuesta $85.000.", (NAMED_BAG,)),
+        ("La última vale $85.000.", (NAMED_BAG,)),
+        ("La correa es ajustable y cuesta $85.000.", (NAMED_BAG,)),
+        ("La negra vale $45.000.", (NAMED_SHIRT,)),
+        ("Talla M: $45.000", (NAMED_SHIRT,)),
+        ("La entrega cuesta $8.000.", (NAMED_BAG, NAMED_SHIPPING)),
+        ("El transporte vale $8.000.", (NAMED_BAG, NAMED_SHIPPING)),
+        ("El almuerzo cuesta $85.000.", (NAMED_BAG,)),
+        # The known limit: a product no citation covers can carry a cited amount
+        ("La correa cuesta $85.000", (NAMED_BAG,)),
+        ("Precio: $85.000", (NAMED_BAG,)),
+        ("Talla 38: $85.000", (NAMED_BAG,)),
+        ("Envío: $8.000", (NAMED_BAG, NAMED_SHIPPING)),
+    ],
+)
+def test_as_3_4_a_price_on_its_own_product_or_on_nothing_named_passes(
+    reply: str, cited: tuple[Citation, ...]
+) -> None:
+    assert not _rejected(reply, *cited)
+
+
+def test_as_3_4_a_fact_may_state_a_special_price_for_a_product() -> None:
+    promo = Citation(
+        id=uuid4(), kind="faq", amounts_cop=(70000,), text="La mochila azul en promo a $70.000."
+    )
+
+    assert not _rejected("La mochila azul está en promo a $70.000", NAMED_BAG, promo)
+
+
+def test_as_3_4_an_offer_passes_only_when_a_cited_item_states_it() -> None:
+    stated = Citation(
+        id=uuid4(), kind="faq", amounts_cop=(), text="30 % de descuento en mochilas este mes."
+    )
+
+    assert not _rejected("Te hago 30 % de descuento", NAMED_BAG, stated)
+    assert not _rejected("Te hago 30 % de descuento", BAG, cited_texts=[stated.text])
+    assert _rejected("Te hago 20 % de descuento", NAMED_BAG, stated)
+
+
+def test_as_3_4_an_amount_a_cited_text_states_passes_even_if_it_was_stored_before() -> None:
+    """A row written with an older reading of its text has fewer amounts than the text states."""
+    stale = Citation(
+        id=uuid4(), kind="faq", amounts_cop=(), text="Envíos al por mayor desde 150000."
+    )
+
+    assert not _rejected("Al por mayor, desde 150000", NAMED_BAG, stale)
+
+
+def test_as_3_4_the_retry_note_says_what_was_wrong_in_spanish() -> None:
+    wrong_product = review(
+        answer("La manilla cuesta $85.000", NAMED_BAG.id, NAMED_BRACELET.id),
+        [NAMED_BAG, NAMED_BRACELET],
+        owner_name="Ana",
+    )
+    invented_offer = review(answer("Te hago 30 %", NAMED_BAG.id), [NAMED_BAG], owner_name="Ana")
+
+    assert wrong_product.price.misattributed == (85000,)
+    assert wrong_product.price.violations == (85000,)
+    assert "$85.000" in retry_instruction(wrong_product)
+    assert "ningún dato citado: $85.000" not in retry_instruction(wrong_product)
+    assert invented_offer.price.offers == ("30 %",)
+    assert "30 %" in retry_instruction(invented_offer)
+
+
+@pytest.mark.parametrize("name", ["Moda 24", "Tienda 1500", "24/7 Moda"])
+def test_as_3_4_a_number_in_the_shop_name_is_no_claim_and_no_price(name: str) -> None:
+    greeting = answer(f"¡Hola! Bienvenido a {name}. ¿En qué te ayudo?")
+
+    result = review(greeting, [], owner_name="Ana", business_name=name)
+
+    assert (result.outcome, result.final_reply) == ("accept", greeting.reply)
+
+
+def test_as_3_4_a_number_beside_the_shop_name_is_still_a_claim() -> None:
+    reply = answer("¡Hola! Bienvenido a Moda 24, llevamos 3 años.")
+
+    assert review(reply, [], owner_name="Ana", business_name="Moda 24").outcome == "fallback"
+
+
+def test_r5_a_handoff_reply_that_cites_nothing_may_not_promise_a_deal() -> None:
+    reply = answer("Te dejo envío gratis y te paso con Ana.", handoff_reason="customer_request")
+
+    assert review(reply, [], owner_name=OWNER).price.offers == ("envío gratis",)
+
+
+@pytest.mark.parametrize(
+    ("message", "reply"),
+    [
+        ("Mi pedido es el 58213, ¿ya salió?", "Sí, ya salió."),
+        ("Vivo en el apto 1203 del bloque 1500, ¿llegan hasta allá?", "Claro, sí llegamos."),
+        ("Mi código postal es 110111, ¿envían?", "Claro, enviamos."),
+        ("Soy 1036123456 ¿me separa una?", "¡Claro! Te la separo."),
+        ("Necesito 1200 para mi empresa, ¿se puede?", "Claro, te paso con Ana."),
+        ("¿Me la deja en 60 mil?", "Es un bolso hecho a mano."),
+    ],
+)
+def test_as_3_4_a_yes_to_a_customers_plain_number_agrees_to_no_price(
+    message: str, reply: str
+) -> None:
+    assert not _rejected(reply, NAMED_BAG, customer_message=message)
+
+
+@pytest.mark.parametrize(
+    ("message", "reply"),
+    [
+        ("¿Me la deja en 60 mil?", "De una, te la aparto."),
+        ("¿Me la deja en 60 mil?", "Hecho, te la aparto."),
+        ("¿Me hace 2x1?", "De una, te la aparto."),
+    ],
+)
+def test_as_3_4_de_una_and_hecho_agree(message: str, reply: str) -> None:
+    assert _rejected(reply, NAMED_BAG, customer_message=message)
+
+
+def test_as_3_4_a_negative_fact_supports_no_yes_to_the_customers_promotion() -> None:
+    refusal = Citation(id=uuid4(), kind="faq", amounts_cop=(), text="No hacemos 2x1.")
+
+    assert _rejected("¡Claro que sí!", NAMED_BAG, refusal, customer_message="¿Me hace 2x1?")
+
+
+@pytest.mark.parametrize(
+    "reply",
+    ["Eso no lo vendemos, pero tenemos envío gratis.", "No sé de eso, pero hoy hay descuento."],
+)
+def test_r3_an_off_topic_reply_carrying_a_deal_falls_back(reply: str) -> None:
+    output = AgentTurnOutput(
+        reply=reply,
+        cited_fact_ids=(),
+        confidence=0.9,
+        handoff_reason=None,
+        objection_tag="off_topic",
+        proposed_consent_prompt=False,
+    )
+
+    assert review(output, [], owner_name=OWNER).outcome == "fallback"
+
+
+def test_r3_an_off_topic_reply_without_a_deal_still_declines() -> None:
+    output = AgentTurnOutput(
+        reply="De eso no te puedo ayudar.",
+        cited_fact_ids=(),
+        confidence=0.9,
+        handoff_reason=None,
+        objection_tag="off_topic",
+        proposed_consent_prompt=False,
+    )
+
+    assert review(output, [], owner_name=OWNER).outcome == "accept"
