@@ -10,6 +10,8 @@ export const sections: readonly Section[] = [
   { slug: "anuncios", label: "Anuncios", summary: "Anuncios aprobados con su código y su enlace de WhatsApp.", story: "US-2" },
   // T045
   { slug: "conversaciones", label: "Conversaciones", summary: "Chats que atiende el agente y los que esperan tu respuesta.", story: "US-3" },
+  // judges and sellers play the customer: POST /agent/turns and POST /replay/sessions
+  { slug: "probar", label: "Probar como cliente", summary: "Escríbele al agente como cliente y mira cada regla que revisa.", story: "US-3" },
   // no dashboard task in tasks.md: built with the compliance and learning modules
   { slug: "contactos", label: "Contactos", summary: "Tus clientes y su autorización para recibir promociones.", story: "US-6" },
   // G6
