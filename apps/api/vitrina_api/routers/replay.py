@@ -7,6 +7,7 @@ recorded conversation through the normal pipeline with ``is_replay`` and the loc
 
 from fastapi import APIRouter, Request
 
+from vitrina_api.limits import return_quota, take_quota
 from vitrina_conversation.api import conversation_store
 from vitrina_conversation.replay import (
     LiveConversationError,
@@ -20,7 +21,7 @@ from vitrina_conversation.schemas import (
     ReplaySessionStarted,
 )
 from vitrina_core.auth import SellerId
-from vitrina_core.http import IdempotencyKey, ProblemCode, ProblemError
+from vitrina_core.http import IdempotencyKey, ProblemCode, ProblemError, problem_responses
 
 router = APIRouter(tags=["Replay"])
 
@@ -49,6 +50,7 @@ async def list_replay_fixtures(_seller: SellerId) -> list[ReplayFixtureView]:
     operation_id="startReplaySession",
     summary="Inject a recorded conversation through the live pipeline (no real sends)",
     response_description="Session started",
+    responses=problem_responses(429),
 )
 async def start_replay(
     request: Request, seller_id: SellerId, body: ReplaySessionCreate, _key: IdempotencyKey = None
@@ -62,6 +64,9 @@ async def start_replay(
             ProblemCode.PROVIDER_UNAVAILABLE,
             detail="replay sessions are jobs and need the database (DATABASE_URL)",
         )
+    live = not body.use_recorded_model_outputs  # recorded outputs cost nothing
+    if live:
+        await take_quota(request, seller_id, "paid_jobs")
     try:
         session = await start_replay_session(
             sessions=state.sessions,
@@ -73,6 +78,8 @@ async def start_replay(
             use_recorded_model_outputs=body.use_recorded_model_outputs,
         )
     except LiveConversationError as error:
+        if live:
+            await return_quota(request, seller_id, "paid_jobs")
         raise ProblemError(ProblemCode.CONFLICT, detail=str(error)) from error
     return ReplaySessionStarted(
         session_id=session.session_id,

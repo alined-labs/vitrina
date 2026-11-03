@@ -10,6 +10,7 @@ from uuid import UUID
 from fastapi import APIRouter, Depends, Request
 from pydantic import BaseModel, Field
 
+from vitrina_api.limits import take_quota
 from vitrina_compliance.api import ReactivationCampaignCreate, preview_campaign
 from vitrina_conversation.api import campaign_deps
 from vitrina_core.auth import SellerId
@@ -61,7 +62,7 @@ async def list_briefs(seller_id: SellerId, request: Request, page: Paging) -> Pa
     operation_id="generateBrief",
     summary="Ask Muse Wonder for the next creative brief from objections and attribution",
     response_description="Accepted; poll the job",
-    responses=problem_responses(422),
+    responses=problem_responses(422, 429),
 )
 async def generate_brief(
     request: Request, seller_id: SellerId, body: BriefGenerate, _key: IdempotencyKey = None
@@ -88,6 +89,7 @@ async def generate_brief(
                 f" al menos {body.min_conversations}"
             ),
         )
+    await take_quota(request, seller_id, "paid_jobs")
     async with sessions() as session, session.begin():
         job_id = await jobs.enqueue(
             session,
@@ -124,6 +126,7 @@ async def get_brief(seller_id: SellerId, request: Request, brief_id: UUID) -> Br
     operation_id="applyBrief",
     summary="Create creative jobs and a reactivation campaign preview from the brief",
     response_description="Created jobs and campaign preview",
+    responses=problem_responses(429),
 )
 async def apply(
     request: Request, seller_id: SellerId, brief_id: UUID, _key: IdempotencyKey = None
@@ -149,6 +152,10 @@ async def apply(
         )
 
     async def start(params: CreativeJobCreate) -> UUID:
+        if not started:  # every directive passed its check: the whole brief fits, or none of it
+            await take_quota(
+                request, seller_id, "creative_jobs", amount=len(brief.creative_directives)
+            )
         job_id = await start_job(
             seller_id,
             params,

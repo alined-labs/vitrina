@@ -81,6 +81,17 @@ model_calls = sa.Table(
     ),
 )
 
+# Attempts per key and window (data-model.md public_rate_limits): the public tool's hourly limit
+# by hashed address, and the daily limits in ``vitrina_core.quotas`` by name. ``ip_hash`` is the
+# key whatever it holds: an address hash is hex, a daily limit's name is not, so they never meet.
+public_rate_limits = sa.Table(
+    "public_rate_limits",
+    metadata,
+    sa.Column("ip_hash", sa.Text, primary_key=True),
+    sa.Column("window_start", sa.DateTime(timezone=True), primary_key=True),
+    sa.Column("count", sa.Integer, nullable=False),
+)
+
 # Cross-module events (plan.md §3; data-model.md §4); inserting one notifies listeners.
 events = sa.Table(
     "events",

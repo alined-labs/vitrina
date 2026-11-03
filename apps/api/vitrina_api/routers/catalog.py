@@ -8,6 +8,7 @@ from uuid import UUID
 
 from fastapi import APIRouter, Depends, File, Form, Query, Request, UploadFile
 
+from vitrina_api.limits import take_quota
 from vitrina_catalog.api import (
     CatalogStore,
     Fact,
@@ -102,7 +103,7 @@ async def create_product(
     description=(
         "Returns a Job whose result is a list of `draft` products that must be approved (AS-1.3)."
     ),
-    responses=problem_responses(400),
+    responses=problem_responses(400, 429),
 )
 async def import_products(
     request: Request,
@@ -130,6 +131,7 @@ async def import_products(
             ProblemCode.PROVIDER_UNAVAILABLE,
             detail="product import needs the database (DATABASE_URL)",
         )
+    await take_quota(request, seller_id, "paid_jobs")
     # Stored before the job exists, so the worker never sees a job without its photo.
     key = blob_key(seller_id, "imports", new_id(), EXTENSIONS[mime_type])
     await request.app.state.storage.put(key, photo, mime_type)

@@ -8,7 +8,7 @@ from pydantic import SecretStr
 from starlette.requests import Request
 
 from vitrina_api.main import create_app
-from vitrina_api.routers.public import visitor_address
+from vitrina_api.routers.public import rate_limit_address, visitor_address
 from vitrina_core.settings import Settings
 from vitrina_creative.testing import source_photo
 
@@ -77,3 +77,28 @@ def test_without_a_valid_visitor_header_the_client_address_counts() -> None:
     assert visitor_address(visitor_request(FROM_PROXY), PROXY) == "10.0.0.1"
     listed = visitor_request({**FROM_PROXY, "X-Vitrina-Visitor": "anything, 1.2.3.4"})
     assert visitor_address(listed, PROXY) == "10.0.0.1"
+
+
+def test_as_8_2_one_ipv6_network_is_one_visitor() -> None:
+    first = rate_limit_address("2001:db8:1:2:aaaa::1")
+    second = rate_limit_address("2001:db8:1:2:ffff:ffff:ffff:ffff")
+    next_network = rate_limit_address("2001:db8:1:3::1")
+
+    assert first == second == "2001:db8:1:2::/64"
+    assert next_network != first
+
+
+def test_as_8_2_ipv4_stays_per_address() -> None:
+    assert rate_limit_address("203.0.113.7") == "203.0.113.7"
+    assert rate_limit_address("203.0.113.8") == "203.0.113.8"
+
+
+def test_as_8_2_an_ipv4_address_written_as_ipv6_is_still_that_one_address() -> None:
+    # Every ::ffff:a.b.c.d sits in one /64: grouping them would make all such visitors one.
+    assert rate_limit_address("::ffff:203.0.113.7") == "203.0.113.7"
+    assert rate_limit_address("::ffff:203.0.113.8") == "203.0.113.8"
+
+
+def test_as_8_2_a_caller_with_no_readable_address_keeps_its_own_label() -> None:
+    assert rate_limit_address("unknown") == "unknown"
+    assert rate_limit_address("testclient") == "testclient"

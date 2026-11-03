@@ -2123,6 +2123,7 @@ export interface operations {
         responses: {
             202: components["responses"]["Accepted"];
             400: components["responses"]["BadRequest"];
+            429: components["responses"]["TooManyRequests"];
         };
     };
     getProduct: {
@@ -2408,6 +2409,7 @@ export interface operations {
             };
             400: components["responses"]["BadRequest"];
             404: components["responses"]["NotFound"];
+            429: components["responses"]["TooManyRequests"];
         };
     };
     getCreativeJob: {
@@ -2909,6 +2911,7 @@ export interface operations {
                 };
             };
             400: components["responses"]["BadRequest"];
+            429: components["responses"]["TooManyRequests"];
             503: components["responses"]["ProviderUnavailable"];
         };
     };
@@ -3152,6 +3155,7 @@ export interface operations {
                     "application/problem+json": components["schemas"]["Problem"];
                 };
             };
+            429: components["responses"]["TooManyRequests"];
         };
     };
     getBrief: {
@@ -3204,6 +3208,7 @@ export interface operations {
                     };
                 };
             };
+            429: components["responses"]["TooManyRequests"];
         };
     };
     listReactivationCampaigns: {
@@ -3407,6 +3412,7 @@ export interface operations {
                     "application/json": components["schemas"]["EvalRun"];
                 };
             };
+            429: components["responses"]["TooManyRequests"];
         };
     };
     getEvalRun: {
@@ -3543,6 +3549,7 @@ export interface operations {
                     };
                 };
             };
+            429: components["responses"]["TooManyRequests"];
         };
     };
     createPublicShowcase: {

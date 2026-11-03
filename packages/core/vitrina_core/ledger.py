@@ -5,7 +5,9 @@ model, purpose, tokens, latency, cost and the seller and request it served. Cost
 from the provider's response or, when it reports none, from the model's list price
 (``vitrina_core.pricing``); a model without one costs 0, never a guess. ``GET /metrics/costs``
 reports live spend; replayed calls cost nothing. ``SpendWatch`` warns once when live
-spend crosses ``SPEND_LIMIT_USD`` (plan.md §6).
+spend crosses ``SPEND_LIMIT_USD`` (plan.md §6), and ``spend_limit_reached`` is what stops the
+public tool there: every live call so far, whichever seller it served or none, since a showcase's
+calls belong to no seller. Customer conversations are never stopped by it.
 """
 
 import logging
@@ -140,6 +142,14 @@ class CostReader(Protocol):
     async def report(self, seller_id: UUID, period_from: date, period_to: date) -> CostReport: ...
 
 
+class SpendReader(Protocol):
+    async def live_total_usd(self) -> float: ...
+
+
+async def spend_limit_reached(ledger: SpendReader, limit_usd: float) -> bool:
+    return await ledger.live_total_usd() >= limit_usd
+
+
 def _report(period_from: date, period_to: date, lines: list[CostLine]) -> CostReport:
     total = round(sum(line.cost_usd for line in lines if isinstance(line.cost_usd, float)), 6)
     return CostReport(
@@ -158,6 +168,9 @@ class InMemoryLedger:
         self.entries.append(entry)
         if self.watch is not None:
             self.watch.observe(entry)
+
+    async def live_total_usd(self) -> float:
+        return sum(entry.cost_usd for entry in self.entries if not entry.replayed)
 
     async def report(self, seller_id: UUID, period_from: date, period_to: date) -> CostReport:
         start, end = period_bounds(period_from, period_to)
@@ -187,6 +200,12 @@ class InMemoryLedger:
         return _report(period_from, period_to, lines)
 
 
+# Every live call ever recorded, with a seller or without one (a showcase, an eval run).
+LIVE_TOTAL = sa.select(sa.func.coalesce(sa.func.sum(model_calls.c.cost_usd), 0)).where(
+    ~model_calls.c.replayed
+)
+
+
 class PostgresLedger:
     def __init__(
         self, sessions: async_sessionmaker[AsyncSession], watch: SpendWatch | None = None
@@ -199,12 +218,7 @@ class PostgresLedger:
         # Its own transaction: a call that cost money stays recorded if the caller rolls back.
         async with self.sessions() as session, session.begin():
             if self.watch is not None and not self._seeded:
-                spent = await session.scalar(
-                    sa.select(sa.func.coalesce(sa.func.sum(model_calls.c.cost_usd), 0)).where(
-                        ~model_calls.c.replayed
-                    )
-                )
-                self.watch.live_total_usd = float(spent or 0)
+                self.watch.live_total_usd = float(await session.scalar(LIVE_TOTAL) or 0)
                 self._seeded = True
             await session.execute(
                 sa.insert(model_calls).values(
@@ -223,6 +237,10 @@ class PostgresLedger:
             )
         if self.watch is not None:
             self.watch.observe(entry)
+
+    async def live_total_usd(self) -> float:
+        async with self.sessions() as session:
+            return float(await session.scalar(LIVE_TOTAL) or 0)
 
     async def report(self, seller_id: UUID, period_from: date, period_to: date) -> CostReport:
         start, end = period_bounds(period_from, period_to)

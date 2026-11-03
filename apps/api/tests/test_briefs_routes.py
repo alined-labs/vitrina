@@ -16,7 +16,7 @@ from vitrina_core.providers.compose import ProviderMode, compose
 from vitrina_core.settings import Settings
 from vitrina_creative.testing import source_photo
 from vitrina_learning.api import AttributionConsumer, BriefContent, PostgresBriefs
-from vitrina_learning.briefs import BriefDataset, DatasetProduct
+from vitrina_learning.briefs import Brief, BriefDataset, DatasetProduct
 from vitrina_learning.testing import approved_ad, conversation
 
 SECRET = "briefs-routes-test-secret-with-32-bytes+"
@@ -190,6 +190,57 @@ def owner(subject: str = "owner-apply") -> dict[str, str]:
     return {"Authorization": f"Bearer {jwt.encode(claims, SECRET, algorithm='HS256')}"}
 
 
+async def ready_brief(client: TestClient, db_sessions: async_sessionmaker[AsyncSession]) -> Brief:
+    """A seller with a photographed product and a ready brief with one creative directive."""
+    seller = client.post(
+        "/v1/sellers",
+        json={
+            "business_name": "Tejidos Vecina",
+            "owner_name": "Ana",
+            "whatsapp_number": "+573000000003",
+            "city": "Medellín",
+        },
+        headers={**owner(), "X-Service-Token": SERVICE_TOKEN},
+    )
+    assert seller.status_code == 201, seller.text
+    seller_id = UUID(seller.json()["id"])
+    product = client.post(
+        "/v1/products", json={"name": "Bolso tejido", "price_cop": 85000}, headers=owner()
+    ).json()
+    photo = client.post(
+        "/v1/assets",
+        files={"file": ("bolso.png", source_photo().image.data, "image/png")},
+        data={"product_id": product["id"]},
+        headers=owner(),
+    )
+    assert photo.status_code == 201, photo.text
+    content = BriefContent.model_validate(
+        {
+            "headline": "El bolso tejido vende con el ángulo 'hecho a mano'.",
+            "insights": [{"text": "Tres chats.", "evidence": {"chats": 3}}],
+            "recommended_angles": [{"angle": "handmade", "rationale": "Más chats."}],
+            "creative_directives": [
+                {"product_id": product["id"], "angle": "handmade", "scene_brief": "Telar."}
+            ],
+            "reactivation_segments": [
+                {"objection_tag": "shipping", "message_angle": "envío claro"}
+            ],
+        }
+    )
+    dataset = BriefDataset(
+        business_name="Tejidos Vecina",
+        period_from=TODAY - timedelta(days=7),
+        period_to=TODAY,
+        attributed_chats=3,
+        ads=[],
+        by_angle={},
+        objections={},
+        products=[DatasetProduct(id=product["id"], name="Bolso tejido", price_cop=85000)],
+        ads_by_status={},
+    )
+    return await PostgresBriefs(db_sessions).create(seller_id, dataset, content, [])
+
+
 @pytest.mark.db
 async def test_db_as_5_2_applying_a_brief_queues_its_creative_jobs_and_a_campaign_preview(
     migrated_schema: tuple[str, str], db_sessions: async_sessionmaker[AsyncSession]
@@ -204,53 +255,7 @@ async def test_db_as_5_2_applying_a_brief_queues_its_creative_jobs_and_a_campaig
     )  # type: ignore[call-arg]
 
     with TestClient(create_app(settings)) as client:
-        seller = client.post(
-            "/v1/sellers",
-            json={
-                "business_name": "Tejidos Vecina",
-                "owner_name": "Ana",
-                "whatsapp_number": "+573000000003",
-                "city": "Medellín",
-            },
-            headers={**owner(), "X-Service-Token": SERVICE_TOKEN},
-        )
-        assert seller.status_code == 201, seller.text
-        seller_id = UUID(seller.json()["id"])
-        product = client.post(
-            "/v1/products", json={"name": "Bolso tejido", "price_cop": 85000}, headers=owner()
-        ).json()
-        photo = client.post(
-            "/v1/assets",
-            files={"file": ("bolso.png", source_photo().image.data, "image/png")},
-            data={"product_id": product["id"]},
-            headers=owner(),
-        )
-        assert photo.status_code == 201, photo.text
-        content = BriefContent.model_validate(
-            {
-                "headline": "El bolso tejido vende con el ángulo 'hecho a mano'.",
-                "insights": [{"text": "Tres chats.", "evidence": {"chats": 3}}],
-                "recommended_angles": [{"angle": "handmade", "rationale": "Más chats."}],
-                "creative_directives": [
-                    {"product_id": product["id"], "angle": "handmade", "scene_brief": "Telar."}
-                ],
-                "reactivation_segments": [
-                    {"objection_tag": "shipping", "message_angle": "envío claro"}
-                ],
-            }
-        )
-        dataset = BriefDataset(
-            business_name="Tejidos Vecina",
-            period_from=TODAY - timedelta(days=7),
-            period_to=TODAY,
-            attributed_chats=3,
-            ads=[],
-            by_angle={},
-            objections={},
-            products=[DatasetProduct(id=product["id"], name="Bolso tejido", price_cop=85000)],
-            ads_by_status={},
-        )
-        brief = await PostgresBriefs(db_sessions).create(seller_id, dataset, content, [])
+        brief = await ready_brief(client, db_sessions)
 
         applied = client.post(f"/v1/briefs/{brief.id}/apply", headers=owner())
         assert applied.status_code == 202, applied.text
@@ -267,3 +272,71 @@ async def test_db_as_5_2_applying_a_brief_queues_its_creative_jobs_and_a_campaig
         assert again.status_code == 409
         stranger = client.post(f"/v1/briefs/{brief.id}/apply", headers=owner("someone-else"))
         assert stranger.status_code in (403, 404)
+
+
+@pytest.mark.db
+async def test_db_as_5_2_a_brief_over_the_daily_job_quota_stays_ready_and_queues_nothing(
+    migrated_schema: tuple[str, str], db_sessions: async_sessionmaker[AsyncSession]
+) -> None:
+    url, schema = migrated_schema
+    settings = Settings(
+        _env_file=None,
+        database_url=url,
+        db_schema=schema,
+        supabase_jwt_secret=SECRET,
+        service_token=SERVICE_TOKEN,
+        seller_daily_creative_jobs=0,
+    )  # type: ignore[call-arg]
+
+    with TestClient(create_app(settings)) as client:
+        brief = await ready_brief(client, db_sessions)
+
+        over = client.post(f"/v1/briefs/{brief.id}/apply", headers=owner())
+        assert over.status_code == 429, over.text
+        assert over.json()["code"] == "RATE_LIMITED"
+        assert int(over.headers["Retry-After"]) > 0
+        assert client.get(f"/v1/briefs/{brief.id}", headers=owner()).json()["status"] == "ready"
+
+        client.app.state.settings.seller_daily_creative_jobs = 1  # type: ignore[attr-defined]
+        applied = client.post(f"/v1/briefs/{brief.id}/apply", headers=owner())
+        assert applied.status_code == 202, applied.text
+        assert len(applied.json()["creative_job_ids"]) == 1
+
+        again = client.post(f"/v1/briefs/{brief.id}/apply", headers=owner())
+        assert again.status_code == 409  # already applied: not a quota refusal
+
+
+@pytest.mark.db
+async def test_db_as_5_1_generating_a_brief_counts_only_once_it_can_run(
+    migrated_schema: tuple[str, str], db_sessions: async_sessionmaker[AsyncSession]
+) -> None:
+    url, schema = migrated_schema
+    async with db_sessions() as session, session.begin():
+        ad = await approved_ad(session, SELLER, "+573000000004")
+        chat = await conversation(session, SELLER)
+        await emit(
+            session,
+            "ad.chat_started",
+            {"ad_id": str(ad), "conversation_id": str(chat)},
+            seller_id=SELLER,
+        )
+    await AttributionConsumer().sweep(db_sessions, datetime.now(UTC))
+    settings = Settings(
+        _env_file=None,
+        database_url=url,
+        db_schema=schema,
+        supabase_jwt_secret=SECRET,
+        model_strategist="wonder-test",
+        seller_daily_paid_jobs=1,
+    )  # type: ignore[call-arg]
+
+    with TestClient(create_app(settings)) as client:
+        short = client.post("/v1/briefs/generate", json=PERIOD, headers=bearer())
+        body = {**PERIOD, "min_conversations": 1}
+        started = client.post("/v1/briefs/generate", json=body, headers=bearer())
+        over = client.post("/v1/briefs/generate", json=body, headers=bearer())
+
+    assert short.status_code == 422  # not enough data: nothing runs, nothing counts
+    assert started.status_code == 202, started.text
+    assert (over.status_code, over.json()["code"]) == (429, "RATE_LIMITED")
+    assert over.json()["detail"].startswith("Llegaste al límite de hoy")
