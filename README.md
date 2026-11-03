@@ -116,15 +116,16 @@ make evals         # replay the recorded suites; fails on an invented price or a
 
 `make evals` sets the model IDs and request settings the recordings were made with, so a `.env` of your own causes no replay miss.
 
-The API starts with no settings, but then seller routes answer 401: it has nothing to check a token against. A local secret of 32 bytes or more is enough, and `make dev-token` signs a seller token with it. Stores are in memory, so the seller is gone when the API stops.
+The API starts with no settings, but then seller routes answer 401: it has nothing to check a token against. A local secret of 32 bytes or more is enough, and `make dev-token` signs a seller token with it. Creating a seller also needs a local `SERVICE_TOKEN`, sent in `X-Service-Token`. Stores are in memory, so the seller is gone when the API stops.
 
 ```
-export SUPABASE_JWT_SECRET=$(openssl rand -hex 32)   # the same value in both terminals
+export SUPABASE_JWT_SECRET=$(openssl rand -hex 32)   # the same values in both terminals
+export SERVICE_TOKEN=$(openssl rand -hex 32)
 make api                                             # first terminal: the API on :8000
 
 # second terminal
 export TOKEN=$(make dev-token)
-curl -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" \
+curl -H "Authorization: Bearer $TOKEN" -H "X-Service-Token: $SERVICE_TOKEN" -H "Content-Type: application/json" \
   -d '{"business_name":"Tienda de prueba","owner_name":"Ana","whatsapp_number":"+573000000000","city":"Medellín"}' \
   http://localhost:8000/v1/sellers                   # until then, seller routes answer 403
 curl -H "Authorization: Bearer $TOKEN" http://localhost:8000/v1/sellers/me
