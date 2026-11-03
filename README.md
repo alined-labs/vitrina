@@ -26,7 +26,7 @@ Vitrina is a closed-loop AI storefront for WhatsApp sellers in Colombia, built i
 - **The fidelity verifier gates every generated image.** It combines mask overlap (IoU), color histogram distance and a visual review. An ad cannot show a product the seller does not sell.
 - **Attribution is a first-class fact.** `ad → chat → outcome` is queryable per ad and per angle.
 - **The consent ledger is append-only.** It stores the exact text shown and the customer's literal answer. Silence never counts as consent, and no API call can override the legal-hours scheduler.
-- **The evaluation harness lives in the API.** CI replays recorded model outputs and fails on a single invented price or consent error.
+- **The evaluation harness lives in the API.** CI replays recorded model outputs and fails on a single invented price or consent error, or on a missed target.
 
 The agent is scoped to one seller's business and declines everything else, in line with WhatsApp's policy on general-purpose assistants.
 
@@ -79,10 +79,10 @@ The suites live in `evals/fixtures`: Spanish conversations, consent and schedule
 | --- | --- |
 | Invented-price rate | 0 % (CI gate) |
 | Consent scheduler cases | 100 % (CI gate) |
-| Groundedness rate | ≥ 95 % |
-| Handoff precision / recall | ≥ 0.9 / ≥ 0.9 |
-| Brand-voice mean | ≥ 4.0 / 5 |
-| Verifier: pass on good scenes / block on altered scenes | ≥ 80 % / 100 % |
+| Groundedness rate | ≥ 95 % (CI gate) |
+| Handoff precision / recall | ≥ 0.9 / ≥ 0.9 (CI gate) |
+| Brand-voice mean | ≥ 4.0 / 5 (not measured: no suite computes it yet) |
+| Verifier: pass on good scenes / block on altered scenes | ≥ 80 % / 100 % (CI gate) |
 
 ## Legal by design
 
@@ -111,7 +111,7 @@ No `.env` and no account are needed for any of this. It takes `uv` and, for the 
 git clone https://github.com/alined-labs/vitrina && cd vitrina
 make sync          # install the uv workspace exactly as locked
 make check         # ruff, mypy, pytest without live providers, contract drift
-make evals         # replay the recorded suites; fails on an invented price or a consent error
+make evals         # replay the recorded suites; fails on an invented price, a consent error or a missed target
 ```
 
 `make evals` sets the model IDs and request settings the recordings were made with, so a `.env` of your own causes no replay miss.

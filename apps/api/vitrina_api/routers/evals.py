@@ -73,9 +73,13 @@ async def create_eval_run(
     if body.sample is not MISSING:
         payload["sample"] = body.sample
     # The run and the job that executes it commit together. Runs are deployment-wide, not
-    # seller data, so the job has no owner and its model calls no seller (eval_runs).
+    # seller data, so the job has no owner and its model calls no seller (eval_runs). Only a
+    # full run with the service token can become the result every seller sees as latest.
+    counts_as_latest = caller.kind == "service" and body.sample is MISSING
     async with request.app.state.sessions() as session, session.begin():
-        run = await runs.create(body.suite, replay=body.replay, session=session)
+        run = await runs.create(
+            body.suite, replay=body.replay, counts_as_latest=counts_as_latest, session=session
+        )
         await jobs.enqueue(
             session,
             kind="eval_run",

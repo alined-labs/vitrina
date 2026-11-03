@@ -1,6 +1,8 @@
 """Eval runs, kept for the dashboard and the record (FR-070; data-model.md ``eval_runs``).
 
-Runs are not seller data: one list for the whole deployment, newest first.
+Runs are not seller data: one list for the whole deployment, newest first. Anyone's run can
+be listed, but ``latest``, what every seller sees on the metrics page, only reads runs created
+with ``counts_as_latest`` that scored their cases.
 ``InMemoryEvalRuns`` serves machines without a database; ``PostgresEvalRuns`` creates a run
 inside the caller's transaction, so the run and the job that executes it commit together.
 """
@@ -21,11 +23,17 @@ from vitrina_evals.schemas import EvalCaseResult, EvalMetrics, EvalRun, EvalSuit
 from vitrina_evals.tables import eval_runs
 
 FINISHED = ("passed", "failed", "error")
+SCORED = ("passed", "failed")  # an error run may have scored only some of its cases
 
 
 class EvalRunStore(Protocol):
     async def create(
-        self, suite: EvalSuite, *, replay: bool, session: AsyncSession | None = None
+        self,
+        suite: EvalSuite,
+        *,
+        replay: bool,
+        counts_as_latest: bool = False,
+        session: AsyncSession | None = None,
     ) -> EvalRun: ...
 
     async def get(self, run_id: UUID) -> EvalRun | None: ...
@@ -79,7 +87,12 @@ class InMemoryEvalRuns:
     rows: dict[UUID, dict[str, Any]] = field(default_factory=dict)
 
     async def create(
-        self, suite: EvalSuite, *, replay: bool, session: AsyncSession | None = None
+        self,
+        suite: EvalSuite,
+        *,
+        replay: bool,
+        counts_as_latest: bool = False,
+        session: AsyncSession | None = None,
     ) -> EvalRun:
         now = self.clock()
         row: dict[str, Any] = {
@@ -91,6 +104,7 @@ class InMemoryEvalRuns:
             "metrics": {},
             "cases": [],
             "git_sha": None,
+            "counts_as_latest": counts_as_latest,
             "started_at": now,
             "finished_at": None,
             "created_at": now,
@@ -133,10 +147,12 @@ class InMemoryEvalRuns:
         return _view(row)
 
     async def latest(self) -> EvalRun | None:
-        finished = [row for row in self.rows.values() if row["status"] in FINISHED]
-        if not finished:
+        counted = [
+            row for row in self.rows.values() if row["counts_as_latest"] and row["status"] in SCORED
+        ]
+        if not counted:
             return None
-        return _view(max(finished, key=lambda row: (row["finished_at"], row["id"])))
+        return _view(max(counted, key=lambda row: (row["finished_at"], row["id"])))
 
 
 class PostgresEvalRuns:
@@ -144,11 +160,22 @@ class PostgresEvalRuns:
         self.sessions = sessions
 
     async def create(
-        self, suite: EvalSuite, *, replay: bool, session: AsyncSession | None = None
+        self,
+        suite: EvalSuite,
+        *,
+        replay: bool,
+        counts_as_latest: bool = False,
+        session: AsyncSession | None = None,
     ) -> EvalRun:
         statement = (
             sa.insert(eval_runs)
-            .values(id=new_id(), suite=suite, replay=replay, status="queued")
+            .values(
+                id=new_id(),
+                suite=suite,
+                replay=replay,
+                status="queued",
+                counts_as_latest=counts_as_latest,
+            )
             .returning(*eval_runs.c)
         )
         if session is not None:
@@ -216,7 +243,7 @@ class PostgresEvalRuns:
     async def latest(self) -> EvalRun | None:
         statement = (
             sa.select(eval_runs)
-            .where(eval_runs.c.status.in_(FINISHED))
+            .where(eval_runs.c.counts_as_latest, eval_runs.c.status.in_(SCORED))
             .order_by(eval_runs.c.finished_at.desc(), eval_runs.c.id.desc())
             .limit(1)
         )
