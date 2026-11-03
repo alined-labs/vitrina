@@ -91,6 +91,9 @@ class Settings(BaseSettings):
     # Thresholds and limits.
     mask_iou_min: float = 0.85  # FR-012
     color_delta_max: float = 0.25  # FR-012
+    # The fidelity verifier compares pixels with images reduced to this long edge, so a 40 MP photo
+    # fits in the worker's memory. Models still get the full image.
+    verifier_long_edge_px: int = Field(default=2048, gt=0)
     outbound_spacing_s: float = 6.0  # R12, Art. VIII.2
     provider_attempts: int = 3  # R12
     provider_timeout_s: float = 20.0  # Art. VIII.1

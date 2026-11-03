@@ -83,10 +83,17 @@ INCONCLUSIVE = VisualReview(altered=True, reason="revisión visual no concluyent
 class Thresholds(BaseModel):
     mask_iou_min: float = 0.85
     color_delta_max: float = 0.25
+    # The size the two pixel signals are computed at. How they were measured, not a limit they
+    # were held to, so it stays out of the stored report (``Verification.thresholds``).
+    long_edge_px: int = Field(default=2048, gt=0, exclude=True)
 
     @classmethod
     def from_settings(cls, settings: Settings) -> Thresholds:
-        return cls(mask_iou_min=settings.mask_iou_min, color_delta_max=settings.color_delta_max)
+        return cls(
+            mask_iou_min=settings.mask_iou_min,
+            color_delta_max=settings.color_delta_max,
+            long_edge_px=settings.verifier_long_edge_px,
+        )
 
 
 class Verification(BaseModel):
@@ -136,13 +143,17 @@ async def verify_scene(
     now: datetime | None = None,
 ) -> Verification:
     """Run the three signals on one generated scene and decide passed or blocked (FR-012)."""
-    source_pixels = decode_rgb(source.image)
-    source_mask = fit_mask(decode_mask(source.mask), *source_pixels.shape[:2])
-    scene_pixels = decode_rgb(scene)
-    scene_mask = await _find_product(scene, source.label, segmenter=segmenter, model=models.segment)
-    review = await review_scene(
-        product_crop(source_pixels, source_mask), scene, reviewer=reviewer, model=models.review
+    # The review sees the product from the full frame, so that frame is decoded once, here, and
+    # dropped before anything else is held. The signals below use the working size.
+    crop = _full_size_crop(source)
+    long_edge = thresholds.long_edge_px
+    source_pixels = decode_rgb(source.image, long_edge=long_edge)
+    source_mask = fit_mask(decode_mask(source.mask, long_edge=long_edge), *source_pixels.shape[:2])
+    scene_pixels = decode_rgb(scene, long_edge=long_edge)
+    scene_mask = await _find_product(
+        scene, source.label, segmenter=segmenter, model=models.segment, long_edge=long_edge
     )
+    review = await review_scene(crop, scene, reviewer=reviewer, model=models.review)
 
     problems: list[str] = []
     if scene_mask is None:
@@ -221,13 +232,18 @@ def parse_review(content: object) -> VisualReview | None:
     return VisualReview(altered=altered, reason=reason)
 
 
+def _full_size_crop(source: SourceProduct) -> Blob:
+    pixels = decode_rgb(source.image)
+    return product_crop(pixels, fit_mask(decode_mask(source.mask), *pixels.shape[:2]))
+
+
 async def _find_product(
-    scene: Blob, label: str, *, segmenter: Segmenter, model: str
+    scene: Blob, label: str, *, segmenter: Segmenter, model: str, long_edge: int
 ) -> Mask | None:
     request = SegmentRequest(model=model, purpose="verify", image=scene, prompt=label)
     response = await with_backoff(lambda: segmenter.segment(request))
     if not response.segments:
         return None
     best = max(response.segments, key=lambda segment: segment.score)
-    mask = decode_mask(best.mask)
+    mask = decode_mask(best.mask, long_edge=long_edge)
     return mask if mask.any() else None

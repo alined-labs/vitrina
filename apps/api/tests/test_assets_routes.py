@@ -1,5 +1,7 @@
 """T030 routes: POST /assets and GET /assets/{asset_id} (FR-010), seller-scoped (Art. V.3)."""
 
+import hashlib
+from io import BytesIO
 from pathlib import Path
 from urllib.parse import urlsplit
 from uuid import UUID
@@ -7,6 +9,7 @@ from uuid import UUID
 import jwt
 import pytest
 from fastapi.testclient import TestClient
+from PIL import Image
 
 from vitrina_api.main import create_app
 from vitrina_catalog.api import InMemoryCatalog
@@ -125,3 +128,39 @@ def test_fr_010_a_photo_over_10_mb_is_a_413(client: TestClient) -> None:
     response = upload(client, product(client), b"\x89PNG\r\n\x1a\n" + bytes(IMAGE_MAX_BYTES))
     assert response.status_code == 413
     assert response.json()["code"] == "PAYLOAD_TOO_LARGE"
+
+
+def sideways_photo() -> bytes:
+    """A portrait as a phone stores it: landscape pixels, EXIF orientation 6, red on top once up."""
+    exif = Image.Exif()
+    exif[0x0112] = 6
+    portrait = Image.new("RGB", (30, 40), (220, 20, 20))
+    portrait.paste((20, 20, 220), (0, 20, 30, 40))
+    buffer = BytesIO()
+    portrait.transpose(Image.Transpose.ROTATE_90).save(buffer, format="JPEG", exif=exif)
+    return buffer.getvalue()
+
+
+def test_fr_010_a_photo_stored_sideways_is_stored_upright(client: TestClient) -> None:
+    product_id = product(client)
+    response = upload(client, product_id, sideways_photo(), "bolso.jpg")
+    assert response.status_code == 201, response.json()
+    asset = response.json()
+    assert (asset["width"], asset["height"]) == (30, 40)
+
+    link = urlsplit(asset["url"])
+    stored = client.get(f"{link.path}?{link.query}")
+    assert stored.status_code == 200
+    assert hashlib.sha256(stored.content).hexdigest() == asset["sha256"]
+    with Image.open(BytesIO(stored.content)) as image:
+        assert image.size == (30, 40)
+        assert 0x0112 not in image.getexif()
+        red, _green, blue = image.convert("RGB").getpixel((15, 5))  # type: ignore[misc]
+        assert red > 150 > blue
+
+
+def test_fr_010_the_same_sideways_photo_twice_is_one_asset(client: TestClient) -> None:
+    product_id = product(client)
+    first = upload(client, product_id, sideways_photo(), "bolso.jpg")
+    second = upload(client, product_id, sideways_photo(), "otra.jpg")
+    assert first.json()["id"] == second.json()["id"]

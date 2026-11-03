@@ -8,6 +8,7 @@ After the limit counts the attempt, Spark answers one yes/no question about the 
 refused photo is answered in Spanish and never stored, and no job is queued.
 """
 
+import asyncio
 import ipaddress
 import secrets
 from datetime import UTC, datetime
@@ -37,7 +38,7 @@ from vitrina_creative.api import (
     upload_allowed,
     window_start,
 )
-from vitrina_creative.media import IMAGE_MAX_BYTES, inspect_media
+from vitrina_creative.media import IMAGE_MAX_BYTES, prepare_upload
 from vitrina_creative.showcase import OWNER
 
 router = APIRouter(tags=["Public"])
@@ -111,7 +112,7 @@ async def create_showcase(
         )
     data = await _read(image)
     try:
-        media = inspect_media(data)
+        data, media = await asyncio.to_thread(prepare_upload, data)
     except MediaRejectedError as error:
         raise _invalid_image(error.message) from error
     if media.kind != "image":

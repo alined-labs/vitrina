@@ -162,3 +162,60 @@ async def test_the_segmented_photo_is_the_verifiers_source() -> None:
         thresholds=Thresholds(),
     )
     assert report.status == "passed"
+
+
+def stored_sideways(image: Blob) -> Blob:
+    """The photo as a phone stores it: turned, with EXIF orientation 6 to display it upright."""
+    exif = Image.Exif()
+    exif[0x0112] = 6
+    buffer = BytesIO()
+    with Image.open(BytesIO(image.data)) as source:
+        turned = source.convert("RGB").transpose(Image.Transpose.ROTATE_90)
+    turned.save(buffer, format="JPEG", quality=95, exif=exif)
+    return Blob(data=buffer.getvalue(), mime_type="image/jpeg")
+
+
+async def test_as_2_1_sam_the_cutout_and_the_verifier_see_one_upright_photo() -> None:
+    """A photo stored before uploads were turned upright: the stage turns it before SAM."""
+    photo, scene = source_photo(), good_scenes()[0]
+    sam = FakeSam((photo.mask, 0.95))
+
+    result = await run(stored_sideways(photo.image), sam)
+
+    sent = sam.requests[0].image
+    assert result.product.image == sent
+    with Image.open(BytesIO(sent.data)) as image:
+        assert 0x0112 not in image.getexif()
+        upright_pixels = np.asarray(image.convert("RGB"), dtype=np.int16)
+    with Image.open(BytesIO(photo.image.data)) as image:
+        expected = np.asarray(image.convert("RGB"), dtype=np.int16)
+    assert np.abs(upright_pixels - expected).mean() < 4
+    assert result.bbox == mask_bbox(decode_mask(photo.mask))
+
+    class Unchanged:
+        async def complete(self, request: ChatRequest) -> ChatResponse:
+            text = json.dumps({"altered": False, "reason": "sin cambios en el producto"})
+            meta = CallMeta(provider="local_mock", model=request.model, purpose=request.purpose)
+            return ChatResponse(message=ChatMessage(role="assistant", content=text), meta=meta)
+
+    report = await verify_scene(
+        result.product,
+        scene.image,
+        segmenter=FakeSam((scene.mask, 0.95)),
+        reviewer=Unchanged(),
+        models=VerifierModels(segment=MODEL, review="agent-model-from-settings"),
+        thresholds=Thresholds(),
+    )
+    assert report.status == "passed"
+
+
+async def test_as_2_1_a_photo_with_too_many_pixels_never_reaches_sam_even_if_sideways() -> None:
+    exif = Image.Exif()
+    exif[0x0112] = 6
+    buffer = BytesIO()
+    Image.new("1", (7000, 7000)).save(buffer, format="PNG", exif=exif)
+    sam = FakeSam()
+    with pytest.raises(SegmentationError) as caught:
+        await run(Blob(data=buffer.getvalue(), mime_type="image/png"), sam)
+    assert caught.value.code == "PHOTO_TOO_LARGE"
+    assert sam.requests == []
