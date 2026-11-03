@@ -28,6 +28,9 @@ from vitrina_creative.tables import copy_variants, creative_jobs, creatives
 
 Row = sa.RowMapping
 
+UNFINISHED = ("queued", "running")
+JOB_GAVE_UP = "No pudimos terminar estos anuncios. Intenta de nuevo en unos minutos."
+
 
 class CreativeJobStore:
     def __init__(self, sessions: async_sessionmaker[AsyncSession]) -> None:
@@ -117,10 +120,11 @@ class CreativeJobStore:
             )
 
     async def fail(self, job_id: UUID, code: str, message: str) -> None:
+        """A finished job keeps its result and its first reason: ads may point at its rows."""
         async with self.sessions() as session, session.begin():
             await session.execute(
                 sa.update(creative_jobs)
-                .where(creative_jobs.c.id == job_id)
+                .where(creative_jobs.c.id == job_id, creative_jobs.c.status.in_(UNFINISHED))
                 .values(
                     status="failed",
                     stage="failed",
@@ -128,6 +132,13 @@ class CreativeJobStore:
                     finished_at=datetime.now(UTC),
                 )
             )
+
+    async def give_up(self, job_id: UUID, queue_code: str) -> None:
+        """Close the row of a job the queue has failed for good, with a reason the seller can
+        read. The dashboard reads PROVIDER_UNAVAILABLE as a service nobody configured; a provider
+        that kept failing is PROVIDER_ERROR."""
+        code = "PROVIDER_ERROR" if queue_code == "PROVIDER_UNAVAILABLE" else queue_code
+        await self.fail(job_id, code, JOB_GAVE_UP)
 
     async def creatives_for(self, seller_id: UUID, job_id: UUID) -> list[Row]:
         statement = (

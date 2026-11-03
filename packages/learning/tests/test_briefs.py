@@ -1,10 +1,12 @@
 """T070: the redacted dataset, the Wonder call under BriefSchema and the checks outside it."""
 
 import json
+from datetime import UTC, datetime
 from pathlib import Path
 
 import pytest
 
+from vitrina_catalog.api import Product
 from vitrina_core.jobs import JobFailedError
 from vitrina_core.ledger import InMemoryLedger
 from vitrina_core.providers import CallMeta, ChatRequest, ChatResponse
@@ -13,6 +15,7 @@ from vitrina_core.settings import REPO_ROOT, Settings
 from vitrina_learning.briefs import (
     BRIEF_OUTPUT_SCHEMA,
     BriefContent,
+    _says_handmade,
     brief_request,
     write_brief,
 )
@@ -170,6 +173,69 @@ async def test_fr_050_an_answer_without_a_required_part_fails(missing: str) -> N
     assert failure.value.code == "BRIEF_SCHEMA_INVALID"
     assert failure.value.message == "El informe salió incompleto. Intenta generarlo de nuevo."
     assert missing in str(failure.value.__cause__)  # for the worker's log, not for the seller
+
+
+async def test_as_5_2_a_directive_the_product_cannot_carry_is_never_offered() -> None:
+    plain = fixture_dataset().model_copy(update={"not_handmade": frozenset({BAG})})
+    other = str(fixture_dataset().products[0].id)
+    directives = [
+        {
+            "product_id": str(BAG),
+            "angle": "handmade",
+            "hook": "story",
+            "scene_brief": "La mochila sobre un telar.",
+            "offer": None,
+        },
+        {
+            "product_id": str(BAG),
+            "angle": "price",
+            "hook": "question",
+            "scene_brief": "La mochila sobre una mesa.",
+            "offer": None,
+        },
+        {
+            "product_id": other,
+            "angle": "handmade",
+            "hook": None,
+            "scene_brief": "El bolso en un taller.",
+            "offer": None,
+        },
+    ]
+    wonder = Wonder(answer(creative_directives=directives))
+
+    content, calls = await write_brief(wonder, plain, model="wonder-test")
+
+    assert [(str(item.product_id), item.angle) for item in content.creative_directives] == [
+        (str(BAG), "price"),
+        (other, "handmade"),
+    ]
+    assert len(calls) == 1  # dropped outside the model: no second paid call
+
+
+def test_as_5_2_a_product_can_carry_handmade_when_any_of_its_data_says_so() -> None:
+    def product(**fields: object) -> Product:
+        return Product.model_validate(
+            {
+                "id": BAG,
+                "seller_id": NOT_OURS,
+                "price_cop": 85000,
+                "status": "active",
+                "created_at": datetime(2026, 10, 27, tzinfo=UTC),
+                **fields,
+            }
+        )
+
+    assert _says_handmade(product(name="Mochila wayuu tejida"))
+    assert _says_handmade(product(name="Mochila", description="Hecha a mano en Riohacha"))
+    assert _says_handmade(product(name="Mochila", attributes={"origen": "Artesanal"}))
+    assert not _says_handmade(product(name="Mochila azul"))
+
+
+def test_fr_050_what_a_product_cannot_carry_never_reaches_the_prompt_or_the_hash() -> None:
+    plain = fixture_dataset().model_copy(update={"not_handmade": frozenset({BAG})})
+
+    assert plain.digest() == fixture_dataset().digest()
+    assert plain.model_dump_json() == fixture_dataset().model_dump_json()
 
 
 async def test_as_5_1_wonder_writes_a_valid_brief_from_the_recorded_dataset(

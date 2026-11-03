@@ -10,7 +10,9 @@ A handler gets a ``JobContext`` and returns the job's ``result_ref`` (or None). 
 ``JobFailedError`` for a final failure with a stable code; its message reaches the seller as
 written, so never put an exception's text in it. Any other exception, a provider outage or a
 timeout is retried with backoff until ``max_attempts``, and the job's error says only
-``JOB_FAILURE_TEXT``: the real error goes to the log under the job's id.
+``JOB_FAILURE_TEXT``: the real error goes to the log under the job's id. A task with rows of its
+own passes ``on_final_failure`` to close them when its job fails for good; a process that is
+killed reaches no such code, so such a task also needs a sweep that reads the queue.
 """
 
 import asyncio
@@ -82,6 +84,8 @@ class JobContext:
 
 
 Handler = Callable[[JobContext], Awaitable[str | None]]
+# Runs once the queue has recorded a job's final failure: (ctx, the error's code).
+OnFinalFailure = Callable[[JobContext, str], Awaitable[None]]
 # Housekeeping the worker runs on an interval, outside the queue: (sessions, now) -> rows changed.
 Sweep = Callable[[async_sessionmaker[AsyncSession], datetime], Awaitable[int]]
 
@@ -91,6 +95,7 @@ class Task:
     name: str
     handler: Handler
     timeout_s: float = 600.0
+    on_final_failure: OnFinalFailure | None = None
 
 
 @dataclass(frozen=True)
@@ -105,10 +110,17 @@ class TaskRegistry:
     _tasks: dict[str, Task] = field(default_factory=dict)
     _periodic: dict[str, Periodic] = field(default_factory=dict)
 
-    def add(self, name: str, handler: Handler, *, timeout_s: float = 600.0) -> None:
+    def add(
+        self,
+        name: str,
+        handler: Handler,
+        *,
+        timeout_s: float = 600.0,
+        on_final_failure: OnFinalFailure | None = None,
+    ) -> None:
         if name in self._tasks:
             raise ValueError(f"task {name!r} is already registered")
-        self._tasks[name] = Task(name, handler, timeout_s)
+        self._tasks[name] = Task(name, handler, timeout_s, on_final_failure)
 
     def task(self, name: str, *, timeout_s: float = 600.0) -> Callable[[Handler], Handler]:
         def decorate(handler: Handler) -> Handler:
@@ -265,49 +277,65 @@ class Worker:
         seller_token = seller_id_var.set(job.owner_seller_id)
         try:
             result = await asyncio.wait_for(
-                task.handler(
-                    JobContext(
-                        job, self.queue, self.sessions, self.providers, self.storage, self.settings
-                    )
-                ),
+                task.handler(self._context(job)),
                 task.timeout_s,
             )
         except JobFailedError as error:
             if error.__cause__ is not None:
                 logger.warning("job %s (%s) %s: %r", job.id, job.task, error.code, error.__cause__)
-            await self.queue.fail(
-                job.id, {"code": error.code, "message": error.message, "retryable": False}, None
+            await self._give_up(
+                job, task, {"code": error.code, "message": error.message, "retryable": False}
             )
         except TimeoutError:
-            await self._failed(job, "TIMEOUT", f"{job.task} ran longer than {task.timeout_s:g} s")
+            await self._failed(
+                job, task, "TIMEOUT", f"{job.task} ran longer than {task.timeout_s:g} s"
+            )
         except ProviderError as error:
             if error.retryable:
-                await self._failed(job, "PROVIDER_UNAVAILABLE", str(error))
+                await self._failed(job, task, "PROVIDER_UNAVAILABLE", str(error))
             else:
                 logger.warning("job %s (%s) PROVIDER_ERROR: %s", job.id, job.task, error)
-                await self.queue.fail(
-                    job.id,
+                await self._give_up(
+                    job,
+                    task,
                     {
                         "code": "PROVIDER_ERROR",
                         "message": JOB_FAILURE_TEXT["PROVIDER_ERROR"],
                         "retryable": False,
                     },
-                    None,
                 )
         except Exception as error:
             logger.exception("job %s (%s) failed", job.id, job.task)
-            await self._failed(job, "INTERNAL_ERROR", f"{type(error).__name__}: {error}")
+            await self._failed(job, task, "INTERNAL_ERROR", f"{type(error).__name__}: {error}")
         else:
             await self.queue.succeed(job.id, result)
         finally:
             seller_id_var.reset(seller_token)
             beat.cancel()
 
-    async def _failed(self, job: ClaimedJob, code: str, detail: str) -> None:
+    def _context(self, job: ClaimedJob) -> JobContext:
+        return JobContext(
+            job, self.queue, self.sessions, self.providers, self.storage, self.settings
+        )
+
+    async def _failed(self, job: ClaimedJob, task: Task, code: str, detail: str) -> None:
         logger.warning("job %s (%s) %s: %s", job.id, job.task, code, detail)
         retry = job.attempt < job.max_attempts
         error = {"code": code, "message": JOB_FAILURE_TEXT[code], "retryable": retry}
-        await self.queue.fail(job.id, error, self.clock() + backoff(job.attempt) if retry else None)
+        if retry:
+            await self.queue.fail(job.id, error, self.clock() + backoff(job.attempt))
+        else:
+            await self._give_up(job, task, error)
+
+    async def _give_up(self, job: ClaimedJob, task: Task, error: dict[str, Any]) -> None:
+        """The queue first, so a notice that fails leaves a failure a sweep can still read."""
+        await self.queue.fail(job.id, error, None)
+        if task.on_final_failure is None:
+            return
+        try:
+            await task.on_final_failure(self._context(job), str(error["code"]))
+        except Exception:
+            logger.exception("job %s (%s): closing its failed rows failed", job.id, job.task)
 
     async def _heartbeat(self, job_id: UUID) -> None:
         while True:

@@ -21,6 +21,7 @@ from vitrina_creative.copy import (
     CopyHook,
     CopyInput,
     DroppedCell,
+    plan_copy,
     write_copy,
 )
 from vitrina_creative.judge import RubricJudge, VoicedVariant, judge_copy
@@ -98,6 +99,22 @@ async def run_pipeline(
     thresholds: Thresholds,
     on_stage: OnStage,
 ) -> PipelineResult:
+    item = CopyInput(
+        business_name=data.seller.business_name,
+        city=data.seller.city,
+        product_name=data.product.name,
+        product_description=data.product.description,
+        price_cop=data.product.price_cop,
+        stock=data.product.stock,
+        attributes=dict(data.product.attributes),
+        facts=data.facts,
+        voice=data.seller.voice,
+        scene_brief=data.scene_brief,
+    )
+    # Before any paid call: a job whose copy cannot be written must not pay for its scenes.
+    angles, hooks = data.angles or None, data.hooks or None
+    plan_copy(item, count=data.copy_variants, angles=angles, hooks=hooks)
+
     await on_stage("segmenting", 0.05)
     # SAM finds nothing for Spanish names, so it gets an English noun (concept.py).
     concept = await sam_concept(
@@ -151,23 +168,11 @@ async def run_pipeline(
         return PipelineResult(scenes=results, copy=[])  # nothing approvable: no copy to write
 
     await on_stage("copywriting", 0.75)
-    item = CopyInput(
-        business_name=data.seller.business_name,
-        city=data.seller.city,
-        product_name=data.product.name,
-        product_description=data.product.description,
-        price_cop=data.product.price_cop,
-        stock=data.product.stock,
-        attributes=dict(data.product.attributes),
-        facts=data.facts,
-        voice=data.seller.voice,
-        scene_brief=data.scene_brief,
-    )
     written = await write_copy(
         item,
         count=data.copy_variants,
-        angles=data.angles or None,
-        hooks=data.hooks or None,
+        angles=angles,
+        hooks=hooks,
         writer=chat,
         model=models.chat,
     )

@@ -6,21 +6,31 @@ show the creatives with their verification and the scored copy. The altered scen
 for audit and reported as blocked (FR-013).
 """
 
+import asyncio
+from datetime import UTC, datetime
 from pathlib import Path
+from typing import Any
 from urllib.parse import urlsplit
+from uuid import UUID
 
 import jwt
 import pytest
+import sqlalchemy as sa
 from fastapi.testclient import TestClient
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from vitrina_api.main import create_app
+from vitrina_core.db.tables import jobs
 from vitrina_core.jobs import PostgresJobQueue, TaskRegistry, Worker, load_tasks
-from vitrina_core.providers import Blob
+from vitrina_core.providers import Blob, ImageRequest, ImageResponse, ProviderError
 from vitrina_core.providers.compose import NoLiveAdapter, ProviderMode, Providers
 from vitrina_core.settings import Settings
 from vitrina_core.storage import LocalBlobStore
+from vitrina_creative.copy import NO_ANGLE_LEFT
+from vitrina_creative.jobs import JOB_GAVE_UP
 from vitrina_creative.provenance import read_provenance
+from vitrina_creative.reconcile import reconcile_failed_jobs
+from vitrina_creative.tasks import CREATIVE_TASK, creative_gave_up, run_creative_job
 from vitrina_creative.testing import (
     MaskOracle,
     ScriptedMuse,
@@ -77,6 +87,100 @@ def scripted_providers() -> Providers:
         segmenter=MaskOracle(source_photo(), *scenes),
         transcriber=NoLiveAdapter("transcribe"),
     )
+
+
+class RefusingMuse:
+    """Muse Image answering a 4xx: a final failure on the job's first attempt."""
+
+    async def generate(self, request: ImageRequest) -> ImageResponse:
+        raise ProviderError("400 from images", provider="meta_model_api", status_code=400)
+
+
+class HangingMuse:
+    """Muse Image that never answers, so the job reaches its timeout."""
+
+    async def generate(self, request: ImageRequest) -> ImageResponse:
+        await asyncio.sleep(30)
+        raise AssertionError("the job should have timed out")
+
+
+def providers_with(image: Any) -> Providers:
+    return Providers(
+        mode=ProviderMode.replay,
+        chat=SparkByPurpose(),
+        embedder=NoLiveAdapter("embed"),
+        image=image,
+        segmenter=MaskOracle(source_photo(), *good_scenes()),
+        transcriber=NoLiveAdapter("transcribe"),
+    )
+
+
+def creative_settings(url: str, schema: str, storage_dir: Path) -> Settings:
+    return Settings(
+        _env_file=None,
+        database_url=url,
+        db_schema=schema,
+        supabase_jwt_secret=SECRET,
+        service_token=SERVICE_TOKEN,
+        storage_dir=storage_dir,
+        model_agent="spark-test",
+        model_image="muse-test",
+        model_segment="sam-test",
+    )  # type: ignore[call-arg]
+
+
+def started_job(
+    client: TestClient, number: str, name: str = "Bolso tejido a mano", **params: Any
+) -> str:
+    """A seller, a product with one photo and its queued creative job; returns the job's id."""
+    sign_up(client, OWNER, number)
+    product_id = new_product(client, name)
+    photo = client.post(
+        "/v1/assets",
+        files={"file": ("bolso.png", source_photo().image.data, "image/png")},
+        data={"product_id": product_id},
+        headers=bearer(OWNER),
+    )
+    assert photo.status_code == 201, photo.text
+    accepted = client.post(
+        "/v1/creative/jobs", json={"product_id": product_id, **params}, headers=bearer(OWNER)
+    )
+    assert accepted.status_code == 202, accepted.text
+    return str(accepted.json()["id"])
+
+
+def creative_worker(
+    sessions: async_sessionmaker[AsyncSession],
+    settings: Settings,
+    storage_dir: Path,
+    providers: Providers,
+    registry: TaskRegistry | None = None,
+) -> Worker:
+    if registry is None:
+        registry = TaskRegistry()
+        load_tasks(registry)
+    return Worker(
+        PostgresJobQueue(sessions),
+        registry,
+        sessions=sessions,
+        providers=providers,
+        storage=LocalBlobStore(storage_dir, public_url=settings.public_api_url),
+        settings=settings,
+    )
+
+
+async def on_last_attempt(sessions: async_sessionmaker[AsyncSession], job_id: str) -> None:
+    """The next claim is the job's last attempt, and it is due now."""
+    async with sessions() as session, session.begin():
+        await session.execute(
+            sa.update(jobs)
+            .where(jobs.c.id == UUID(job_id))
+            .values(attempts=jobs.c.max_attempts - 1, run_after=sa.func.now())
+        )
+
+
+# What the queue records for a job whose worker was killed on its last attempt.
+STALLED = {"code": "STALLED", "message": "no heartbeat", "retryable": False}
 
 
 @pytest.mark.db
@@ -244,3 +348,148 @@ async def test_db_a_photo_without_the_product_fails_the_job_with_a_reason(
         assert body["error"]["code"] == "PRODUCT_NOT_FOUND"
         assert body["creatives"] == []
         assert body["copy_variants"] == []
+
+
+@pytest.mark.db
+async def test_db_as_2_1_an_image_model_refusal_fails_the_job_on_its_first_attempt(
+    migrated_schema: tuple[str, str],
+    db_sessions: async_sessionmaker[AsyncSession],
+    tmp_path: Path,
+) -> None:
+    settings = creative_settings(*migrated_schema, tmp_path)
+    with TestClient(create_app(settings)) as client:
+        job_id = started_job(client, "+573000000504")
+
+        worker = creative_worker(db_sessions, settings, tmp_path, providers_with(RefusingMuse()))
+        assert await worker.run_once() is True
+
+        body = client.get(f"/v1/creative/jobs/{job_id}", headers=bearer(OWNER)).json()
+        assert (body["status"], body["stage"]) == ("failed", "failed")
+        assert (body["error"]["code"], body["error"]["message"]) == ("PROVIDER_ERROR", JOB_GAVE_UP)
+        assert body["finished_at"] is not None
+        queued = client.get(f"/v1/jobs/{job_id}", headers=bearer(OWNER)).json()
+        assert queued["status"] == "failed"
+
+
+@pytest.mark.db
+async def test_db_as_2_1_a_timeout_waits_for_the_last_attempt_and_then_fails_the_job(
+    migrated_schema: tuple[str, str],
+    db_sessions: async_sessionmaker[AsyncSession],
+    tmp_path: Path,
+) -> None:
+    settings = creative_settings(*migrated_schema, tmp_path)
+    registry = TaskRegistry()
+    registry.add(CREATIVE_TASK, run_creative_job, timeout_s=1.0, on_final_failure=creative_gave_up)
+    with TestClient(create_app(settings)) as client:
+        job_id = started_job(client, "+573000000505")
+        worker = creative_worker(
+            db_sessions, settings, tmp_path, providers_with(HangingMuse()), registry
+        )
+
+        assert await worker.run_once() is True
+        retrying = client.get(f"/v1/creative/jobs/{job_id}", headers=bearer(OWNER)).json()
+        assert retrying["status"] in {"queued", "running"}
+        assert client.get(f"/v1/jobs/{job_id}", headers=bearer(OWNER)).json()["status"] == "queued"
+
+        await on_last_attempt(db_sessions, job_id)
+        assert await worker.run_once() is True
+
+        body = client.get(f"/v1/creative/jobs/{job_id}", headers=bearer(OWNER)).json()
+        assert (body["status"], body["stage"]) == ("failed", "failed")
+        assert (body["error"]["code"], body["error"]["message"]) == ("TIMEOUT", JOB_GAVE_UP)
+
+
+@pytest.mark.db
+async def test_db_as_2_1_the_sweep_closes_a_killed_job_and_never_a_running_one(
+    migrated_schema: tuple[str, str],
+    db_sessions: async_sessionmaker[AsyncSession],
+    tmp_path: Path,
+) -> None:
+    settings = creative_settings(*migrated_schema, tmp_path)
+    queue = PostgresJobQueue(db_sessions)
+    now = datetime.now(UTC)
+    with TestClient(create_app(settings)) as client:
+        job_id = started_job(client, "+573000000506")
+
+        def row() -> dict[str, Any]:
+            found: dict[str, Any] = client.get(
+                f"/v1/creative/jobs/{job_id}", headers=bearer(OWNER)
+            ).json()
+            return found
+
+        assert await reconcile_failed_jobs(db_sessions, now) == 0  # queued
+        await queue.claim("w1", frozenset({CREATIVE_TASK}))
+        assert await reconcile_failed_jobs(db_sessions, now) == 0  # running
+
+        await queue.fail(UUID(job_id), {**STALLED, "retryable": True}, now)
+        assert await reconcile_failed_jobs(db_sessions, now) == 0  # back in the queue for a retry
+        assert row()["status"] == "queued"
+
+        await on_last_attempt(db_sessions, job_id)
+        await queue.claim("w2", frozenset({CREATIVE_TASK}))
+        assert await reconcile_failed_jobs(db_sessions, now) == 0  # running its last attempt
+        assert row()["status"] == "queued"
+
+        await queue.fail(UUID(job_id), STALLED, None)
+        assert await reconcile_failed_jobs(db_sessions, now) == 1
+
+        body = row()
+        assert (body["status"], body["stage"]) == ("failed", "failed")
+        assert (body["error"]["code"], body["error"]["message"]) == ("STALLED", JOB_GAVE_UP)
+        assert await reconcile_failed_jobs(db_sessions, now) == 0  # nothing left to close
+
+
+@pytest.mark.db
+async def test_db_as_2_2_the_sweep_leaves_a_finished_job_as_it_is(
+    migrated_schema: tuple[str, str],
+    db_sessions: async_sessionmaker[AsyncSession],
+    tmp_path: Path,
+) -> None:
+    settings = creative_settings(*migrated_schema, tmp_path)
+    with TestClient(create_app(settings)) as client:
+        job_id = started_job(
+            client, "+573000000507", formats=["catalog_1x1"], scenes_per_format=3, copy_variants=6
+        )
+        worker = creative_worker(db_sessions, settings, tmp_path, scripted_providers())
+        assert await worker.run_once() is True
+        # The results were saved and then the queue lost track of the job (its worker died).
+        async with db_sessions() as session, session.begin():
+            await session.execute(
+                sa.update(jobs).where(jobs.c.id == UUID(job_id)).values(status="failed")
+            )
+
+        assert await reconcile_failed_jobs(db_sessions, datetime.now(UTC)) == 0
+
+        body = client.get(f"/v1/creative/jobs/{job_id}", headers=bearer(OWNER)).json()
+        assert (body["status"], body["stage"], body["error"]) == ("succeeded", "ready", None)
+        assert len(body["creatives"]) == 3
+
+
+@pytest.mark.db
+async def test_db_as_2_4_a_job_the_product_cannot_write_copy_for_fails_before_any_paid_call(
+    migrated_schema: tuple[str, str],
+    db_sessions: async_sessionmaker[AsyncSession],
+    tmp_path: Path,
+) -> None:
+    settings = creative_settings(*migrated_schema, tmp_path)
+    # Any paid call would fail with another code than the one this test expects.
+    unpaid = Providers(
+        mode=ProviderMode.replay,
+        chat=NoLiveAdapter("chat"),
+        embedder=NoLiveAdapter("embed"),
+        image=NoLiveAdapter("image"),
+        segmenter=NoLiveAdapter("segment"),
+        transcriber=NoLiveAdapter("transcribe"),
+    )
+    with TestClient(create_app(settings)) as client:
+        job_id = started_job(client, "+573000000508", "Camiseta básica", angles=["handmade"])
+
+        worker = creative_worker(db_sessions, settings, tmp_path, unpaid)
+        assert await worker.run_once() is True
+
+        body = client.get(f"/v1/creative/jobs/{job_id}", headers=bearer(OWNER)).json()
+        assert (body["status"], body["stage"]) == ("failed", "failed")
+        assert (body["error"]["code"], body["error"]["message"]) == (
+            "VALIDATION_ERROR",
+            NO_ANGLE_LEFT,
+        )

@@ -99,7 +99,6 @@ const JOB_TEXT: Record<string, string> = {
   PROVIDER_UNAVAILABLE: "Falta configurar el servicio de imágenes. Avísale a quien administra tu cuenta.",
   PROVIDER_ERROR: "El servicio de imágenes falló varias veces. Intenta de nuevo en unos minutos.",
   INTERNAL_ERROR: "Algo falló de nuestro lado. Intenta de nuevo.",
-  VALIDATION_ERROR: "Una de las fotos no pertenece a tu cuenta.",
 };
 
 /** The sentence to show for a failed job, in Spanish. */

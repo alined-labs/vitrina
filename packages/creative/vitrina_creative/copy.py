@@ -100,11 +100,14 @@ class CopyError(JobFailedError):
     """No usable copy at all: a final job failure."""
 
 
+def says_handmade(*product_data: str) -> bool:
+    return bool(HANDMADE_WORDS.search(_fold(" ".join(product_data))))
+
+
 def is_handmade(item: CopyInput) -> bool:
     if item.handmade is not None:
         return item.handmade
-    text = " ".join([item.product_name, item.product_description, *item.attributes.values()])
-    return bool(HANDMADE_WORDS.search(_fold(text)))
+    return says_handmade(item.product_name, item.product_description, *item.attributes.values())
 
 
 def plan_grid(
@@ -140,6 +143,25 @@ def plan_grid(
             cells.append((hook_pool[(index + lap) % len(hook_pool)], angle))
         lap += 1
     return cells
+
+
+def plan_copy(
+    item: CopyInput,
+    *,
+    count: int = 10,
+    angles: Sequence[CopyAngle] | None = None,
+    hooks: Sequence[CopyHook] | None = None,
+) -> list[tuple[CopyHook, CopyAngle]]:
+    """The grid this product can truthfully carry, or a CopyError. It calls no model, so a job
+    can ask before anything is paid for."""
+    return plan_grid(
+        count,
+        angles,
+        hooks,
+        allow_scarcity=item.stock is not None and 0 < item.stock <= LOW_STOCK,
+        allow_handmade=is_handmade(item),
+        allow_price=item.price_cop is not None,
+    )
 
 
 def allowed_amounts(item: CopyInput) -> set[int]:
@@ -205,14 +227,7 @@ async def write_copy(
     model: str,
 ) -> CopyResult:
     """The grid for one product: ``count`` checked texts, or a CopyError when none survive."""
-    cells = plan_grid(
-        count,
-        angles,
-        hooks,
-        allow_scarcity=item.stock is not None and 0 < item.stock <= LOW_STOCK,
-        allow_handmade=is_handmade(item),
-        allow_price=item.price_cop is not None,
-    )
+    cells = plan_copy(item, count=count, angles=angles, hooks=hooks)
     allowed = allowed_amounts(item)
     for fact in item.facts:
         allowed.update(amounts_cop(fact))

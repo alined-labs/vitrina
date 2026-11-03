@@ -2,7 +2,8 @@
 
 The job's payload is the snapshot the API took when the seller started it (product, active facts,
 seller voice, photo keys, parameters); the task runs the pipeline, stores each scene in the blob
-store and its row, and marks the job ready, or failed with a reason the seller can read.
+store and its row, and marks the job ready, or failed with a reason the seller can read. The
+worker reports every final failure to ``creative_gave_up``; ``reconcile.py`` covers the rest.
 """
 
 from typing import Any
@@ -10,7 +11,6 @@ from uuid import UUID
 
 from vitrina_core.ids import new_id
 from vitrina_core.jobs import JOB_FAILURE_TEXT, JobContext, JobFailedError, TaskRegistry
-from vitrina_core.providers import ProviderError
 from vitrina_core.storage import BlobNotFoundError, BlobStore, blob_key, seller_of
 from vitrina_creative.copy import BrandVoice
 from vitrina_creative.jobs import CreativeJobStore
@@ -21,7 +21,12 @@ from vitrina_creative.pipeline import (
     SellerSnapshot,
     run_pipeline,
 )
-from vitrina_creative.showcase import SHOWCASE_TASK, run_showcase
+from vitrina_creative.reconcile import (
+    RECONCILE_EVERY_S,
+    RECONCILE_FAILED_JOBS,
+    reconcile_failed_jobs,
+)
+from vitrina_creative.showcase import SHOWCASE_TASK, run_showcase, showcase_gave_up
 from vitrina_creative.verifier import Thresholds
 
 CREATIVE_TASK = "creative.run_job"
@@ -46,6 +51,8 @@ async def run_creative_job(ctx: JobContext) -> str:
             image=ctx.settings.model_id("image"),
             chat=ctx.settings.model_id("agent"),
         )
+    except JobFailedError as error:
+        raise await _fail(store, ctx, error.code, error.message) from error
     except BlobNotFoundError as error:
         raise await _fail(
             store, ctx, "NOT_FOUND", "Una de las fotos ya no está guardada."
@@ -70,11 +77,6 @@ async def run_creative_job(ctx: JobContext) -> str:
         )
     except JobFailedError as error:
         raise await _fail(store, ctx, error.code, error.message) from error
-    except Exception as error:
-        if ctx.job.attempt >= ctx.job.max_attempts:  # the worker gives up after this attempt
-            code = "PROVIDER_ERROR" if isinstance(error, ProviderError) else "INTERNAL_ERROR"
-            await store.fail(ctx.job_id, code, JOB_FAILURE_TEXT[code])
-        raise
 
     product_id = UUID(str(ctx.payload["params"]["product_id"]))
     scenes: list[dict[str, Any]] = []
@@ -130,7 +132,7 @@ async def load_input(payload: Any, seller_id: UUID, storage: BlobStore) -> Pipel
     for entry in payload["photos"]:
         key = str(entry["key"])
         if seller_of(key) != seller_id:  # Art. V.3
-            raise JobFailedError("VALIDATION_ERROR", "a photo belongs to another seller")
+            raise JobFailedError("VALIDATION_ERROR", "Una de las fotos no pertenece a tu cuenta.")
         photos.append((UUID(str(entry["asset_id"])), await storage.get(key)))
     return PipelineInput(
         product=ProductSnapshot(
@@ -165,6 +167,12 @@ async def _fail(
     return JobFailedError(code, message)
 
 
+async def creative_gave_up(ctx: JobContext, code: str) -> None:
+    if ctx.sessions is not None:
+        await CreativeJobStore(ctx.sessions).give_up(ctx.job_id, code)
+
+
 def register(registry: TaskRegistry) -> None:
-    registry.add(CREATIVE_TASK, run_creative_job, timeout_s=900)
-    registry.add(SHOWCASE_TASK, run_showcase, timeout_s=900)
+    registry.add(CREATIVE_TASK, run_creative_job, timeout_s=900, on_final_failure=creative_gave_up)
+    registry.add(SHOWCASE_TASK, run_showcase, timeout_s=900, on_final_failure=showcase_gave_up)
+    registry.every(RECONCILE_FAILED_JOBS, every_s=RECONCILE_EVERY_S, sweep=reconcile_failed_jobs)

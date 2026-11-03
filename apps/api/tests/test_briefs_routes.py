@@ -109,7 +109,14 @@ class Wonder:
                     "hook": "question",
                     "scene_brief": "La mochila sobre una mesa de madera.",
                     "offer": None,
-                }
+                },
+                {  # 'Mochila azul' does not say it is handmade: never offered
+                    "product_id": dataset["products"][0]["id"],
+                    "angle": "handmade",
+                    "hook": "story",
+                    "scene_brief": "La mochila sobre un telar.",
+                    "offer": None,
+                },
             ],
             "reactivation_segments": [],
         }
@@ -177,6 +184,7 @@ async def test_db_as_5_1_ten_attributed_chats_give_a_brief_the_seller_reads(
         assert brief["status"] == "ready"
         assert brief["insights"][0]["evidence"] == {"attributed_chats": 10}
         assert brief["model_calls"][0]["model"] == "wonder-test"
+        assert [item["angle"] for item in brief["creative_directives"]] == ["price"]
         assert [
             item["id"] for item in client.get("/v1/briefs", headers=bearer()).json()["items"]
         ] == [brief["id"]]

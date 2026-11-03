@@ -22,7 +22,7 @@ import sqlalchemy as sa
 from pydantic import MISSING, BaseModel, ConfigDict, Field, ValidationError
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
-from vitrina_catalog.api import CatalogStore, redact
+from vitrina_catalog.api import CatalogStore, Product, redact
 from vitrina_catalog.postgres import PostgresCatalog
 from vitrina_catalog.sellers import PostgresSellerStore, SellerStore
 from vitrina_compliance.api import TEMPLATE_NAME, ReactivationCampaignCreate, Segment
@@ -37,7 +37,7 @@ from vitrina_core.providers import (
     ResponseFormat,
     with_backoff,
 )
-from vitrina_creative.api import AdStore, CreativeJobCreate
+from vitrina_creative.api import AdStore, CreativeJobCreate, says_handmade
 from vitrina_learning.attribution import (
     AdDirectory,
     CreativeAds,
@@ -110,6 +110,9 @@ class BriefDataset(BaseModel):
     objections: dict[str, int]
     products: list[DatasetProduct]
     ads_by_status: dict[str, int]
+    # Products whose data does not say they are handmade: the copy step refuses that angle for
+    # them (Ley 1480). Checked outside the model, so it is not part of the prompt or the hash.
+    not_handmade: frozenset[UUID] = Field(default=frozenset(), exclude=True)
 
     def digest(self) -> str:
         return hashlib.sha256(self.model_dump_json().encode()).hexdigest()
@@ -131,6 +134,7 @@ async def build_dataset(
     seller = await sellers.get(seller_id)
     cursor: str | None = None
     products: list[DatasetProduct] = []
+    not_handmade: set[UUID] = set()
     while True:
         found, cursor = await catalog.list_products(
             seller_id, limit=100, cursor=cursor, status="active"
@@ -139,6 +143,7 @@ async def build_dataset(
             DatasetProduct(id=item.id, name=redact(item.name), price_cop=item.price_cop)
             for item in found
         ]
+        not_handmade |= {item.id for item in found if not _says_handmade(item)}
         if cursor is None:
             break
     statuses: dict[str, int] = {}
@@ -177,7 +182,14 @@ async def build_dataset(
         objections=dict(sorted(objections.totals.items())),
         products=sorted(products, key=lambda product: (product.name, str(product.id))),
         ads_by_status=dict(sorted(statuses.items())),
+        not_handmade=frozenset(not_handmade),
     )
+
+
+def _says_handmade(product: Product) -> bool:
+    description = "" if product.description is MISSING else product.description
+    attributes = {} if product.attributes is MISSING else product.attributes
+    return says_handmade(product.name, description, *attributes.values())
 
 
 # ── what Wonder must answer: strict, so every property is required and nothing extra ──
@@ -444,6 +456,7 @@ def _content(text: str | None, dataset: BriefDataset) -> BriefContent:
                 }
             )
             for item in output.creative_directives
+            if item.angle != "handmade" or item.product_id not in dataset.not_handmade
         ],
         reactivation_segments=[
             ReactivationSegment(

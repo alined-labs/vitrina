@@ -269,6 +269,98 @@ async def test_a_job_that_exceeds_its_timeout_fails() -> None:
     assert queue.events[-1][1]["code"] == "TIMEOUT"
 
 
+def told_task(failure: BaseException | None = None, *, timeout_s: float = 600.0) -> TaskRegistry:
+    """One task that raises ``failure`` (or hangs) and tells the queue's events when it gives up."""
+    registry = TaskRegistry()
+
+    async def handler(ctx: JobContext) -> None:
+        if failure is None:
+            await asyncio.sleep(30)
+        else:
+            raise failure
+
+    async def told(ctx: JobContext, code: str) -> None:
+        assert isinstance(ctx.queue, FakeQueue)
+        ctx.queue.events.append(("told", ctx.job_id, code))
+
+    registry.add("catalog.import_products", handler, timeout_s=timeout_s, on_final_failure=told)
+    return registry
+
+
+@pytest.mark.parametrize(
+    ("failure", "attempt", "code"),
+    [
+        (
+            JobFailedError("PRODUCT_NOT_FOUND", "No encontramos el producto."),
+            1,
+            "PRODUCT_NOT_FOUND",
+        ),
+        (ProviderError("400 from images", provider="meta_model_api"), 1, "PROVIDER_ERROR"),
+        (
+            ProviderError("503 from images", provider="meta_model_api", retryable=True),
+            3,
+            "PROVIDER_UNAVAILABLE",
+        ),
+        (RuntimeError("a bug"), 3, "INTERNAL_ERROR"),
+    ],
+)
+async def test_fr_083_a_task_is_told_once_after_its_job_failed_for_good(
+    failure: BaseException, attempt: int, code: str
+) -> None:
+    queue = FakeQueue([claimed(attempt=attempt)])
+
+    await worker(queue, told_task(failure)).run_once()
+
+    assert [event[0] for event in queue.events] == ["fail", "told"]  # the queue records it first
+    assert queue.events[0][1]["code"] == code
+    assert queue.events[0][2] is None
+    assert queue.events[1] == ("told", JOB, code)
+
+
+async def test_fr_083_a_task_is_told_when_its_last_attempt_times_out() -> None:
+    queue = FakeQueue([claimed(attempt=3)])
+
+    await worker(queue, told_task(timeout_s=0.01)).run_once()
+
+    assert queue.events[-1] == ("told", JOB, "TIMEOUT")
+
+
+@pytest.mark.parametrize(
+    "failure",
+    [
+        ProviderError("503 from images", provider="meta_model_api", retryable=True),
+        RuntimeError("a bug"),
+        None,  # hangs until the timeout
+    ],
+)
+async def test_fr_083_a_task_is_not_told_while_attempts_remain(
+    failure: BaseException | None,
+) -> None:
+    queue = FakeQueue([claimed(attempt=1)])
+
+    await worker(queue, told_task(failure, timeout_s=0.01)).run_once()
+
+    assert [event[0] for event in queue.events] == ["fail"]
+    assert queue.events[0][2] is not None  # it comes back
+
+
+async def test_fr_083_a_failing_notice_leaves_the_job_failed_and_the_worker_running() -> None:
+    registry = TaskRegistry()
+
+    async def handler(ctx: JobContext) -> None:
+        raise JobFailedError("PRODUCT_NOT_FOUND", "No encontramos el producto.")
+
+    async def told(ctx: JobContext, code: str) -> None:
+        raise RuntimeError("the database went away")
+
+    registry.add("catalog.import_products", handler, on_final_failure=told)
+    queue = FakeQueue([claimed()])
+
+    assert await worker(queue, registry).run_once() is True
+
+    assert [event[0] for event in queue.events] == ["fail"]
+
+
 def test_task_names_are_unique() -> None:
     registry = TaskRegistry()
     registry.add("catalog.import_products", lambda ctx: asyncio.sleep(0))

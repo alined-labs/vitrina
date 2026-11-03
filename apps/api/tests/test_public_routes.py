@@ -10,6 +10,7 @@ from starlette.requests import Request
 from vitrina_api.main import create_app
 from vitrina_api.routers.public import rate_limit_address, visitor_address
 from vitrina_core.settings import Settings
+from vitrina_creative.showcase import PRICE_MAX
 from vitrina_creative.testing import source_photo
 
 
@@ -28,6 +29,21 @@ def test_showcases_need_the_database_and_no_sign_in(client: TestClient) -> None:
 
     assert (created.status_code, created.json()["code"]) == (503, "PROVIDER_UNAVAILABLE")
     assert (fetched.status_code, fetched.json()["code"]) == (503, "PROVIDER_UNAVAILABLE")
+
+
+def test_as_8_2_a_price_the_page_cannot_hold_is_refused_and_no_photo_is_stored(
+    client: TestClient, tmp_path: Path
+) -> None:
+    response = client.post(
+        "/v1/public/showcases",
+        files={"image": ("bolso.png", source_photo().image.data, "image/png")},
+        data={"product_name": "Bolso tejido a mano", "price_cop": str(PRICE_MAX + 1)},
+    )
+
+    assert (response.status_code, response.json()["code"]) == (400, "VALIDATION_ERROR")
+    assert response.json()["errors"][0]["field"] == "price_cop"
+    assert "precio" in response.json()["detail"]
+    assert not [path for path in tmp_path.rglob("*") if path.is_file()]
 
 
 def test_a_malformed_slug_is_a_validation_error(client: TestClient) -> None:
