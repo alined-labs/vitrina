@@ -58,7 +58,7 @@ def seller_with_a_photographed_product(client: TestClient, subject: str, number:
             "whatsapp_number": number,
             "city": "Medellín",
         },
-        headers=bearer(subject),
+        headers={**bearer(subject), **SERVICE},
     )
     assert signup.status_code == 201, signup.text
     product = client.post(
