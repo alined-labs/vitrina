@@ -12,6 +12,8 @@
 
 Vitrina is a closed-loop AI storefront for WhatsApp sellers in Colombia, built in the open during the **Meta Global AI Developer Hackathon** (Indie Developer Track, theme "Build for Your World"), October 26 – November 4, 2026.
 
+**Judges:** start with [JUDGING.md](JUDGING.md), a ten-minute path in English.
+
 **Live:** [vitrina.alinedlabs.co](https://vitrina.alinedlabs.co). The public "Foto → Vitrina" page at [/foto](https://vitrina.alinedlabs.co/foto) turns one product photo into a shareable showcase, with no account.
 
 ## What it does
