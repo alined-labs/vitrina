@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { useCallback, useEffect, useState } from "react";
 import { api, type components } from "@/lib/api/client";
 import { formatDateTime, problemMessage } from "@/lib/format";
@@ -76,7 +77,7 @@ export function Conversations() {
           {filter === "attention" ? "Nadie te está esperando. El agente tiene todo bajo control." : "Aún no hay conversaciones."}
         </p>
       ) : (
-        <ul className="card divide-y divide-line">
+        <ul className="card divide-y divide-line overflow-hidden">
           {items.map((conversation) => (
             <ConversationRow key={conversation.id} conversation={conversation} />
           ))}
@@ -86,38 +87,45 @@ export function Conversations() {
   );
 }
 
-function ConversationRow({ conversation }: { conversation: Conversation }) {
+/** The customer's name as a seller knows them, or their masked number; null until it arrives. */
+export function useContactName(contactId: string): string | null {
   const [who, setWho] = useState<string | null>(null);
 
   useEffect(() => {
     void api
-      .GET("/contacts/{contact_id}", { params: { path: { contact_id: conversation.contact_id } } })
+      .GET("/contacts/{contact_id}", { params: { path: { contact_id: contactId } } })
       .then(({ data }) => {
         if (data) setWho(data.display_name ?? data.phone_masked ?? null);
-      });
-  }, [conversation.contact_id]);
+      })
+      .catch(() => undefined); // the name is a nicety: "Cliente" stands in without it
+  }, [contactId]);
 
+  return who;
+}
+
+/** Who has the chat, the ad that brought it, and whether it is a demo. */
+export function ConversationBadges({ conversation }: { conversation: Conversation }) {
+  return (
+    <>
+      <span className={`badge ${conversation.mode === "human" ? "badge--warning" : ""}`}>
+        {MODE[conversation.mode]}
+      </span>
+      {conversation.attributed_ad_code && (
+        <span className="badge badge--code">#{conversation.attributed_ad_code}</span>
+      )}
+      {conversation.attribution_status === "unknown_code" && (
+        <span className="text-xs text-fg-subtle">mencionó un código que no existe</span>
+      )}
+      {conversation.is_replay && <span className="badge badge--info">Demo</span>}
+    </>
+  );
+}
+
+/** Why the chat came to the seller, its summary and the objections heard. */
+export function ConversationNotes({ conversation }: { conversation: Conversation }) {
   const human = conversation.mode === "human";
   return (
-    <li className="space-y-2 px-4 py-3 text-sm">
-      <div className="flex flex-wrap items-center gap-2">
-        <span className="font-medium">{who ?? "Cliente"}</span>
-        <span className={`badge ${human ? "badge--warning" : ""}`}>
-          {MODE[conversation.mode]}
-        </span>
-        {conversation.attributed_ad_code && (
-          <span className="badge badge--code">#{conversation.attributed_ad_code}</span>
-        )}
-        {conversation.attribution_status === "unknown_code" && (
-          <span className="text-xs text-fg-subtle">mencionó un código que no existe</span>
-        )}
-        {conversation.is_replay && <span className="badge badge--info">Demo</span>}
-        {conversation.last_message_at && (
-          <span className="ml-auto text-xs text-fg-subtle">
-            {formatDateTime(conversation.last_message_at)}
-          </span>
-        )}
-      </div>
+    <>
       {human && conversation.handoff?.reason && (
         <p className="text-warning-fg">{HANDOFF_REASON[conversation.handoff.reason]}</p>
       )}
@@ -133,6 +141,29 @@ function ConversationRow({ conversation }: { conversation: Conversation }) {
           ))}
         </p>
       )}
+    </>
+  );
+}
+
+function ConversationRow({ conversation }: { conversation: Conversation }) {
+  const who = useContactName(conversation.contact_id);
+  return (
+    <li>
+      <Link
+        href={`/conversaciones/${conversation.id}`}
+        className="block space-y-2 px-4 py-3 text-sm transition-colors hover:bg-sunken focus-visible:-outline-offset-2"
+      >
+        <div className="flex flex-wrap items-center gap-2">
+          <span className="font-medium">{who ?? "Cliente"}</span>
+          <ConversationBadges conversation={conversation} />
+          {conversation.last_message_at && (
+            <span className="ml-auto text-xs text-fg-subtle">
+              {formatDateTime(conversation.last_message_at)}
+            </span>
+          )}
+        </div>
+        <ConversationNotes conversation={conversation} />
+      </Link>
     </li>
   );
 }
