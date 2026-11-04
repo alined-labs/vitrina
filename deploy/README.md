@@ -2,11 +2,11 @@
 
 Two parts, in this order:
 
-1. **Back end** (API and worker) on Azure Container Apps, with `deploy/azure.sh`. It prints the API address.
+1. **Back end** (API and two workers) on Azure Container Apps, with `deploy/azure.sh`. It prints the API address.
 2. **Front end** (the dashboard) on Cloudflare Workers at `https://vitrina.alinedlabs.co`, with the API address built into its `/api/v1/*` proxy. Build and deploy it again whenever the API address changes.
 
 ## Back end: Azure Container Apps
-The API and the worker run as two container apps from the one image in the repository's
+The API and the two workers run as three container apps from the one image in the repository's
 `Dockerfile`. The database and file storage stay on Supabase. The dashboard is deployed
 separately and reaches the API through its own `/api/v1/*` proxy, so browsers stay
 same-origin.
@@ -15,6 +15,7 @@ same-origin.
 browser ──► dashboard (vitrina.alinedlabs.co) ──/api/v1/*──► vitrina-api  (external ingress, :8080)
 WhatsApp Cloud API ──────────────────────────────webhook──► vitrina-api
                                         jobs table (Supabase) ◄──► vitrina-worker (no ingress)
+                                                              ◄──► vitrina-worker-inbound (no ingress)
 ```
 
 ### What you need
@@ -52,36 +53,70 @@ The script is idempotent. In order, it:
    locally;
 3. migrates the production schema (`DB_SCHEMA`) to head with Alembic;
 4. creates the Container Apps environment (Consumption) if it is missing;
-5. creates the two apps or updates them to the new image, settings and secrets:
+5. creates the three apps or updates them to the new image, settings and secrets:
    - `vitrina-api`: external ingress on port 8080, one replica, so the WhatsApp webhook never
      waits for a cold start;
-   - `vitrina-worker`: no ingress, one replica, runs `vitrina-worker`;
-6. waits for `GET /v1/health` and prints the API address and the WhatsApp webhook URL.
+   - `vitrina-worker`: no ingress, one replica, runs `vitrina-worker` with
+     `WORKER_EXCLUDE_TASKS=conversation.process_inbound,compliance.erase_contact`: creative jobs,
+     the showcase, replays, campaigns and every other job, and the periodic sweeps;
+   - `vitrina-worker-inbound`: no ingress, one replica, runs `vitrina-worker` with
+     `WORKER_TASKS=conversation.process_inbound,compliance.erase_contact`: customer messages and
+     BAJA, so they never wait behind a long job, and a job that runs out of memory cannot stop
+     replies. Erasures share this worker so they run between answers: one that ran during an
+     answer would miss the reply written after it. A slow erasure holds replies up until it ends
+     or reaches its time limit; waiting messages stay in the queue;
+6. after each worker, checks that its new revision is running: the latest revision must run the
+   image of this deploy and read `Running*` with a replica, three checks in a row, while its
+   containers do not restart. If not, the script stops with `DEPLOY FAILED` and the app's name
+   instead of reporting success. The general worker is checked before the inbound worker is
+   touched: a failed update leaves its old revision running, and that revision must not run beside
+   a new inbound worker;
+7. waits for `GET /v1/health` and prints the API address and the WhatsApp webhook URL.
 
 Every secret becomes a Container Apps secret and reaches the apps as a `secretref`. Values are
 read from `.env` and passed straight to `az`, never echoed. `VISITOR_PROXY_SECRET` goes to the
-API only; the worker never needs it.
+API only; the workers never need it.
+
+Keep each worker at one replica, and never let both claim `conversation.process_inbound` or
+`compliance.erase_contact`. One inbound replica is what keeps two messages from one customer from
+being answered at the same time, and an erasure from running during an answer. Nothing else
+enforces it: a second replica would claim them too. The script updates the general worker first;
+if a later step fails, messages and erasures wait in the queue until the script runs again.
+Container Apps keeps the old revision running until the new one is ready, and `az` returning does
+not mean it has stopped, so during a deploy an old and a new replica can overlap, as they always
+could. On the deploy that adds the inbound worker, that overlap can include the old general worker,
+which still claims messages until it stops.
 
 ### After the first deploy
 
 - Point the dashboard's API proxy at the printed address.
 - Create the shop's seller, with the WhatsApp business number as `whatsapp_number`, **before**
-  the webhook is set. Inbound messages go to the seller with that number, `POST /v1/sellers` is
-  open, and the number is not verified: whoever registers it first receives its chats.
+  the webhook is set. Inbound messages go to the seller with that number, so `POST /v1/sellers`
+  needs the deployment's `SERVICE_TOKEN` in `X-Service-Token`. A signed-in account alone can't
+  create a seller, and the owner's token must come with that call, because a seller can't be
+  linked to an account later.
   `scripts/seed-demo.py` creates it with the demo shop's products, facts and photo (the shop in
   `evals/fixtures/sellers/mochilas_ana.json`). First add the owner's sign-in in Supabase
   (Authentication, Users), then run, from the repository root:
 
   ```sh
-  uv run --env-file apps/dashboard/.env.production.local scripts/seed-demo.py \
+  uv run --env-file apps/dashboard/.env.production.local --env-file <file holding only SERVICE_TOKEN> \
+    scripts/seed-demo.py \
     --api https://<api address>/v1 --whatsapp-number <business number, E.164> \
     --sign-in <owner email> --photo mochila-azul=<path to the product photo>
   ```
 
-  The password is asked at the prompt and only the public anon key is used. A second run
+  The password is asked at the prompt and only the public anon key signs in. The seed sends
+  `SERVICE_TOKEN` only to create the seller and never prints it. A second run
   changes nothing; a 409 means the number or the account already has a seller.
 - In the Meta app, set the WhatsApp webhook to `https://<api address>/v1/webhooks/whatsapp`
-  with the same `WHATSAPP_VERIFY_TOKEN`.
+  with the same `WHATSAPP_VERIFY_TOKEN`, and subscribe it to `messages` and
+  `message_template_status_update`. Keep the app in Live mode: Meta holds some webhooks back in
+  Dev mode.
+- Campaigns can be sent once Meta has approved the `vitrina_reactivacion` template. Set
+  `WHATSAPP_BUSINESS_ACCOUNT_ID` and `WHATSAPP_BUSINESS_NUMBER` in `.env` and deploy again: Meta's
+  events then update the seller with that number. For a template Meta had already approved, run
+  `uv run --env-file .env scripts/sync-template-status.py --api https://<api address>/v1`.
 - `GET /v1/health/providers` with a seller's token shows every dependency. In production each
   row should read `ok`, not `mocked`.
 - Check the production settings: `WHATSAPP_MOCK=false` (the mock phone's routes have no sign-in)
@@ -91,18 +126,31 @@ API only; the worker never needs it.
 
 ```sh
 az containerapp logs show --name vitrina-api --resource-group vitrina --follow
+az containerapp logs show --name vitrina-worker --resource-group vitrina --follow
+az containerapp logs show --name vitrina-worker-inbound --resource-group vitrina --follow
 az containerapp revision list --name vitrina-api --resource-group vitrina --output table
 az containerapp revision activate --revision <previous> --name vitrina-api --resource-group vitrina
 ```
 
-To roll back, activate the previous revision, or run `IMAGE_TAG=<older commit> deploy/azure.sh`
-after `git checkout <older commit>`.
+To roll back, activate the previous revision of each app, or run
+`IMAGE_TAG=<older commit> deploy/azure.sh` after `git checkout <older commit>`.
+
+A worker from before the inbound worker claims customer messages and erasures too, and that
+commit's script does not touch the inbound app. So this applies both to activating a previous
+revision of `vitrina-worker` from before it and to deploying a commit from before it: first remove
+the inbound worker, so two workers never claim them together. From that moment nothing claims
+messages or erasures until the old deploy finishes; they wait in the queue. The script creates the
+inbound worker again on the next newer deploy:
+
+```sh
+az containerapp delete --name vitrina-worker-inbound --resource-group vitrina --yes
+```
 
 ### Notes
 
-- **Sizes.** The API gets the smallest Consumption size (0.25 vCPU, 0.5 GiB). The worker
-  starts at 0.5 vCPU and 1 GiB because creative jobs hold images in memory. Each pair must be
-  one of the allowed combinations (0.25/0.5Gi, 0.5/1.0Gi, 0.75/1.5Gi, …).
+- **Sizes.** The API and the inbound worker get the smallest Consumption size (0.25 vCPU,
+  0.5 GiB). The general worker starts at 0.5 vCPU and 1 GiB because creative jobs hold images in
+  memory. Each pair must be one of the allowed combinations (0.25/0.5Gi, 0.5/1.0Gi, 0.75/1.5Gi, …).
 - **Client addresses.** The ingress appends the caller's address to any `X-Forwarded-For` the
   caller sent, so only the rightmost entry comes from Azure. uvicorn trusts loopback and
   private peers (`FORWARDED_ALLOW_IPS`) and takes the rightmost entry they did not add, so

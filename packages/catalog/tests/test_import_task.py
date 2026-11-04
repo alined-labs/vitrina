@@ -64,7 +64,8 @@ async def test_an_unset_model_id_fails_the_job_for_good(tmp_path: Path) -> None:
         await import_products(context(tmp_path, key))
 
     assert caught.value.code == "PROVIDER_UNAVAILABLE"
-    assert "MODEL_AGENT" in caught.value.message
+    assert "MODEL_AGENT" not in caught.value.message
+    assert "MODEL_AGENT" in str(caught.value.__cause__)  # for the log
 
 
 async def test_a_photo_that_is_gone_fails_with_not_found(tmp_path: Path) -> None:

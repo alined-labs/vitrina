@@ -13,7 +13,10 @@ export interface paths {
         };
         get?: never;
         put?: never;
-        /** Create a seller account */
+        /**
+         * Create a seller account
+         * @description Operator only. Send the owner's Supabase token as well, in `Authorization`, so the new seller is linked to the account that will sign in; there is no way to link it later.
+         */
         post: operations["createSeller"];
         delete?: never;
         options?: never;
@@ -1963,6 +1966,7 @@ export interface operations {
                 };
             };
             400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
             409: components["responses"]["Conflict"];
         };
     };
@@ -2119,6 +2123,7 @@ export interface operations {
         responses: {
             202: components["responses"]["Accepted"];
             400: components["responses"]["BadRequest"];
+            429: components["responses"]["TooManyRequests"];
         };
     };
     getProduct: {
@@ -2404,6 +2409,7 @@ export interface operations {
             };
             400: components["responses"]["BadRequest"];
             404: components["responses"]["NotFound"];
+            429: components["responses"]["TooManyRequests"];
         };
     };
     getCreativeJob: {
@@ -2905,6 +2911,7 @@ export interface operations {
                 };
             };
             400: components["responses"]["BadRequest"];
+            429: components["responses"]["TooManyRequests"];
             503: components["responses"]["ProviderUnavailable"];
         };
     };
@@ -3148,6 +3155,7 @@ export interface operations {
                     "application/problem+json": components["schemas"]["Problem"];
                 };
             };
+            429: components["responses"]["TooManyRequests"];
         };
     };
     getBrief: {
@@ -3200,6 +3208,7 @@ export interface operations {
                     };
                 };
             };
+            429: components["responses"]["TooManyRequests"];
         };
     };
     listReactivationCampaigns: {
@@ -3403,6 +3412,7 @@ export interface operations {
                     "application/json": components["schemas"]["EvalRun"];
                 };
             };
+            429: components["responses"]["TooManyRequests"];
         };
     };
     getEvalRun: {
@@ -3539,6 +3549,7 @@ export interface operations {
                     };
                 };
             };
+            429: components["responses"]["TooManyRequests"];
         };
     };
     createPublicShowcase: {

@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useCallback, useEffect, useState } from "react";
+import { oncePerAction } from "@/lib/api/action-key";
 import { api, type components } from "@/lib/api/client";
 import { bogotaDate, jobErrorMessage, problemMessage } from "@/lib/format";
 import { ANGLE, HOOK, OBJECTION } from "@/lib/labels";
@@ -62,7 +63,10 @@ export function Briefs() {
 
   async function generate() {
     setMessage(null);
-    const { data, error } = await api.POST("/briefs/generate", { body: { period_from: bogotaDate(-7), period_to: bogotaDate() } });
+    const body = { period_from: bogotaDate(-7), period_to: bogotaDate() };
+    const { data, error } = await oncePerAction(`briefs/generate:${body.period_from}:${body.period_to}`, (header) =>
+      api.POST("/briefs/generate", { params: { header }, body }),
+    );
     if (data) setRunning(data.id);
     else setMessage(problemMessage(error, "No pudimos pedir el informe."));
   }
@@ -130,7 +134,9 @@ function BriefDetail({ id, onApplied }: { id: string; onApplied: () => Promise<B
     if (!window.confirm(question)) return;
     setBusy(true);
     setMessage(null);
-    const { data, error } = await api.POST("/briefs/{brief_id}/apply", { params: { path: { brief_id: id } } });
+    const { data, error } = await oncePerAction(`briefs/apply:${id}`, (header) =>
+      api.POST("/briefs/{brief_id}/apply", { params: { path: { brief_id: id }, header } }),
+    );
     setBusy(false);
     if (data) {
       setApplied(data);

@@ -17,6 +17,7 @@ from vitrina_conversation.api import (
     InvalidSignatureError,
     PayloadTooLargeError,
     PostgresInboundQueue,
+    TemplateAccount,
     bookings,
     conversation_store,
     memory_pipeline,
@@ -120,9 +121,12 @@ def _ingest(state: State, background: BackgroundTasks) -> Ingest:
             directory if isinstance(directory, InMemorySellerStore) else InMemorySellerStore()
         )
     secret = settings.whatsapp_app_secret
+    account, number = settings.whatsapp_business_account_id, settings.whatsapp_business_number
     return Ingest(
         store=store,
         queue=queue,
         sellers=sellers,
         app_secret=secret.get_secret_value() if secret else "",
+        template_account=TemplateAccount(account, number) if account and number else None,
+        template_status=state.sellers.set_marketing_template,
     )

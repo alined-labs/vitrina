@@ -7,9 +7,13 @@ task never edits a shared file:
     catalog = "vitrina_catalog.tasks:register"     # def register(registry: TaskRegistry)
 
 A handler gets a ``JobContext`` and returns the job's ``result_ref`` (or None). Raise
-``JobFailedError`` for a final failure with a stable code; any other exception, a provider
-outage or a timeout is retried with backoff until ``max_attempts``, waiting longer when the
-provider asked for a longer pause (``ProviderError.retry_after_s``).
+``JobFailedError`` for a final failure with a stable code; its message reaches the seller as
+written, so never put an exception's text in it. Any other exception, a provider outage or a
+timeout is retried with backoff until ``max_attempts``, waiting longer when the provider asked
+for a longer pause (``ProviderError.retry_after_s``), and the job's error says only
+``JOB_FAILURE_TEXT``: the real error goes to the log under the job's id. A task with rows of its
+own passes ``on_final_failure`` to close them when its job fails for good; a process that is
+killed reaches no such code, so such a task also needs a sweep that reads the queue.
 """
 
 import asyncio
@@ -28,6 +32,7 @@ from uuid import UUID
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from vitrina_core.http.context import seller_id_var
+from vitrina_core.jobs.model import JOB_FAILURE_TEXT
 from vitrina_core.jobs.queue import ClaimedJob, JobQueue
 from vitrina_core.providers import ProviderError
 from vitrina_core.providers.compose import Providers
@@ -46,6 +51,11 @@ class JobFailedError(Exception):
         super().__init__(message)
         self.code = code
         self.message = message
+
+    @classmethod
+    def safe(cls, code: str) -> JobFailedError:
+        """A final failure no task wording fits; raise it ``from`` the error for the log."""
+        return cls(code, JOB_FAILURE_TEXT[code])
 
 
 @dataclass(frozen=True)
@@ -75,6 +85,8 @@ class JobContext:
 
 
 Handler = Callable[[JobContext], Awaitable[str | None]]
+# Runs once the queue has recorded a job's final failure: (ctx, the error's code).
+OnFinalFailure = Callable[[JobContext, str], Awaitable[None]]
 # Housekeeping the worker runs on an interval, outside the queue: (sessions, now) -> rows changed.
 Sweep = Callable[[async_sessionmaker[AsyncSession], datetime], Awaitable[int]]
 
@@ -84,6 +96,7 @@ class Task:
     name: str
     handler: Handler
     timeout_s: float = 600.0
+    on_final_failure: OnFinalFailure | None = None
 
 
 @dataclass(frozen=True)
@@ -98,10 +111,17 @@ class TaskRegistry:
     _tasks: dict[str, Task] = field(default_factory=dict)
     _periodic: dict[str, Periodic] = field(default_factory=dict)
 
-    def add(self, name: str, handler: Handler, *, timeout_s: float = 600.0) -> None:
+    def add(
+        self,
+        name: str,
+        handler: Handler,
+        *,
+        timeout_s: float = 600.0,
+        on_final_failure: OnFinalFailure | None = None,
+    ) -> None:
         if name in self._tasks:
             raise ValueError(f"task {name!r} is already registered")
-        self._tasks[name] = Task(name, handler, timeout_s)
+        self._tasks[name] = Task(name, handler, timeout_s, on_final_failure)
 
     def task(self, name: str, *, timeout_s: float = 600.0) -> Callable[[Handler], Handler]:
         def decorate(handler: Handler) -> Handler:
@@ -124,6 +144,31 @@ class TaskRegistry:
 
     def names(self) -> frozenset[str]:
         return frozenset(self._tasks)
+
+    def narrowed(self, *, only: Iterable[str] = (), exclude: Iterable[str] = ()) -> TaskRegistry:
+        """What one worker process claims; with neither limit, everything.
+
+        ``only`` makes a dedicated worker, which runs no sweeps. ``exclude`` makes the general
+        worker, which keeps them, so one set of limits never runs a sweep in two processes.
+        A name no package registered raises ``ValueError``: a worker waiting for a task that
+        does not exist would claim nothing and say nothing.
+        """
+        kept, dropped = frozenset(only), frozenset(exclude)
+        if kept and dropped:
+            raise ValueError("give either the tasks to claim or the tasks to leave, not both")
+        unknown = (kept | dropped) - self.names()
+        if unknown:
+            raise ValueError(
+                f"unknown task names: {', '.join(sorted(unknown))}; "
+                f"registered: {', '.join(sorted(self.names()))}"
+            )
+        chosen = kept or self.names() - dropped
+        if not chosen:
+            raise ValueError("these limits leave no task left for this worker to claim")
+        return TaskRegistry(
+            {name: task for name, task in self._tasks.items() if name in chosen},
+            {} if kept else dict(self._periodic),
+        )
 
 
 def load_tasks(registry: TaskRegistry, points: Iterable[EntryPoint] | None = None) -> None:
@@ -173,13 +218,15 @@ class Worker:
         self._next_sweep: dict[str, float] = {}
 
     async def run(self, stop: asyncio.Event) -> None:
-        """Process jobs one at a time until ``stop`` is set (one dev process per machine)."""
+        """Process jobs one at a time until ``stop`` is set."""
         next_sweep = 0.0
         while not stop.is_set():
             ran = False
             try:
                 if time.monotonic() >= next_sweep:
-                    await self.queue.requeue_stalled(timedelta(seconds=self.stalled_after_s))
+                    await self.queue.requeue_stalled(
+                        timedelta(seconds=self.stalled_after_s), self.registry.names()
+                    )
                     next_sweep = time.monotonic() + self.stalled_after_s / 3
                 await self.run_sweeps()
                 ran = await self.run_once()
@@ -220,56 +267,87 @@ class Worker:
                 job.id,
                 {
                     "code": "UNKNOWN_TASK",
-                    "message": f"no handler for {job.task}",
+                    "message": JOB_FAILURE_TEXT["UNKNOWN_TASK"],
                     "retryable": False,
                 },
                 None,
             )
+            logger.error("job %s: no handler for %s", job.id, job.task)
             return
         beat = asyncio.create_task(self._heartbeat(job.id))
         seller_token = seller_id_var.set(job.owner_seller_id)
         try:
             result = await asyncio.wait_for(
-                task.handler(
-                    JobContext(
-                        job, self.queue, self.sessions, self.providers, self.storage, self.settings
-                    )
-                ),
+                task.handler(self._context(job)),
                 task.timeout_s,
             )
         except JobFailedError as error:
-            await self.queue.fail(
-                job.id, {"code": error.code, "message": error.message, "retryable": False}, None
+            if error.__cause__ is not None:
+                logger.warning("job %s (%s) %s: %r", job.id, job.task, error.code, error.__cause__)
+            await self._give_up(
+                job, task, {"code": error.code, "message": error.message, "retryable": False}
             )
         except TimeoutError:
-            await self._failed(job, "TIMEOUT", f"{job.task} ran longer than {task.timeout_s:g} s")
+            await self._failed(
+                job, task, "TIMEOUT", f"{job.task} ran longer than {task.timeout_s:g} s"
+            )
         except ProviderError as error:
             if error.retryable:
                 await self._failed(
-                    job, "PROVIDER_UNAVAILABLE", str(error), not_before_s=error.retry_after_s
+                    job, task, "PROVIDER_UNAVAILABLE", str(error), not_before_s=error.retry_after_s
                 )
             else:
-                await self.queue.fail(
-                    job.id,
-                    {"code": "PROVIDER_ERROR", "message": str(error), "retryable": False},
-                    None,
+                logger.warning("job %s (%s) PROVIDER_ERROR: %s", job.id, job.task, error)
+                await self._give_up(
+                    job,
+                    task,
+                    {
+                        "code": "PROVIDER_ERROR",
+                        "message": JOB_FAILURE_TEXT["PROVIDER_ERROR"],
+                        "retryable": False,
+                    },
                 )
         except Exception as error:
             logger.exception("job %s (%s) failed", job.id, job.task)
-            await self._failed(job, "INTERNAL_ERROR", f"{type(error).__name__}: {error}")
+            await self._failed(job, task, "INTERNAL_ERROR", f"{type(error).__name__}: {error}")
         else:
             await self.queue.succeed(job.id, result)
         finally:
             seller_id_var.reset(seller_token)
             beat.cancel()
 
+    def _context(self, job: ClaimedJob) -> JobContext:
+        return JobContext(
+            job, self.queue, self.sessions, self.providers, self.storage, self.settings
+        )
+
     async def _failed(
-        self, job: ClaimedJob, code: str, message: str, *, not_before_s: float | None = None
+        self,
+        job: ClaimedJob,
+        task: Task,
+        code: str,
+        detail: str,
+        *,
+        not_before_s: float | None = None,
     ) -> None:
+        logger.warning("job %s (%s) %s: %s", job.id, job.task, code, detail)
         retry = job.attempt < job.max_attempts
-        error = {"code": code, "message": message[:500], "retryable": retry}
-        wait = max(backoff(job.attempt), timedelta(seconds=not_before_s or 0))
-        await self.queue.fail(job.id, error, self.clock() + wait if retry else None)
+        error = {"code": code, "message": JOB_FAILURE_TEXT[code], "retryable": retry}
+        if retry:
+            wait = max(backoff(job.attempt), timedelta(seconds=not_before_s or 0))
+            await self.queue.fail(job.id, error, self.clock() + wait)
+        else:
+            await self._give_up(job, task, error)
+
+    async def _give_up(self, job: ClaimedJob, task: Task, error: dict[str, Any]) -> None:
+        """The queue first, so a notice that fails leaves a failure a sweep can still read."""
+        await self.queue.fail(job.id, error, None)
+        if task.on_final_failure is None:
+            return
+        try:
+            await task.on_final_failure(self._context(job), str(error["code"]))
+        except Exception:
+            logger.exception("job %s (%s): closing its failed rows failed", job.id, job.task)
 
     async def _heartbeat(self, job_id: UUID) -> None:
         while True:

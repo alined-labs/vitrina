@@ -2,6 +2,7 @@
 
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
+from datetime import timedelta
 from importlib.metadata import version
 
 from fastapi import FastAPI
@@ -50,6 +51,7 @@ from vitrina_core.http import (
 from vitrina_core.jobs import PostgresJobQueue
 from vitrina_core.ledger import InMemoryLedger, PostgresLedger, SpendWatch
 from vitrina_core.providers.compose import compose
+from vitrina_core.quotas import InMemoryUsageCounter, PostgresUsageCounter
 from vitrina_core.settings import Settings, get_settings
 from vitrina_core.storage import LocalBlobStore, blob_store, create_blob_router
 from vitrina_creative.media import IMAGE_MAX_BYTES, VIDEO_MAX_BYTES
@@ -142,6 +144,9 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.state.ledger = (
         PostgresLedger(app.state.sessions, watch) if app.state.sessions else InMemoryLedger(watch)
     )
+    app.state.usage = (
+        PostgresUsageCounter(app.state.sessions) if app.state.sessions else InMemoryUsageCounter()
+    )
     # Replay, the default, answers from cassettes and needs no key (AS-7.3, ADR-0010).
     app.state.providers = compose(settings, app.state.ledger, lambda: live_providers(settings))
     # No database: the in-memory catalog keeps every route usable on a laptop (replay, demos).
@@ -171,14 +176,20 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         # No database: sellers created through POST /sellers sign in against the same store.
         app.state.sellers = directory = InMemorySellerStore()
     app.state.auth = authenticator(settings, directory)
+    stale_after = timedelta(seconds=settings.idempotency_stale_after_s)
     store: IdempotencyStore = (
-        PostgresIdempotencyStore(app.state.sessions)
+        PostgresIdempotencyStore(app.state.sessions, stale_after=stale_after)
         if app.state.sessions
-        else InMemoryIdempotencyStore()
+        else InMemoryIdempotencyStore(stale_after=stale_after)
     )
-    app.add_middleware(IdempotencyMiddleware, store=store, scope=app.state.auth.idempotency_scope)
-    # Outside idempotency, which buffers a POST body before authentication; inside request ids,
-    # so a 413 carries one too.
+    app.add_middleware(
+        IdempotencyMiddleware,
+        store=store,
+        scope=app.state.auth.idempotency_scope,
+        renew_every_s=settings.idempotency_stale_after_s / 6,
+    )
+    # Outside idempotency, which buffers the POST body of a known caller; inside request ids, so
+    # a 413 carries one too.
     app.add_middleware(BodyLimitMiddleware, limits=BODY_LIMITS)
     # Added late, so outer: every response, errors included, carries X-Request-Id.
     app.add_middleware(RequestIdMiddleware)

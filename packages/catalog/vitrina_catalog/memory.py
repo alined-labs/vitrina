@@ -33,7 +33,13 @@ from vitrina_catalog.schemas import (
     ProductSource,
     ProductUpdate,
 )
-from vitrina_catalog.text import FACT_KIND_NAMES, describe_product, product_amounts, stems
+from vitrina_catalog.text import (
+    FACT_KIND_NAMES,
+    citable_text,
+    describe_product,
+    product_amounts,
+    stems,
+)
 from vitrina_core.http import decode_cursor, encode_cursor
 from vitrina_core.ids import new_id
 from vitrina_core.money import amounts_cop
@@ -461,10 +467,21 @@ class InMemoryCatalog:
             product = self._owned_product(seller_id, item_id)
             if product is not None and product.status == "active":
                 found.append(
-                    Citation(id=product.id, kind="product", amounts_cop=product.amounts_cop)
+                    Citation(
+                        id=product.id,
+                        kind="product",
+                        amounts_cop=product.amounts_cop,
+                        name=product.name,
+                        attributes=tuple((product.attributes or {}).values()),
+                        text=citable_text(product.name, product.description, product.attributes),
+                    )
                 )
                 continue
             fact = self._owned_fact(seller_id, item_id)
             if fact is not None and fact.status == "active":
-                found.append(Citation(id=fact.id, kind=fact.kind, amounts_cop=fact.amounts_cop))
+                found.append(
+                    Citation(
+                        id=fact.id, kind=fact.kind, amounts_cop=fact.amounts_cop, text=fact.text
+                    )
+                )
         return found

@@ -40,7 +40,7 @@ async def import_products(ctx: JobContext) -> str:
     try:
         model = ctx.settings.model_id("agent")
     except LookupError as error:
-        raise JobFailedError("PROVIDER_UNAVAILABLE", str(error)) from error
+        raise JobFailedError.safe("PROVIDER_UNAVAILABLE") from error
     try:
         photo = await ctx.storage.get(key)
     except BlobNotFoundError as error:

@@ -78,6 +78,7 @@ const SELLER_TEXT: Partial<Record<Code, string>> = {
   CAMPAIGN_ALREADY_SENT: "Esta campaña ya se envió.",
   INSUFFICIENT_DATA: "Aún no hay suficientes conversaciones para un informe. Vuelve cuando tengas más chats.",
   BRIEF_SCHEMA_INVALID: "El informe salió incompleto. Intenta generarlo de nuevo.",
+  CONVERSATION_NOT_HUMAN: "El agente está atendiendo esta conversación. Tómala para escribirle al cliente.",
 };
 const SELLER_DETAIL: ReadonlySet<Code> = new Set(["VALIDATION_ERROR", "CONFLICT", "CREATIVE_BLOCKED"]);
 
@@ -99,7 +100,6 @@ const JOB_TEXT: Record<string, string> = {
   PROVIDER_UNAVAILABLE: "Falta configurar el servicio de imágenes. Avísale a quien administra tu cuenta.",
   PROVIDER_ERROR: "El servicio de imágenes falló varias veces. Intenta de nuevo en unos minutos.",
   INTERNAL_ERROR: "Algo falló de nuestro lado. Intenta de nuevo.",
-  VALIDATION_ERROR: "Una de las fotos no pertenece a tu cuenta.",
 };
 
 /** The sentence to show for a failed job, in Spanish. */

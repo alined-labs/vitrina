@@ -44,6 +44,15 @@ public-text: ## Refuse build-machine names and private-note paths in tracked fil
 migrate: ## Upgrade DB_SCHEMA on DATABASE_URL to the latest migration
 	$(UV) run alembic upgrade head
 
+# Replay looks each call up by a hash of its request, so the evals run with everything that goes
+# into it as recorded: no .env needed, and a different one causes no replay miss.
+evals: export MODEL_AGENT := muse-spark-1.3
+evals: export MODEL_SEGMENT := sam-3.1
+evals: export AGENT_REASONING_EFFORT := low
+evals: export SCOPE_REASONING_EFFORT := minimal
+evals: export RETRIEVAL_TOP_K := 5
+evals: export AGENT_MAX_TOOL_ROUNDS := 4
+evals: export CASSETTE_DIR := $(CURDIR)/evals/cassettes
 evals: ## Replay evals in this process (fails on an invented price or a consent error)
 	$(UV) run python -m vitrina_evals --suite consent_scheduler --out tmp/evals
 	$(UV) run python -m vitrina_evals --suite price_validator --out tmp/evals

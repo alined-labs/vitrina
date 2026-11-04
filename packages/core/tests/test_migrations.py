@@ -13,7 +13,7 @@ import asyncpg
 import pytest
 from alembic import command
 
-from vitrina_core.testing import alembic_config, connect
+from vitrina_core.testing import alembic_config, connect, migrate
 
 TABLES = {
     "sellers", "products", "facts", "assets", "creative_jobs", "creatives", "copy_variants", "ads",
@@ -198,3 +198,83 @@ def test_db_invariants_hold(fresh_schema: tuple[str, str]) -> None:
             await connection.close()
 
     asyncio.run(check())
+
+
+@pytest.mark.db
+def test_db_upgrading_a_table_with_rows_makes_their_attributes_searchable(
+    fresh_schema: tuple[str, str],
+) -> None:
+    url, schema = fresh_schema
+    migrate(url, schema, "0003")
+    product, run = uuid4(), uuid4()
+
+    async def seed() -> None:
+        connection = await connect(url, schema)
+        try:
+            seller = await connection.fetchval(
+                """INSERT INTO sellers (id, business_name, owner_name, whatsapp_number, city)
+                   VALUES ($1, 'Bolsos Ana', 'Ana', '+573000000001', 'Medellín') RETURNING id""",
+                uuid4(),
+            )
+            await connection.execute(
+                """INSERT INTO products (id, seller_id, name, description, price_cop, attributes)
+                   VALUES ($1, $2, 'Bolso tejido', NULL, 85000,
+                           '{"color": "Rojo", "material": "Algodón"}'::jsonb)""",
+                product, seller,
+            )  # fmt: skip
+            await connection.execute(
+                """INSERT INTO products (id, seller_id, name, price_cop)
+                   VALUES ($1, $2, 'Gorra', 20000)""",
+                uuid4(), seller,
+            )  # fmt: skip
+            await connection.execute(
+                """INSERT INTO eval_runs (id, suite, status, finished_at)
+                   VALUES ($1, 'conversations_es', 'passed', now())""",
+                run,
+            )
+        finally:
+            await connection.close()
+
+    async def finds(word: str) -> list[str]:
+        connection = await connect(url, schema)
+        try:
+            rows = await connection.fetch(
+                "SELECT name FROM products WHERE search_tsv @@ to_tsquery('spanish', $1) ORDER BY name",
+                word,
+            )
+        finally:
+            await connection.close()
+        return [row["name"] for row in rows]
+
+    async def scalar(statement: str) -> object:
+        connection = await connect(url, schema)
+        try:
+            return await connection.fetchval(statement)
+        finally:
+            await connection.close()
+
+    asyncio.run(seed())
+    assert asyncio.run(finds("rojo")) == []
+
+    command.upgrade(alembic_config(schema, url)[0], "head")
+
+    assert asyncio.run(finds("roja")) == ["Bolso tejido"]  # the value, stemmed
+    assert asyncio.run(finds("algodon")) == ["Bolso tejido"]  # the value, without its accent
+    assert asyncio.run(finds("colores")) == ["Bolso tejido"]  # the key
+    assert asyncio.run(finds("tejido")) == ["Bolso tejido"]  # a name with no description
+    assert asyncio.run(finds("precio")) == ["Bolso tejido", "Gorra"]
+    assert asyncio.run(finds("85 & 000")) == ["Bolso tejido"]  # how "$85.000" reads as words
+    assert asyncio.run(scalar("SELECT count(*) FROM products")) == 2
+    # Nobody knows who started a run from before: it does not count until an operator run does.
+    assert asyncio.run(scalar("SELECT counts_as_latest FROM eval_runs")) is False
+
+    command.downgrade(alembic_config(schema, url)[0], "0003")
+
+    assert asyncio.run(finds("rojo")) == []
+    assert asyncio.run(finds("tejido")) == ["Bolso tejido"]
+    assert asyncio.run(scalar("SELECT count(*) FROM products")) == 2
+    assert asyncio.run(scalar("SELECT count(*) FROM eval_runs")) == 1
+    assert asyncio.run(scalar("SELECT to_regproc('f_product_search_text')")) is None
+
+    command.upgrade(alembic_config(schema, url)[0], "head")  # and it goes up again
+    assert asyncio.run(finds("rojo")) == ["Bolso tejido"]

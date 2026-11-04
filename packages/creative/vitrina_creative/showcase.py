@@ -1,15 +1,17 @@
 """Foto → Vitrina, the public showcase (T083, P2; AS-8.2, FR-072).
 
 Anyone can upload one product photo without an account, at most five times an hour from one
-address. A job turns it into three scenes, one per format, and ten copy variants. Scenes that
-pass verification are published at ``/v/{slug}`` with the AI label and the Vitrina watermark;
+address (one /64 network, for IPv6). A job turns it into three scenes, one per format, and ten
+copy variants. Scenes that pass verification are published at ``/v/{slug}`` with the AI label and
+the Vitrina watermark;
 a blocked scene is listed without its image, so it never reaches a public page (FR-013). The
 upload is deleted when the job ends, and the visitor's address is kept only as a keyed hash
 that changes every hour. No seller is involved: files live under the nil seller id.
 
 Before anything else is done with an upload, Spark answers one yes/no question about the photo
 alone: something a small shop could sell, nothing explicit, violent or illegal. A refused photo
-gets a short Spanish message and is never stored.
+gets a short Spanish message and is never stored. The route stops before that question once the
+tool's daily cap or SPEND_LIMIT_USD is reached, and a job already queued stops at the limit too.
 """
 
 import hashlib
@@ -28,8 +30,10 @@ from pydantic import MISSING, BaseModel, Field
 from sqlalchemy.dialects.postgresql import insert as postgres_insert
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
+from vitrina_core.db.tables import public_rate_limits
 from vitrina_core.ids import NIL
 from vitrina_core.jobs import JobContext, JobFailedError
+from vitrina_core.ledger import PostgresLedger, spend_limit_reached
 from vitrina_core.providers import (
     Blob,
     ChatMessage,
@@ -52,7 +56,7 @@ from vitrina_creative.pipeline import (
 )
 from vitrina_creative.provenance import AI_LABEL, showcase_image
 from vitrina_creative.schemas import Uri
-from vitrina_creative.tables import public_rate_limits, public_showcases
+from vitrina_creative.tables import public_showcases
 from vitrina_creative.verifier import Thresholds
 
 SHOWCASE_TASK = "creative.run_showcase"
@@ -61,6 +65,8 @@ WINDOW = timedelta(hours=1)
 FORMATS: tuple[CreativeFormat, ...] = ("story_9x16", "catalog_1x1", "feed_4x5")
 COPIES = 10
 OWNER = NIL
+# public_showcases.price_cop is a 32-bit integer.
+PRICE_MAX = 2_147_483_647
 BUSINESS = "un negocio local"
 Row = Mapping[Any, Any]
 
@@ -226,7 +232,15 @@ class ShowcaseStore:
         await self._update(showcase_id, status="ready", scenes=scenes, copies=copies)
 
     async def fail(self, showcase_id: UUID) -> None:
-        await self._update(showcase_id, status="failed")
+        """A page already published stays published."""
+        async with self.sessions() as session, session.begin():
+            await session.execute(
+                sa.update(public_showcases)
+                .where(
+                    public_showcases.c.id == showcase_id, public_showcases.c.status == "processing"
+                )
+                .values(status="failed")
+            )
 
     async def _update(self, showcase_id: UUID, **values: Any) -> None:
         async with self.sessions() as session, session.begin():
@@ -271,6 +285,10 @@ async def run_showcase(ctx: JobContext) -> str:
     result_ref = f"/v1/public/showcases/{row['slug']}"
     if row["status"] != "processing":
         return result_ref
+    if await spend_limit_reached(PostgresLedger(ctx.sessions), ctx.settings.spend_limit_usd):
+        await store.fail(showcase_id)
+        await _forget(ctx.storage, source_key)
+        raise JobFailedError("PROVIDER_UNAVAILABLE", "the spend limit stopped this showcase")
     try:
         photo = await ctx.storage.get(source_key)
         models = PipelineModels(
@@ -284,7 +302,7 @@ async def run_showcase(ctx: JobContext) -> str:
     except LookupError as error:
         await store.fail(showcase_id)
         await _forget(ctx.storage, source_key)
-        raise JobFailedError("PROVIDER_UNAVAILABLE", str(error)) from error
+        raise JobFailedError.safe("PROVIDER_UNAVAILABLE") from error
 
     async def on_stage(stage: str, fraction: float) -> None:
         await ctx.progress(stage, fraction)
@@ -311,11 +329,6 @@ async def run_showcase(ctx: JobContext) -> str:
         await store.fail(showcase_id)
         await _forget(ctx.storage, source_key)
         raise
-    except Exception:
-        if ctx.job.attempt >= ctx.job.max_attempts:  # the worker gives up after this attempt
-            await store.fail(showcase_id)
-            await _forget(ctx.storage, source_key)
-        raise
 
     scenes: list[dict[str, str]] = []
     for index, scene in enumerate(result.scenes):
@@ -332,6 +345,26 @@ async def run_showcase(ctx: JobContext) -> str:
     await store.finish(showcase_id, scenes, copies)
     await _forget(ctx.storage, source_key)
     return result_ref
+
+
+async def showcase_gave_up(ctx: JobContext, _code: str) -> None:
+    """The worker gave up on the job, for any reason: the visitor stops waiting for a page."""
+    if ctx.sessions is None or ctx.storage is None:
+        return
+    await close_failed_showcase(
+        ShowcaseStore(ctx.sessions),
+        ctx.storage,
+        UUID(str(ctx.payload["showcase_id"])),
+        str(ctx.payload["source_key"]),
+    )
+
+
+async def close_failed_showcase(
+    store: ShowcaseStore, storage: BlobStore, showcase_id: UUID, source_key: str
+) -> None:
+    """The upload goes first: if storage fails the row stays open, and the sweep tries again."""
+    await _forget(storage, source_key)
+    await store.fail(showcase_id)
 
 
 async def _forget(storage: BlobStore, key: str) -> None:

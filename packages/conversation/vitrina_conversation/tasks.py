@@ -50,7 +50,7 @@ async def process_inbound_job(ctx: JobContext) -> str | None:
             storage=ctx.storage,
         )
     except LookupError as error:  # MODEL_AGENT unset (Q01)
-        raise JobFailedError("PROVIDER_UNAVAILABLE", str(error)) from error
+        raise JobFailedError.safe("PROVIDER_UNAVAILABLE") from error
     outcome = await process_stored_message(
         deps,
         seller_id,
@@ -87,7 +87,7 @@ async def replay_session_job(ctx: JobContext) -> str | None:
             storage=ctx.storage,
         )
     except LookupError as error:  # MODEL_AGENT unset (Q01)
-        raise JobFailedError("PROVIDER_UNAVAILABLE", str(error)) from error
+        raise JobFailedError.safe("PROVIDER_UNAVAILABLE") from error
     await play(fixture, deps, seller_id, UUID(str(payload["session_id"])), speed=speed)
     return f"/v1/conversations/{payload['conversation_id']}"
 

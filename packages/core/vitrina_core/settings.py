@@ -72,6 +72,9 @@ class Settings(BaseSettings):
     whatsapp_verify_token: SecretStr | None = None
     whatsapp_phone_number_id: str | None = None
     whatsapp_access_token: SecretStr | None = None
+    # Template status events name only the business account: these two say whose they are.
+    whatsapp_business_account_id: str | None = None
+    whatsapp_business_number: str | None = None
     whatsapp_mock: bool = True
     mock_outbox_path: Path = REPO_ROOT / "tmp" / "mock-whatsapp.jsonl"
 
@@ -84,13 +87,27 @@ class Settings(BaseSettings):
     contact_encryption_key: SecretStr | None = None
 
     # Cost-ledger alert (plan.md §6), counted at the list prices per model ID
-    # (``vitrina_core.pricing``); MODEL_PRICES (JSON) replaces the whole table.
+    # (``vitrina_core.pricing``); MODEL_PRICES (JSON) replaces the whole table. At the limit the
+    # public tool also stops; customer conversations never do.
     spend_limit_usd: float = 100.0
     model_prices: dict[str, ModelPrice] = Field(default_factory=lambda: dict(META_LIST_PRICES))
+
+    # Daily limits on paid work, per UTC day (vitrina_core.quotas); 0 refuses all of it. They are
+    # product choices, not provider limits. Customer conversations and BAJA never pass through them.
+    public_showcase_daily_cap: int = Field(default=100, ge=0)  # all visitors together
+    seller_daily_agent_turns: int = Field(default=200, ge=0)  # POST /agent/turns
+    seller_daily_creative_jobs: int = Field(default=20, ge=0)  # /creative/jobs, applying a brief
+    # POST /briefs/generate, /products/import, and live /replay/sessions and /evals/runs.
+    seller_daily_paid_jobs: int = Field(default=20, ge=0)
+    # POST /agent/turns; as long as the longest message a seller can write to a customer.
+    agent_turn_max_chars: int = Field(default=4096, gt=0)
 
     # Thresholds and limits.
     mask_iou_min: float = 0.85  # FR-012
     color_delta_max: float = 0.25  # FR-012
+    # The fidelity verifier compares pixels with images reduced to this long edge, so a 40 MP photo
+    # fits in the worker's memory. Models still get the full image.
+    verifier_long_edge_px: int = Field(default=2048, gt=0)
     outbound_spacing_s: float = 6.0  # R12, Art. VIII.2
     provider_attempts: int = 3  # R12
     provider_timeout_s: float = 20.0  # Art. VIII.1
@@ -98,6 +115,11 @@ class Settings(BaseSettings):
     # 89 s, after earlier attempts at the same prompt had run past 90 s (2026-10-29). Turns keep
     # provider_timeout_s inside their own budget.
     provider_job_timeout_s: float = 180.0
+    # Which tasks this worker process claims, comma-separated. WORKER_TASKS: only these, and no
+    # sweeps. WORKER_EXCLUDE_TASKS: all but these. Neither: every task. Both, or a name no package
+    # registers, stops the worker at startup.
+    worker_tasks: str | None = None
+    worker_exclude_tasks: str | None = None
     # GET /health/providers: each check's limit, and how long a report is reused.
     health_check_timeout_s: float = 5.0
     health_cache_s: float = 30.0
@@ -109,6 +131,12 @@ class Settings(BaseSettings):
     scope_reasoning_effort: ReasoningEffort = "minimal"
     retrieval_top_k: int = 5  # plan.md §4.1
     idempotency_ttl_hours: int = 24  # data-model.md idempotency_keys
+    # A request in progress renews its key; one not renewed for this long lost its process (a
+    # restart), and the same request may run again.
+    idempotency_stale_after_s: float = Field(default=90.0, gt=0)
+    # The event cursor stays behind events younger than this, so one whose transaction commits
+    # late is still read. Longer than any transaction that emits an event.
+    event_commit_grace_s: float = Field(default=300.0, ge=0)
 
     @field_validator(
         "visitor_proxy_secret",

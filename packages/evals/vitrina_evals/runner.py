@@ -5,7 +5,7 @@ exchanges as history, and the last reply is scored; every reply is checked for i
 prices. The providers the agent gets are the run's: replay ones answer from cassettes and
 need no key. A case that raises is reported as an error and the others still run. The run
 fails on any invented price in any reply (AS-7.2), is an error when a case could not be
-scored, and passes otherwise.
+scored, fails when a metric misses its target (spec.md §7, ``targets``), and passes otherwise.
 """
 
 import time
@@ -19,6 +19,7 @@ from vitrina_core.providers.compose import Providers
 from vitrina_evals.cases import ConversationCase, build_scene, load_business
 from vitrina_evals.schemas import EvalMetrics
 from vitrina_evals.scoring import CaseScore, TurnOutcome, error_case, score_case, summarize
+from vitrina_evals.targets import missed_targets
 
 NO_AGENT = "no agent to evaluate: run_turn needs MODEL_AGENT (spec.md §8, Q01)"
 
@@ -65,6 +66,8 @@ async def run_conversations(
         return SuiteResult("failed", metrics, scores, "an invented price fails the run (AS-7.2)")
     if not scores or any(score.error for score in scores):
         return SuiteResult("error", metrics, scores, "some cases could not be scored")
+    if missed := missed_targets(metrics):
+        return SuiteResult("failed", metrics, scores, "; ".join(missed))
     return SuiteResult("passed", metrics, scores)
 
 

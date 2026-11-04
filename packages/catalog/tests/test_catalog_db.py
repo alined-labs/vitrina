@@ -15,6 +15,7 @@ from vitrina_catalog.api import (
     ProductUpdate,
     expire_reservations,
 )
+from vitrina_catalog.memory import InMemoryCatalog
 from vitrina_catalog.postgres import PostgresCatalog
 from vitrina_catalog.tables import reservations
 from vitrina_catalog.text import tokens
@@ -92,6 +93,9 @@ async def test_db_as_1_4_facts_match_questions_without_accents_and_with_any_word
     assert [result.id for result in results] == [shipping.id]
     assert results[0].kind == "shipping"
     assert [c.amounts_cop for c in await catalog.citations(SELLER, [shipping.id])] == [(12000,)]
+    assert [c.text for c in await catalog.citations(SELLER, [shipping.id])] == [
+        "Envío a Medellín $12.000, 2–3 días"
+    ]
 
 
 @pytest.mark.db
@@ -205,6 +209,15 @@ async def test_db_products_page_filter_update_and_archive(
     assert [c.amounts_cop for c in await catalog.citations(SELLER, [created[1].id])] == [
         (2000, 12000)
     ]
+    [citation] = await catalog.citations(SELLER, [created[1].id])
+    assert citation.name == created[1].name
+    coloured = await catalog.create_product(
+        SELLER,
+        ProductCreate(name="Morral", price_cop=10000, attributes={"color": "rojo", "sku": "45000"}),
+    )
+    [morral] = await catalog.citations(SELLER, [coloured.id])
+    assert set(morral.attributes) == {"rojo", "45000"}  # JSONB keeps no key order
+    assert morral.amounts_cop == (10000,)
     assert await catalog.archive_product(OTHER, created[0].id) is False
     assert await catalog.archive_product(SELLER, created[0].id) is True
     assert await catalog.search(SELLER, "bolso tejido", kinds=["product"]) != []
@@ -238,3 +251,43 @@ async def test_db_as_3_7_reservations_past_their_expiry_are_marked_expired(
         rows = (await session.execute(sa.select(reservations.c.id, reservations.c.status))).all()
     assert dict(rows) == {old.reservation_id: "expired", fresh.reservation_id: "reserved"}
     assert (await catalog.check_stock(SELLER, bag.id)).available == 2
+
+
+@pytest.mark.db
+@pytest.mark.parametrize(
+    ("question", "found"),
+    [
+        ("¿La tienen en rojo?", True),  # an attribute's value, nowhere else
+        ("rojas", True),  # its stem
+        ("algodon", True),  # its value without the accent
+        ("¿qué colores manejan?", True),  # an attribute's name
+        ("tejido", True),  # the name
+        ("artesanal", True),  # the description
+        ("¿cuál es el precio?", True),  # the agent's text says "Precio: $85.000"
+        ("$85.000", True),
+        ("verde", False),
+    ],
+)
+async def test_db_postgres_and_the_evals_store_search_the_same_product_fields(
+    db_sessions: async_sessionmaker[AsyncSession], question: str, found: bool
+) -> None:
+    await setup(db_sessions)
+    bag = ProductCreate(
+        name="Bolso tejido",
+        description="Hecho artesanal",
+        price_cop=85000,
+        attributes={"color": "Rojo", "material": "Algodón"},
+    )
+    postgres = PostgresCatalog(db_sessions)
+    memory = InMemoryCatalog()
+    in_postgres = await postgres.create_product(SELLER, bag)
+    in_memory = await memory.create_product(SELLER, bag)
+
+    assert [hit.id for hit in await postgres.search(SELLER, question)] == (
+        [in_postgres.id] if found else []
+    )
+    assert [hit.id for hit in await memory.search(SELLER, question)] == (
+        [in_memory.id] if found else []
+    )
+    listed, _ = await postgres.list_products(SELLER, limit=5, q=question)
+    assert [product.id for product in listed] == ([in_postgres.id] if found else [])

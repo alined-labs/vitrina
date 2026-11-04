@@ -86,7 +86,7 @@ async def _seller(sellers: SellerStore, seller_id: UUID) -> dict[str, Any]:
     seller = await sellers.get(seller_id)
     settings = await sellers.settings(seller_id)
     if seller is None or settings is None:
-        raise ProblemError(ProblemCode.NOT_FOUND, detail="sign up with POST /sellers first")
+        raise ProblemError(ProblemCode.NOT_FOUND, detail="this account has no seller yet")
     profile = settings.brand_voice_profile.model_dump(mode="json")
     return {
         "business_name": seller.business_name,

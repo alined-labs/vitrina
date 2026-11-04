@@ -5,7 +5,7 @@ from datetime import datetime
 from typing import Annotated, Any, Literal, get_args
 from uuid import UUID
 
-from pydantic import MISSING, BaseModel, Field
+from pydantic import MISSING, BaseModel, Field, model_validator
 
 JobKind = Literal[
     "voice_import",
@@ -27,10 +27,28 @@ JobStatus = Literal["queued", "running", "succeeded", "failed", "cancelled"]
 API_KINDS: frozenset[str] = frozenset(get_args(JobKind))
 
 
+# What a client reads when a job fails in a way no task worded for it. The real error goes to
+# the log; ``code`` stays what the dashboard and API clients branch on.
+JOB_FAILURE_TEXT = {
+    "INTERNAL_ERROR": "Algo falló de nuestro lado. Intenta de nuevo.",
+    "PROVIDER_ERROR": "El servicio externo no pudo completar la solicitud. Intenta de nuevo.",
+    "PROVIDER_UNAVAILABLE": "El servicio no está disponible en este momento. Intenta más tarde.",
+    "TIMEOUT": "El trabajo tardó demasiado y se detuvo. Intenta de nuevo.",
+    "UNKNOWN_TASK": "Este trabajo no se puede ejecutar en este momento.",
+}
+
+
 class JobErrorDetail(BaseModel):
     code: str | MISSING = MISSING
     message: str | MISSING = MISSING
     retryable: bool | MISSING = MISSING
+
+    @model_validator(mode="after")
+    def _hide_internal_text(self) -> JobErrorDetail:
+        """Rows written before the worker stopped storing raw errors can hold SQL."""
+        if self.code == "INTERNAL_ERROR":
+            self.message = JOB_FAILURE_TEXT["INTERNAL_ERROR"]
+        return self
 
 
 class Job(BaseModel):

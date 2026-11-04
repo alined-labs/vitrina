@@ -21,6 +21,7 @@ _spec.loader.exec_module(dev_token)
 
 SECRET = "dev-token-test-secret-with-32-bytes-or-more"
 SELLER = UUID("00000000-0000-7000-8000-00000000000a")
+SERVICE_TOKEN = "service-token-for-tests"
 
 
 def settings(**values: object) -> Settings:
@@ -70,7 +71,7 @@ def test_a_local_secret_is_required() -> None:
 
 
 def test_a_dev_token_signs_up_and_reaches_sellers_me() -> None:
-    config = settings()
+    config = settings(service_token=SERVICE_TOKEN)
     client = TestClient(create_app(config))
     headers = {"Authorization": f"Bearer {dev_token.mint(config, 'dev-seller')}"}
     seller = {
@@ -81,7 +82,9 @@ def test_a_dev_token_signs_up_and_reaches_sellers_me() -> None:
     }
 
     before = client.get("/v1/sellers/me", headers=headers)
-    created = client.post("/v1/sellers", json=seller, headers=headers)
+    created = client.post(
+        "/v1/sellers", json=seller, headers={**headers, "X-Service-Token": SERVICE_TOKEN}
+    )
     after = client.get("/v1/sellers/me", headers=headers)
 
     assert before.status_code == 403

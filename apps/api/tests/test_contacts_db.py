@@ -14,6 +14,7 @@ from vitrina_core.jobs import PostgresJobQueue, TaskRegistry, Worker, load_tasks
 from vitrina_core.settings import Settings
 
 SECRET = "contacts-db-test-secret-with-32-bytes+"
+SERVICE_TOKEN = "service-token-for-tests"
 SUBJECT = "4e1a7c2d-9b3f-4f6a-8c5e-1d2b3a4c5d6e"
 PROMPT = "¿Te aviso cuando llegue tu talla o haya promo? Responde SÍ"
 
@@ -31,6 +32,7 @@ async def test_db_as_6_6_borrar_mis_datos_runs_through_the_worker_and_leaves_a_r
     settings = Settings(
         _env_file=None,
         database_url=url,
+        service_token=SERVICE_TOKEN,
         db_schema=schema,
         supabase_jwt_secret=SECRET,
         contact_hash_pepper="contacts-db-pepper",
@@ -46,7 +48,7 @@ async def test_db_as_6_6_borrar_mis_datos_runs_through_the_worker_and_leaves_a_r
                 "whatsapp_number": "+573000000301",
                 "city": "Medellín",
             },
-            headers=bearer(),
+            headers={**bearer(), "X-Service-Token": SERVICE_TOKEN},
         )
         seller_id = UUID(signup.json()["id"])
         # The test's own sessions: the app's engine belongs to the TestClient's event loop.

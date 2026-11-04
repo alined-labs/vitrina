@@ -39,7 +39,7 @@ seller_bearer = HTTPBearer(
 service_header = APIKeyHeader(
     name="X-Service-Token",
     scheme_name="serviceAuth",
-    description="Internal workers.",
+    description="Internal workers, and the operator creating a seller.",
     auto_error=False,
 )
 whatsapp_signature_header = APIKeyHeader(
@@ -165,12 +165,12 @@ class Authenticator:
         if seller_id is None:
             raise ProblemError(
                 ProblemCode.FORBIDDEN,
-                detail="this account has no seller yet; create one with POST /sellers",
+                detail="this account has no seller yet; the operator creates it",
             )
         return Principal(kind="seller", seller_id=seller_id, subject=subject)
 
     def service(self, token: str | None) -> Principal:
-        expected = self.service_token.get_secret_value() if self.service_token else ""
+        expected = self.service_token.get_secret_value().strip() if self.service_token else ""
         if (
             not expected
             or token is None
@@ -179,19 +179,26 @@ class Authenticator:
             raise _unauthorized("a valid X-Service-Token is required")
         return Principal(kind="service")
 
-    async def idempotency_scope(self, request: Request) -> UUID:
-        """The seller that owns an Idempotency-Key; NIL for service and anonymous calls."""
-        header = request.headers.get("authorization", "")
-        scheme, _, value = header.partition(" ")
-        if scheme.lower() != "bearer" or not value:
+    async def idempotency_scope(self, request: Request) -> UUID | None:
+        """Who owns an Idempotency-Key: NIL for a valid service token, which goes first as in
+        ``require_seller_or_service``, else the seller in the token. None for anyone else, an
+        account without a seller included; the route itself answers them (401 or 403)."""
+        try:
+            self.service(request.headers.get("x-service-token"))
+        except ProblemError:
+            pass
+        else:
             return NIL
+        scheme, _, value = request.headers.get("authorization", "").partition(" ")
+        if scheme.lower() != "bearer" or not value:
+            return None
         try:
             principal = await self.seller(
                 HTTPAuthorizationCredentials(scheme=scheme, credentials=value)
             )
         except ProblemError:
-            return NIL  # the route itself answers 401 or 403
-        return principal.seller_id or NIL
+            return None
+        return principal.seller_id
 
 
 def authenticator(request: Request) -> Authenticator:

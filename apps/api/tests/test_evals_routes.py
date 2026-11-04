@@ -10,6 +10,7 @@ from vitrina_evals.api import EvalMetrics, InMemoryEvalRuns, SuiteResult
 
 SECRET = "evals-routes-test-secret-with-32-bytes+"
 SELLER = UUID("00000000-0000-7000-8000-00000000000a")
+SERVICE = {"X-Service-Token": "svc-token"}
 
 
 def bearer() -> dict[str, str]:
@@ -77,7 +78,7 @@ async def test_the_metrics_page_shows_the_latest_finished_run(
     client: TestClient, runs: InMemoryEvalRuns
 ) -> None:
     empty = client.get("/v1/metrics/summary", headers=bearer()).json()
-    run = await runs.create("conversations_es", replay=True)
+    run = await runs.create("conversations_es", replay=True, counts_as_latest=True)
     await runs.finish(
         run.id, SuiteResult("failed", EvalMetrics(invented_price_rate=0.05), []), git_sha=None
     )
@@ -102,3 +103,63 @@ def test_fr_070_the_summary_carries_the_live_counters_modules_report(client: Tes
 
     assert response.status_code == 200
     assert response.json()["live"] == {"conversations_today": 4}
+
+
+class NoJobs:
+    """The queue the route enqueues on; the run itself stays in the in-memory store."""
+
+    async def enqueue(self, _session: object, **_job: object) -> None:
+        return None
+
+
+class NoSession:
+    """Enough of a database session for the route's two ``async with``."""
+
+    async def __aenter__(self) -> NoSession:
+        return self
+
+    async def __aexit__(self, *_exception: object) -> None:
+        return None
+
+    def begin(self) -> NoSession:
+        return self
+
+
+@pytest.mark.parametrize(
+    ("headers", "body", "counts"),
+    [
+        (SERVICE, {"suite": "conversations_es"}, True),
+        (SERVICE, {"suite": "conversations_es", "replay": False}, True),
+        (SERVICE, {"suite": "conversations_es", "sample": 1}, False),
+        (SERVICE, {"suite": "conversations_es", "sample": 60}, False),
+        ("seller", {"suite": "conversations_es"}, False),
+        ("seller", {"suite": "conversations_es", "replay": False}, False),
+        ("seller", {"suite": "conversations_es", "sample": 1}, False),
+    ],
+)
+async def test_fr_070_only_a_full_run_with_the_service_token_changes_the_shared_latest(
+    client: TestClient,
+    runs: InMemoryEvalRuns,
+    headers: dict[str, str] | str,
+    body: dict[str, object],
+    counts: bool,
+) -> None:
+    app = client.app
+    app.state.jobs = NoJobs()  # type: ignore[attr-defined]
+    app.state.sessions = NoSession  # type: ignore[attr-defined]
+    app.state.live_counters = []  # type: ignore[attr-defined]
+    earlier = await runs.create("conversations_es", replay=True, counts_as_latest=True)
+    await runs.finish(earlier.id, SuiteResult("passed", EvalMetrics(), []), git_sha=None)
+    caller = bearer() if headers == "seller" else headers
+    assert isinstance(caller, dict)
+
+    started = client.post("/v1/evals/runs", json=body, headers=caller)
+    assert started.status_code == 202, started.text
+    run_id = UUID(started.json()["id"])
+    one_case = SuiteResult("passed", EvalMetrics(invented_price_rate=0.0), [])
+    await runs.finish(run_id, one_case, git_sha=None)
+
+    latest = client.get("/v1/metrics/summary", headers=bearer()).json()["latest_eval"]
+
+    assert latest["run_id"] == str(run_id if counts else earlier.id)
+    assert "counts_as_latest" not in started.json()  # the contract's EvalRun, unchanged

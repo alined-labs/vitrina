@@ -10,6 +10,7 @@ from uuid import UUID
 from fastapi import APIRouter, Depends, Query, Request
 from pydantic import MISSING
 
+from vitrina_api.limits import take_quota
 from vitrina_core.auth import SellerId, SellerOrService
 from vitrina_core.http import (
     FieldError,
@@ -18,6 +19,7 @@ from vitrina_core.http import (
     PageQuery,
     ProblemCode,
     ProblemError,
+    problem_responses,
 )
 from vitrina_core.jobs import PostgresJobQueue
 from vitrina_core.ledger import CostReader, CostReport
@@ -50,10 +52,11 @@ Paging = Annotated[PageQuery, Depends()]
     operation_id="createEvalRun",
     summary="Run an evaluation suite",
     response_description="Run started",
+    responses=problem_responses(429),
 )
 async def create_eval_run(
     request: Request,
-    _caller: SellerOrService,
+    caller: SellerOrService,
     runs: Runs,
     body: EvalRunCreate,
     _key: IdempotencyKey = None,
@@ -64,13 +67,19 @@ async def create_eval_run(
             ProblemCode.PROVIDER_UNAVAILABLE,
             detail="eval runs need the database (DATABASE_URL); `make evals` runs one without",
         )
+    if caller.seller_id is not None and not body.replay:  # our own workers have no quota
+        await take_quota(request, caller.seller_id, "paid_jobs")
     payload: dict[str, object] = {}
     if body.sample is not MISSING:
         payload["sample"] = body.sample
     # The run and the job that executes it commit together. Runs are deployment-wide, not
-    # seller data, so the job has no owner and its model calls no seller (eval_runs).
+    # seller data, so the job has no owner and its model calls no seller (eval_runs). Only a
+    # full run with the service token can become the result every seller sees as latest.
+    counts_as_latest = caller.kind == "service" and body.sample is MISSING
     async with request.app.state.sessions() as session, session.begin():
-        run = await runs.create(body.suite, replay=body.replay, session=session)
+        run = await runs.create(
+            body.suite, replay=body.replay, counts_as_latest=counts_as_latest, session=session
+        )
         await jobs.enqueue(
             session,
             kind="eval_run",

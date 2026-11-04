@@ -24,7 +24,9 @@ async def test_db_fr_070_runs_persist_their_result_and_list_newest_first(
 ) -> None:
     runs = PostgresEvalRuns(db_sessions)
     async with db_sessions() as session, session.begin():
-        first = await runs.create("conversations_es", replay=True, session=session)
+        first = await runs.create(
+            "conversations_es", replay=True, counts_as_latest=True, session=session
+        )
     second = await runs.create("fidelity", replay=False)
 
     await runs.start(first.id)
@@ -46,3 +48,24 @@ async def test_db_fr_070_runs_persist_their_result_and_list_newest_first(
     latest = await runs.latest()
     assert latest is not None
     assert latest.id == first.id
+
+
+@pytest.mark.db
+async def test_db_fr_070_only_a_run_marked_as_counting_is_the_shared_latest(
+    db_sessions: async_sessionmaker[AsyncSession],
+) -> None:
+    runs = PostgresEvalRuns(db_sessions)
+    not_counted = await runs.create("conversations_es", replay=True)
+    await runs.finish(not_counted.id, RESULT, git_sha=None)
+    assert await runs.latest() is None
+
+    counted = await runs.create("conversations_es", replay=True, counts_as_latest=True)
+    await runs.finish(counted.id, RESULT, git_sha=None)
+    newer = await runs.create("conversations_es", replay=True)
+    await runs.finish(newer.id, RESULT, git_sha=None)
+    unscored = await runs.create("conversations_es", replay=True, counts_as_latest=True)
+    await runs.finish(unscored.id, SuiteResult("error", EvalMetrics(), []), git_sha=None)
+
+    latest = await runs.latest()
+    assert latest is not None
+    assert latest.id == counted.id

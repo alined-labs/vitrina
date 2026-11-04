@@ -1,11 +1,13 @@
 """T034 pipeline: stages in order, the altered scene blocked, copy only when a scene passed."""
 
 from dataclasses import replace
+from typing import Any
 from uuid import UUID
 
 import pytest
 
 from vitrina_core.providers import Blob
+from vitrina_creative.copy import CopyError
 from vitrina_creative.pipeline import (
     PipelineInput,
     PipelineModels,
@@ -98,6 +100,45 @@ async def test_a_jobs_hooks_reach_the_copy() -> None:
     result = await run(replace(job(), hooks=("question",)), ScriptedMuse(good_scenes()[0]))
     assert result.copy
     assert {variant.hook for variant in result.copy} == {"question"}
+
+
+class NoCallAllowed:
+    """A provider that fails the test the moment anything is paid for."""
+
+    def __getattr__(self, name: str) -> Any:
+        raise AssertionError(f"a paid call was made: {name}")
+
+
+@pytest.mark.parametrize(
+    ("product", "asked"),
+    [
+        (ProductSnapshot(name="Camiseta básica", price_cop=30_000), {"angles": ("handmade",)}),
+        (ProductSnapshot(name="Camiseta básica", price_cop=30_000), {"hooks": ("scarcity",)}),
+        (ProductSnapshot(name="Camiseta básica", price_cop=None), {"angles": ("price",)}),
+    ],
+)
+async def test_as_2_4_a_job_that_cannot_produce_copy_fails_before_any_paid_call(
+    product: ProductSnapshot, asked: dict[str, Any]
+) -> None:
+    stages: list[str] = []
+
+    async def on_stage(stage: str, fraction: float) -> None:
+        stages.append(stage)
+
+    unpaid: Any = NoCallAllowed()
+    with pytest.raises(CopyError) as caught:
+        await run_pipeline(
+            replace(job(), product=product, **asked),
+            segmenter=unpaid,
+            image_model=unpaid,
+            chat=unpaid,
+            models=MODELS,
+            thresholds=Thresholds(),
+            on_stage=on_stage,
+        )
+
+    assert caught.value.code == "VALIDATION_ERROR"
+    assert stages == []
 
 
 async def test_no_usable_photo_fails_the_job_with_a_reason_for_the_seller() -> None:

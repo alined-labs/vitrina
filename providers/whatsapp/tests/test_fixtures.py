@@ -52,4 +52,4 @@ def test_art_v_1_fixture_contacts_are_synthetic(path: Path) -> None:
 def test_as_3_1_every_recorded_payload_parses(path: Path) -> None:
     batch = parse_webhook(path.read_bytes())
 
-    assert batch.messages or batch.statuses or batch.ignored_fields
+    assert batch.messages or batch.statuses or batch.ignored_fields or batch.template_updates

@@ -37,12 +37,12 @@ class Api:
         self.app.state.providers = dataclasses.replace(self.app.state.providers, chat=chat)
         return chat
 
-    def turn(self, text: str | None = "Hola", **body: Any) -> Any:
+    def turn(self, text: str | None = "Hola", *, seller: UUID = SELLER, **body: Any) -> Any:
         message: dict[str, Any] = {"kind": body.pop("kind", "text")}
         if text is not None:
             message["text"] = text
         return self.client.post(
-            "/v1/agent/turns", json={"message": message, **body}, headers=bearer()
+            "/v1/agent/turns", json={"message": message, **body}, headers=bearer(seller)
         )
 
 
@@ -198,3 +198,66 @@ async def test_fr_030_a_provider_failure_is_503(api: Api) -> None:
 
     assert response.status_code == 503
     assert response.json()["code"] == "PROVIDER_UNAVAILABLE"
+
+
+async def add_seller(api: Api, seller_id: UUID, number: str) -> None:
+    await api.app.state.sellers.create(
+        SellerCreate(
+            business_name="Mochilas Eva", owner_name="Eva", whatsapp_number=number, city="Cali"
+        ),
+        auth_subject=None,
+        seller_id=seller_id,
+    )
+
+
+async def test_fr_030_a_seller_over_the_daily_quota_spends_nothing_more() -> None:
+    api = await make_api(seller_daily_agent_turns=1)
+    other = UUID("00000000-0000-7000-8000-0000000000a2")
+    await add_seller(api, other, "+573000000102")
+    chat = api.script(*[final_answer("¡Hola!", confidence=0.9) for _ in range(3)])
+
+    assert api.turn().status_code == 200
+    used = len(chat.requests)
+    over = api.turn()
+
+    assert over.status_code == 429, over.text
+    assert over.json()["code"] == "RATE_LIMITED"
+    assert over.json()["detail"] == (
+        "Llegaste al límite de hoy para probar el agente. Vuelve a intentarlo mañana."
+    )
+    assert 0 < int(over.headers["Retry-After"]) <= 86400
+    assert len(chat.requests) == used
+    assert api.turn(seller=other).status_code == 200  # one seller's quota is not another's
+
+
+async def test_fr_030_a_recorded_turn_counts_too_since_retrieval_can_still_call_a_model() -> None:
+    api = await make_api(seller_daily_agent_turns=0)
+
+    assert api.turn(replay_model_outputs=True).status_code == 429
+
+
+async def test_fr_030_text_over_the_limit_is_refused_before_any_model_or_quota() -> None:
+    api = await make_api(agent_turn_max_chars=10, seller_daily_agent_turns=1)
+    chat = api.script(final_answer("¡Hola!", confidence=0.9))
+
+    refused = api.turn("x" * 11)
+
+    assert refused.status_code == 400, refused.text
+    assert refused.json()["code"] == "VALIDATION_ERROR"
+    assert refused.json()["errors"] == [
+        {
+            "field": "message.text",
+            "message": "El mensaje es demasiado largo: máximo 10 caracteres.",
+        }
+    ]
+    assert chat.requests == []
+    assert api.turn("x" * 10).status_code == 200  # exactly at the limit, and the quota is whole
+
+
+async def test_fr_030_a_refused_turn_uses_no_quota() -> None:
+    api = await make_api(seller_daily_agent_turns=1)
+    api.script(final_answer("¡Hola!", confidence=0.9))
+
+    assert api.turn("   ").status_code == 400
+    assert api.turn(kind="image").status_code == 400
+    assert api.turn().status_code == 200

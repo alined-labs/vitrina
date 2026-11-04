@@ -12,7 +12,9 @@ from pydantic import SecretStr
 from starlette.types import Receive, Scope, Send
 from uvicorn.middleware.proxy_headers import ProxyHeadersMiddleware
 
+from vitrina_core.jobs import TaskRegistry, load_tasks
 from vitrina_core.settings import REPO_ROOT, Settings
+from vitrina_worker.main import worker_registry
 
 SCRIPT = REPO_ROOT / "deploy" / "azure.sh"
 CONFIG = REPO_ROOT / "deploy" / "azure.env.example"
@@ -110,6 +112,13 @@ def dry_run(tmp_path: Path, *, exists: bool = False) -> tuple[str, dict[str, str
     return result.stdout, values
 
 
+CHECK_COMMANDS = [
+    "az containerapp show",
+    *["az containerapp revision"] * 4,
+    "az containerapp replica",
+]
+
+
 def test_every_secret_setting_is_deployed_as_a_container_apps_secret() -> None:
     mapping = secret_map()
 
@@ -131,8 +140,11 @@ def test_a_first_deploy_creates_everything_and_never_prints_a_secret(tmp_path: P
         "az containerapp env",
         "az containerapp create",
         "az containerapp create",
+        *CHECK_COMMANDS,
+        "az containerapp create",
+        *CHECK_COMMANDS,
     ]
-    api, worker = (line for line in commands if line.startswith("az containerapp create"))
+    api, worker, _inbound = (line for line in commands if line.startswith("az containerapp create"))
     assert "--ingress external --target-port 8080" in api
     assert "--cpu 0.25 --memory 0.5Gi" in api
     assert "--ingress" not in worker
@@ -152,9 +164,9 @@ def test_a_second_deploy_updates_the_apps_to_the_new_image(tmp_path: Path) -> No
 
     assert "az acr create" not in out
     assert "az containerapp create" not in out
-    assert out.count("az containerapp secret set") == 2
+    assert out.count("az containerapp secret set") == 3
     updates = [line for line in out.splitlines() if line.startswith("az containerapp update")]
-    assert len(updates) == 2
+    assert len(updates) == 3
     assert all("--image vitrinaregistry.azurecr.io/vitrina:test" in line for line in updates)
     assert all("--set-env-vars" in line for line in updates)
     assert not any(value in out for value in values.values() if value.startswith("fake-"))
@@ -182,6 +194,396 @@ def test_as_8_2_only_the_api_gets_the_visitor_proxy_secret(tmp_path: Path) -> No
         calls = by_app(second, command)
         assert any("visitor-proxy" in arg for arg in calls["vitrina-api"])
         assert not any("visitor-proxy" in arg for arg in calls["vitrina-worker"])
+
+
+INBOUND_LANE = "conversation.process_inbound,compliance.erase_contact"
+CHECK = REPO_ROOT / "deploy" / "check-running.sh"
+
+
+def env_of(call: list[str], flag: str) -> set[str]:
+    """The ``NAME=value`` arguments after ``flag`` in one az call."""
+    values: list[str] = []
+    for arg in call[call.index(flag) + 1 :]:
+        if arg.startswith("--"):
+            break
+        values.append(arg)
+    return set(values)
+
+
+def test_a_first_deploy_creates_the_inbound_worker_from_the_same_image(tmp_path: Path) -> None:
+    created = by_app(dry_run(tmp_path)[0], "create")
+    worker, inbound = created["vitrina-worker"], created["vitrina-worker-inbound"]
+
+    line = " ".join(inbound)
+    assert "--image vitrinaregistry.azurecr.io/vitrina:test" in line
+    assert "--cpu 0.25 --memory 0.5Gi" in line
+    assert "--min-replicas 1 --max-replicas 1" in line
+    assert "--command vitrina-worker" in line
+    assert "--ingress" not in inbound
+    assert env_of(inbound, "--secrets") == env_of(worker, "--secrets")
+    assert not any("visitor-proxy" in arg for arg in inbound)
+
+
+def test_the_two_workers_differ_only_in_the_tasks_they_claim(tmp_path: Path) -> None:
+    created = by_app(dry_run(tmp_path)[0], "create")
+    second = by_app(dry_run(tmp_path, exists=True)[0], "update")
+
+    for calls, flag in ((created, "--env-vars"), (second, "--set-env-vars")):
+        worker = env_of(calls["vitrina-worker"], flag)
+        inbound = env_of(calls["vitrina-worker-inbound"], flag)
+        assert worker - inbound == {f"WORKER_EXCLUDE_TASKS={INBOUND_LANE}"}
+        assert inbound - worker == {f"WORKER_TASKS={INBOUND_LANE}"}
+        assert not any(arg.startswith("WORKER_") for arg in env_of(calls["vitrina-api"], flag))
+
+
+def test_the_deployed_limits_name_a_real_task_and_leave_every_task_with_one_worker(
+    tmp_path: Path,
+) -> None:
+    created = by_app(dry_run(tmp_path)[0], "create")
+    settings = {
+        app: dict(arg.split("=", 1) for arg in env_of(created[app], "--env-vars"))
+        for app in ("vitrina-worker", "vitrina-worker-inbound")
+    }
+
+    general = worker_registry(
+        Settings(  # type: ignore[call-arg]
+            _env_file=None, worker_exclude_tasks=settings["vitrina-worker"]["WORKER_EXCLUDE_TASKS"]
+        )
+    )
+    inbound = worker_registry(
+        Settings(  # type: ignore[call-arg]
+            _env_file=None, worker_tasks=settings["vitrina-worker-inbound"]["WORKER_TASKS"]
+        )
+    )
+    everything = TaskRegistry()
+    load_tasks(everything)
+
+    assert inbound.names() == set(INBOUND_LANE.split(","))
+    assert not general.names() & inbound.names()
+    assert general.names() | inbound.names() == everything.names()
+    assert inbound.periodic() == ()
+    assert len(general.periodic()) == len(everything.periodic()) > 0
+
+
+@pytest.mark.parametrize("exists", [False, True])
+def test_the_general_worker_stops_claiming_messages_before_the_inbound_worker_starts(
+    tmp_path: Path, exists: bool
+) -> None:
+    out = dry_run(tmp_path, exists=exists)[0]
+    verb = "update" if exists else "create"
+    names = [
+        args[args.index("--name") + 1]
+        for args in map(shlex.split, out.splitlines())
+        if args[:3] == ["az", "containerapp", verb]
+    ]
+
+    assert names == ["vitrina-api", "vitrina-worker", "vitrina-worker-inbound"]
+
+
+def test_a_config_from_before_the_inbound_worker_still_deploys_it(tmp_path: Path) -> None:
+    old = tmp_path / "azure.env"
+    old.write_text(
+        "".join(
+            line
+            for line in CONFIG.read_text().splitlines(keepends=True)
+            if not line.startswith("INBOUND_WORKER_")
+        )
+    )
+    values = {name: f"fake-{name.lower()}-value" for name in secret_map()} | PLAIN
+    env_file = tmp_path / ".env"
+    env_file.write_text("".join(f"{name}={value}\n" for name, value in values.items()))
+
+    result = subprocess.run(
+        ["bash", str(SCRIPT), str(old)],
+        env={**os.environ, "SECRETS_FILE": str(env_file), "DRY_RUN": "1", "IMAGE_TAG": "test"},
+        capture_output=True,
+        text=True,
+    )
+
+    assert result.returncode == 0, result.stderr
+    assert "--cpu 0.25 --memory 0.5Gi" in " ".join(
+        by_app(result.stdout, "create")["vitrina-worker-inbound"]
+    )
+
+
+def check_calls(app: str) -> list[list[str]]:
+    """The az calls deploy/check-running.sh makes for ``app``, as a dry run prints them."""
+    target = ["--name", app, "--resource-group", "vitrina"]
+    revision = ["--revision", "<latest revision>"]
+
+    def tsv(query: str) -> list[str]:
+        return ["--query", query, "--output", "tsv"]
+
+    return [
+        ["az", "containerapp", "show", *target, *tsv("properties.latestRevisionName")],
+        *(
+            ["az", "containerapp", "revision", "show", *target, *revision, *tsv(f"properties.{f}")]
+            for f in (
+                "template.containers[0].image",
+                "provisioningState",
+                "runningState",
+                "replicas",
+            )
+        ),
+        [
+            "az",
+            "containerapp",
+            "replica",
+            "list",
+            *target,
+            *revision,
+            *tsv("sum([].properties.containers[].restartCount)"),
+        ],
+    ]
+
+
+@pytest.mark.parametrize("exists", [False, True])
+def test_a_dry_run_checks_each_worker_right_after_deploying_it_general_first(
+    tmp_path: Path, exists: bool
+) -> None:
+    verb = "update" if exists else "create"
+    calls = [
+        shlex.split(line)
+        for line in dry_run(tmp_path, exists=exists)[0].splitlines()
+        if line.startswith("az containerapp ")
+    ]
+    deploys = [
+        number
+        for number, call in enumerate(calls)
+        if call[:3] == ["az", "containerapp", verb]
+        and call[call.index("--name") + 1] in ("vitrina-worker", "vitrina-worker-inbound")
+    ]
+    general, inbound = deploys
+
+    assert calls[general][calls[general].index("--name") + 1] == "vitrina-worker"
+    assert calls[general + 1 : general + 7] == check_calls("vitrina-worker")
+    assert calls[inbound][calls[inbound].index("--name") + 1] == "vitrina-worker-inbound"
+    assert calls[inbound + 1 : inbound + 7] == check_calls("vitrina-worker-inbound")
+    assert inbound > general + 6
+
+
+def test_a_dry_run_runs_the_api_check_last(tmp_path: Path) -> None:
+    lines = dry_run(tmp_path)[0].splitlines()
+
+    assert lines[-1] == "curl -fsS https://<api fqdn>/v1/health"
+
+
+def stub_az(tmp_path: Path, **answers: list[str]) -> dict[str, str]:
+    """An ``az`` that answers each state from a list, repeating the last answer; the environment
+    to run with it. ``running.<app>`` answers for that app alone."""
+    for name, lines in answers.items():
+        (tmp_path / name).write_text("".join(f"{line}\n" for line in lines))
+    stub = tmp_path / "bin" / "az"
+    stub.parent.mkdir(exist_ok=True)
+    stub.write_text(
+        f"""#!/bin/sh
+cd {shlex.quote(str(tmp_path))}
+echo "$@" >> az-calls
+previous=""
+for arg in "$@"; do
+  [ "$previous" = --name ] && app=$arg
+  previous=$arg
+done
+next() {{
+  file=$1; [ -f "$1.$app" ] && file="$1.$app"
+  n=$(cat "$file.n" 2>/dev/null || echo 0); n=$((n + 1)); echo "$n" > "$file.n"
+  line=$(sed -n "${{n}}p" "$file"); [ -n "$line" ] || line=$(tail -n 1 "$file")
+  printf '%s\\n' "$line"
+}}
+case "$*" in
+  *properties.latestRevisionName*) echo "$app--r1" ;;
+  *"properties.template.containers[0].image"*) next image ;;
+  *properties.provisioningState*) next provisioning ;;
+  *properties.runningState*) next running ;;
+  *properties.replicas*) next replicas ;;
+  *restartCount*) next restarts ;;
+  *"acr credential show"*) echo registry-value ;;
+  *ingress.fqdn*) echo api.example ;;
+esac
+"""
+    )
+    stub.chmod(0o755)
+    return {
+        **os.environ,
+        "PATH": f"{stub.parent}{os.pathsep}{os.environ['PATH']}",
+        "CHECK_ATTEMPTS": "6",
+        "CHECK_INTERVAL_S": "0",
+    }
+
+
+NEW_IMAGE = "vitrinaregistry.azurecr.io/vitrina:test"
+OLD_IMAGE = "vitrinaregistry.azurecr.io/vitrina:older"
+HEALTHY = {
+    "image": [NEW_IMAGE],
+    "provisioning": ["Provisioned"],
+    "running": ["Running"],
+    "replicas": ["1"],
+    "restarts": ["0"],
+}
+
+
+def check_running(tmp_path: Path, **answers: list[str]) -> subprocess.CompletedProcess[str]:
+    return subprocess.run(
+        ["bash", str(CHECK), "vitrina-worker-inbound", "vitrina", NEW_IMAGE],
+        env=stub_az(tmp_path, **(HEALTHY | answers)),
+        capture_output=True,
+        text=True,
+    )
+
+
+@pytest.mark.parametrize(
+    "answers",
+    [
+        {},
+        {"running": ["Running (at max)"]},
+        {"running": ["RunningAtMaxScale"]},
+        {"running": ["Processing", "Processing", "Running"]},
+        {"replicas": ["0", "1"]},
+        {"restarts": ["2"]},
+    ],
+    ids=["running", "at max", "at max as one word", "starts up", "first replica", "old restarts"],
+)
+def test_a_worker_that_keeps_running_passes_the_check(
+    tmp_path: Path, answers: dict[str, list[str]]
+) -> None:
+    result = check_running(tmp_path, **answers)
+
+    assert result.returncode == 0, result.stderr
+    assert "vitrina-worker-inbound is running" in result.stdout
+
+
+@pytest.mark.parametrize(
+    "answers",
+    [
+        {"running": ["Degraded"]},
+        {"running": ["Stopped"]},
+        {"running": ["Unknown"]},
+        {"running": [""]},
+        {"running": ["Activating"]},
+        {"running": ["Scale to 0"]},
+        {"replicas": ["0"]},
+        {"replicas": [""]},
+        {"restarts": [""]},
+        {"restarts": ["0", "1", "2", "3", "4", "5"]},
+        {"running": ["Running", "Running", "Degraded", "Running", "Running", "Degraded"]},
+        {"image": [OLD_IMAGE]},
+        {"image": [""]},
+    ],
+    ids=[
+        "degraded",
+        "stopped",
+        "unknown",
+        "blank",
+        "activating",
+        "scaled to zero",
+        "no replica",
+        "replicas blank",
+        "restarts blank",
+        "crash loop",
+        "flapping",
+        "an old revision still running",
+        "image blank",
+    ],
+)
+def test_a_worker_that_is_not_running_fails_the_check_and_names_the_app(
+    tmp_path: Path, answers: dict[str, list[str]]
+) -> None:
+    result = check_running(tmp_path, **answers)
+
+    assert result.returncode == 1
+    assert "vitrina-worker-inbound is not running" in result.stderr
+    assert "vitrina-worker-inbound is running" not in result.stdout
+
+
+@pytest.mark.parametrize(
+    "answers",
+    [{"provisioning": ["Failed"]}, {"running": ["Failed"]}, {"running": ["Activation failed"]}],
+    ids=["provisioning", "running", "activation"],
+)
+def test_a_failed_revision_stops_the_check_at_once(
+    tmp_path: Path, answers: dict[str, list[str]]
+) -> None:
+    result = check_running(tmp_path, **answers)
+
+    assert result.returncode == 1
+    assert "vitrina-worker-inbound is not running" in result.stderr
+    calls = (tmp_path / "az-calls").read_text().splitlines()
+    assert sum("properties.latestRevisionName" in call for call in calls) == 1
+
+
+def test_the_check_fails_when_az_itself_fails(tmp_path: Path) -> None:
+    env = stub_az(tmp_path)
+    (tmp_path / "bin" / "az").write_text("#!/bin/sh\nexit 97\n")
+
+    result = subprocess.run(
+        ["bash", str(CHECK), "vitrina-worker-inbound", "vitrina", NEW_IMAGE],
+        env=env,
+        capture_output=True,
+        text=True,
+    )
+
+    assert result.returncode == 1
+    assert "vitrina-worker-inbound is not running" in result.stderr
+
+
+def real_run_with_stubs(tmp_path: Path, **answers: list[str]) -> subprocess.CompletedProcess[str]:
+    """The script's real path, with az, uv and curl all stubs: nothing leaves this machine."""
+    env = stub_az(tmp_path, **(HEALTHY | answers))
+    for tool in ("uv", "curl"):
+        stub = tmp_path / "bin" / tool
+        stub.write_text(f'#!/bin/sh\necho "$@" >> {tmp_path / (tool + "-calls")}\nexit 0\n')
+        stub.chmod(0o755)
+    env_file = tmp_path / ".env"
+    values = {name: f"fake-{name.lower()}-value" for name in secret_map()} | PLAIN
+    env_file.write_text("".join(f"{name}={value}\n" for name, value in values.items()))
+    return subprocess.run(
+        ["bash", str(SCRIPT), str(CONFIG)],
+        env={**env, "SECRETS_FILE": str(env_file), "DRY_RUN": "0", "IMAGE_TAG": "test"},
+        capture_output=True,
+        text=True,
+    )
+
+
+def test_a_deploy_does_not_report_success_while_the_inbound_worker_is_not_running(
+    tmp_path: Path,
+) -> None:
+    result = real_run_with_stubs(tmp_path, **{"running.vitrina-worker-inbound": ["Degraded"]})
+
+    assert result.returncode == 1
+    assert "DEPLOY FAILED: vitrina-worker-inbound is not running" in result.stderr
+    assert "WhatsApp webhook:" not in result.stdout
+    assert not (tmp_path / "curl-calls").exists()
+
+
+@pytest.mark.parametrize(
+    "answers",
+    [
+        {"running.vitrina-worker": ["Degraded"]},
+        {"running.vitrina-worker": ["Failed"]},
+        {"provisioning.vitrina-worker": ["Failed"]},
+        {"image.vitrina-worker": [OLD_IMAGE]},
+    ],
+    ids=["degraded", "failed", "provisioning failed", "an old revision still running"],
+)
+def test_a_general_worker_that_fails_stops_the_deploy_before_the_inbound_worker_is_touched(
+    tmp_path: Path, answers: dict[str, list[str]]
+) -> None:
+    result = real_run_with_stubs(tmp_path, **answers)
+
+    assert result.returncode == 1
+    assert "DEPLOY FAILED: vitrina-worker is not running" in result.stderr
+    assert "vitrina-worker-inbound" not in (tmp_path / "az-calls").read_text()
+    assert "WhatsApp webhook:" not in result.stdout
+    assert not (tmp_path / "curl-calls").exists()
+
+
+def test_a_deploy_goes_on_to_the_api_check_once_both_workers_run(tmp_path: Path) -> None:
+    result = real_run_with_stubs(tmp_path)
+
+    assert result.returncode == 0, result.stderr
+    assert "vitrina-worker is running" in result.stdout
+    assert "vitrina-worker-inbound is running" in result.stdout
+    assert "WhatsApp webhook:" in result.stdout
 
 
 # The Container Apps ingress appends the caller's address to any X-Forwarded-For the caller
@@ -231,6 +633,20 @@ def test_optional_values_may_be_left_out(tmp_path: Path) -> None:
 
     assert result.returncode == 0
     assert "missing" not in result.stderr
+
+
+def test_fr_064_the_template_account_settings_reach_the_apps(tmp_path: Path) -> None:
+    values = {name: f"fake-{name.lower()}-value" for name in secret_map()} | PLAIN
+    values |= {
+        "WHATSAPP_BUSINESS_ACCOUNT_ID": "100000000000002",
+        "WHATSAPP_BUSINESS_NUMBER": "+573000000000",
+    }
+
+    result = deploy(tmp_path, values)
+
+    assert result.returncode == 0, result.stderr
+    assert "WHATSAPP_BUSINESS_ACCOUNT_ID=100000000000002" in result.stdout
+    assert "WHATSAPP_BUSINESS_NUMBER=+573000000000" in result.stdout
 
 
 def test_without_its_config_the_script_says_what_is_missing(tmp_path: Path) -> None:

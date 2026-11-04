@@ -53,7 +53,10 @@ paths:
       tags: [Sellers]
       operationId: createSeller
       summary: Create a seller account
-      security: []
+      description: >-
+        Operator only. Send the owner's Supabase token as well, in `Authorization`, so the new
+        seller is linked to the account that will sign in; there is no way to link it later.
+      security: [{ serviceAuth: [] }]
       parameters: [{ $ref: '#/components/parameters/IdempotencyKey' }]
       requestBody:
         required: true
@@ -67,6 +70,7 @@ paths:
             application/json:
               schema: { $ref: '#/components/schemas/Seller' }
         '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
         '409': { $ref: '#/components/responses/Conflict' }
 
   /sellers/me:
@@ -186,6 +190,7 @@ paths:
       responses:
         '202': { $ref: '#/components/responses/Accepted' }
         '400': { $ref: '#/components/responses/BadRequest' }
+        '429': { $ref: '#/components/responses/TooManyRequests' }
 
   /products/{product_id}:
     parameters: [{ $ref: '#/components/parameters/ProductId' }]
@@ -357,6 +362,7 @@ paths:
               schema: { $ref: '#/components/schemas/CreativeJob' }
         '400': { $ref: '#/components/responses/BadRequest' }
         '404': { $ref: '#/components/responses/NotFound' }
+        '429': { $ref: '#/components/responses/TooManyRequests' }
     get:
       tags: [Creative]
       operationId: listCreativeJobs
@@ -732,6 +738,7 @@ paths:
             application/json:
               schema: { $ref: '#/components/schemas/AgentTurnResult' }
         '400': { $ref: '#/components/responses/BadRequest' }
+        '429': { $ref: '#/components/responses/TooManyRequests' }
         '503': { $ref: '#/components/responses/ProviderUnavailable' }
 
   # ─────────────────────────────── Contacts & Consent ───────────────────────────────
@@ -903,6 +910,7 @@ paths:
           content:
             application/problem+json:
               schema: { $ref: '#/components/schemas/Problem' }
+        '429': { $ref: '#/components/responses/TooManyRequests' }
 
   /briefs/{brief_id}:
     parameters:
@@ -947,6 +955,7 @@ paths:
                   reactivation_campaign_id:
                     type: [string, 'null']
                     format: uuid
+        '429': { $ref: '#/components/responses/TooManyRequests' }
 
   # ─────────────────────────────── Reactivation ───────────────────────────────
   /reactivation/campaigns:
@@ -1069,6 +1078,7 @@ paths:
           content:
             application/json:
               schema: { $ref: '#/components/schemas/EvalRun' }
+        '429': { $ref: '#/components/responses/TooManyRequests' }
     get:
       tags: [Evals & Metrics]
       operationId: listEvalRuns
@@ -1188,6 +1198,7 @@ paths:
                   session_id: { type: string, format: uuid }
                   conversation_id: { type: string, format: uuid }
                   job_id: { type: string, format: uuid }
+        '429': { $ref: '#/components/responses/TooManyRequests' }
 
   # ─────────────────────────────── Public ───────────────────────────────
   /public/showcases:
@@ -1307,7 +1318,7 @@ components:
       type: apiKey
       in: header
       name: X-Service-Token
-      description: Internal workers.
+      description: Internal workers, and the operator creating a seller.
     whatsappSignature:
       type: apiKey
       in: header

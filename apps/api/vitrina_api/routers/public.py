@@ -1,13 +1,17 @@
 """Public router.
 
 Contract paths: /public/showcases, /public/showcases/{slug} (T083, P2; AS-8.2, FR-072). No sign-in:
-the visitor's address, hashed with a key and the hour, limits uploads to five an hour.
+the visitor's address, hashed with a key and the hour, limits uploads to five an hour. An IPv6
+visitor counts by their /64, the network one customer controls whole; IPv4 by the address.
 Behind the dashboard's proxy the address arrives in ``X-Vitrina-Visitor`` (the proxy drops the
 forwarding headers and always sets this one); a direct call is limited by its own address.
-After the limit counts the attempt, Spark answers one yes/no question about the photo; a
-refused photo is answered in Spanish and never stored, and no job is queued.
+After the limit counts the attempt, a valid photo must find the tool under SPEND_LIMIT_USD and
+take a place under the daily cap for all visitors; only then does Spark answer one yes/no question
+about the photo. That question is paid, so a refused photo keeps its place; it is answered in
+Spanish and never stored, and no job is queued.
 """
 
+import asyncio
 import ipaddress
 import secrets
 from datetime import UTC, datetime
@@ -18,7 +22,9 @@ from fastapi import APIRouter, File, Form, Path, Request, UploadFile
 from vitrina_core.http import FieldError, ProblemCode, ProblemError, problem_responses
 from vitrina_core.ids import new_id
 from vitrina_core.jobs import PostgresJobQueue
+from vitrina_core.ledger import spend_limit_reached
 from vitrina_core.providers import Blob, ProviderError
+from vitrina_core.quotas import UsageCounter, day_start, seconds_to_next_day
 from vitrina_core.settings import Settings
 from vitrina_core.storage import BlobStore, blob_key
 from vitrina_creative.api import (
@@ -37,14 +43,21 @@ from vitrina_creative.api import (
     upload_allowed,
     window_start,
 )
-from vitrina_creative.media import IMAGE_MAX_BYTES, inspect_media
-from vitrina_creative.showcase import OWNER
+from vitrina_creative.media import IMAGE_MAX_BYTES, prepare_upload
+from vitrina_creative.showcase import OWNER, PRICE_MAX
 
 router = APIRouter(tags=["Public"])
 
 READ_CHUNK = 1024 * 1024
 # Without CONTACT_HASH_PEPPER (local runs) the key lives as long as the process.
 _PROCESS_KEY = secrets.token_bytes(32)
+DAILY_CAP_KEY = "public_showcases:daily"
+DAILY_CAP_REACHED = (
+    "Hoy ya se crearon todas las vitrinas gratis disponibles. Vuelve a intentarlo mañana."
+)
+SPEND_LIMIT_REACHED = (
+    "Por ahora no podemos crear más vitrinas gratis. Vuelve a intentarlo más tarde."
+)
 
 
 def web_url(settings: Settings) -> str:
@@ -82,6 +95,33 @@ def visitor_address(request: Request, settings: Settings) -> str:
     return request.client.host if request.client else "unknown"
 
 
+def rate_limit_address(address: str) -> str:
+    """What the hourly limit counts: an IPv4 address, or the /64 network of an IPv6 one."""
+    try:
+        parsed = ipaddress.ip_address(address)
+    except ValueError:
+        return address
+    if isinstance(parsed, ipaddress.IPv4Address):
+        return str(parsed)
+    if parsed.ipv4_mapped is not None:  # ::ffff:a.b.c.d is one IPv4 visitor; all share a /64
+        return str(parsed.ipv4_mapped)
+    return str(ipaddress.IPv6Network((int(parsed) >> 64 << 64, 64)))
+
+
+async def _take_daily_place(request: Request, settings: Settings, now: datetime) -> None:
+    """Refused here, nothing has been spent: the photo check comes after this."""
+    stopped = await spend_limit_reached(request.app.state.ledger, settings.spend_limit_usd)
+    usage: UsageCounter = request.app.state.usage
+    if stopped or not await usage.take(
+        DAILY_CAP_KEY, day_start(now), limit=settings.public_showcase_daily_cap
+    ):
+        raise ProblemError(
+            ProblemCode.RATE_LIMITED,
+            detail=SPEND_LIMIT_REACHED if stopped else DAILY_CAP_REACHED,
+            headers={"Retry-After": str(seconds_to_next_day(now))},
+        )
+
+
 @router.post(
     "/public/showcases",
     status_code=202,
@@ -97,11 +137,19 @@ async def create_showcase(
     price_cop: Annotated[int | None, Form(ge=0)] = None,
     city: Annotated[str | None, Form(max_length=60)] = None,
 ) -> ShowcaseCreated:
+    if price_cop is not None and price_cop > PRICE_MAX:
+        message = "El precio es demasiado alto. Revisa el valor."
+        raise ProblemError(
+            ProblemCode.VALIDATION_ERROR,
+            detail=message,
+            errors=[FieldError(field="price_cop", message=message)],
+        )
     store, queue = _store(request)
     settings: Settings = request.app.state.settings
     now = datetime.now(UTC)
     window = window_start(now)
-    digest = address_hash(visitor_address(request, settings), _key(settings), window)
+    address = rate_limit_address(visitor_address(request, settings))
+    digest = address_hash(address, _key(settings), window)
     if await store.hit(digest, window) > RATE_LIMIT:
         retry = int((window + WINDOW - now).total_seconds()) + 1
         raise ProblemError(
@@ -111,11 +159,12 @@ async def create_showcase(
         )
     data = await _read(image)
     try:
-        media = inspect_media(data)
+        data, media = await asyncio.to_thread(prepare_upload, data)
     except MediaRejectedError as error:
         raise _invalid_image(error.message) from error
     if media.kind != "image":
         raise _invalid_image("Sube una foto JPEG, PNG o WebP.")
+    await _take_daily_place(request, settings, now)
     try:
         allowed = await upload_allowed(
             Blob(data=data, mime_type=media.mime_type),
@@ -123,6 +172,7 @@ async def create_showcase(
             model=settings.model_id("agent"),
         )
     except (ProviderError, LookupError) as error:
+        await request.app.state.usage.give_back(DAILY_CAP_KEY, day_start(now))
         raise ProblemError(ProblemCode.PROVIDER_UNAVAILABLE, detail=UPLOAD_UNCHECKED) from error
     if not allowed:
         raise _invalid_image(UPLOAD_REFUSED)

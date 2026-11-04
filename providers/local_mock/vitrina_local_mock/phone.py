@@ -1,32 +1,22 @@
-"""HTML phone view at /mock/whatsapp for demos and screen recording (plan.md §4.6).
+"""Read-only HTML view at /mock/whatsapp of what the mock messenger sent (plan.md §4.6).
 
-Outside the contract: the router is excluded from the OpenAPI document. Only synthetic
-numbers (+57300000xxxx) are accepted (constitution Art. V.1).
+It takes no customer messages: replay finds a recorded answer only for the very same request,
+so a message typed here would almost never have one, and a phone that seems to answer but
+cannot is worse than a viewer. Outside the contract: the router is excluded from the OpenAPI
+document. Only synthetic numbers (+57300000xxxx) are accepted (constitution Art. V.1).
 """
 
-import asyncio
-from collections.abc import Awaitable, Callable
 from typing import Annotated
 
 from fastapi import APIRouter, Query
 from fastapi.responses import HTMLResponse
-from pydantic import BaseModel, Field
 
 from vitrina_local_mock.messenger import MockEntry, MockOutbox
 
 SYNTHETIC_NUMBER = r"^\+57300000\d{4}$"
 
 
-class MockInbound(BaseModel):
-    contact: Annotated[str, Field(pattern=SYNTHETIC_NUMBER)]
-    text: Annotated[str, Field(min_length=1, max_length=4096)]
-
-
-InboundHandler = Callable[[MockInbound], Awaitable[None]]
-
-
-def create_phone_router(outbox: MockOutbox, on_inbound: InboundHandler | None = None) -> APIRouter:
-    """``on_inbound`` feeds typed messages into the inbound pipeline once it exists."""
+def create_phone_router(outbox: MockOutbox) -> APIRouter:
     router = APIRouter(prefix="/mock/whatsapp", include_in_schema=False)
 
     @router.get("", response_class=HTMLResponse)
@@ -37,13 +27,6 @@ def create_phone_router(outbox: MockOutbox, on_inbound: InboundHandler | None = 
     def messages(contact: Annotated[str, Query(pattern=SYNTHETIC_NUMBER)]) -> list[MockEntry]:
         return outbox.entries(contact=contact)
 
-    @router.post("/inbound", status_code=202)
-    async def inbound(message: MockInbound) -> dict[str, str]:
-        entry = await asyncio.to_thread(outbox.record_inbound, message.contact, message.text)
-        if on_inbound is not None:
-            await on_inbound(message)
-        return {"status": "accepted", "id": entry.id}
-
     return router
 
 
@@ -52,7 +35,7 @@ PHONE_HTML = """<!doctype html>
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Vitrina · simulador de WhatsApp</title>
+<title>Vitrina · visor de WhatsApp</title>
 <style>
   :root { --green: #075e54; --mine: #dcf8c6; --theirs: #ffffff; --bg: #ece5dd; --ink: #111b21; }
   * { box-sizing: border-box; }
@@ -72,23 +55,16 @@ PHONE_HTML = """<!doctype html>
   .msg img { display: block; max-width: 100%; border-radius: 6px; margin-bottom: 4px; }
   .meta { display: block; text-align: right; font-size: 11px; opacity: .6; }
   .tag { font-size: 12px; opacity: .7; }
-  form { display: flex; gap: 8px; padding: 10px; background: #f0f2f5; }
-  form input { flex: 1; border: 0; border-radius: 20px; padding: 10px 14px; font: inherit; }
-  form button { border: 0; border-radius: 20px; padding: 0 16px; background: var(--green); color: #fff; font: inherit; }
 </style>
 </head>
 <body>
 <div class="phone">
   <header>
-    <h1>Vitrina · simulador de WhatsApp</h1>
-    <p>Local: ningún mensaje sale a WhatsApp.</p>
+    <h1>Vitrina · visor de WhatsApp</h1>
+    <p>Solo lectura: muestra lo que Vitrina envió en este equipo. Aquí no se escriben mensajes y ninguno sale a WhatsApp.</p>
     <input id="contact" value="+573000000001" aria-label="Número del cliente (sintético)">
   </header>
   <main id="thread" aria-live="polite"></main>
-  <form id="composer">
-    <input id="text" placeholder="Escribe un mensaje" autocomplete="off" aria-label="Mensaje">
-    <button type="submit">Enviar</button>
-  </form>
 </div>
 <script>
   const base = location.pathname.replace(/\\/$/, "");
@@ -128,23 +104,13 @@ PHONE_HTML = """<!doctype html>
     const signature = JSON.stringify(entries.map((entry) => entry.id));
     if (signature === last) return;
     last = signature;
-    thread.replaceChildren(...entries.map(bubble));
+    const empty = document.createElement("p");
+    empty.className = "tag";
+    empty.textContent = "Todavía no hay mensajes para este número.";
+    thread.replaceChildren(...(entries.length ? entries.map(bubble) : [empty]));
     thread.scrollTop = thread.scrollHeight;
   }
 
-  document.getElementById("composer").addEventListener("submit", async (event) => {
-    event.preventDefault();
-    const input = document.getElementById("text");
-    const text = input.value.trim();
-    if (!text) return;
-    input.value = "";
-    await fetch(base + "/inbound", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ contact: contact.value, text }),
-    });
-    refresh();
-  });
   contact.addEventListener("change", () => { last = ""; refresh(); });
   refresh();
   setInterval(refresh, 1000);

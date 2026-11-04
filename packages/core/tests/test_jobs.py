@@ -1,4 +1,5 @@
 import asyncio
+import logging
 from dataclasses import dataclass, field
 from datetime import UTC, datetime, timedelta
 from importlib.metadata import EntryPoint
@@ -9,6 +10,7 @@ from uuid import UUID
 import pytest
 
 from vitrina_core.jobs import (
+    JOB_FAILURE_TEXT,
     ClaimedJob,
     Job,
     JobContext,
@@ -47,6 +49,7 @@ def claimed(
 class FakeQueue:
     pending: list[ClaimedJob] = field(default_factory=list)
     events: list[tuple[Any, ...]] = field(default_factory=list)
+    requeued_for: list[frozenset[str]] = field(default_factory=list)
 
     async def claim(self, worker_id: str, tasks: frozenset[str]) -> ClaimedJob | None:
         for job in self.pending:
@@ -67,7 +70,8 @@ class FakeQueue:
     async def fail(self, job_id: UUID, error: dict[str, Any], retry_at: datetime | None) -> None:
         self.events.append(("fail", error, retry_at))
 
-    async def requeue_stalled(self, stalled_after: timedelta) -> int:
+    async def requeue_stalled(self, stalled_after: timedelta, tasks: frozenset[str]) -> int:
+        self.requeued_for.append(tasks)
         return 0
 
 
@@ -111,7 +115,7 @@ async def test_failures_are_retried_with_backoff_until_the_last_attempt() -> Non
     assert last_retry is None
     assert last_error == {
         "code": "PROVIDER_UNAVAILABLE",
-        "message": "upstream 503",
+        "message": JOB_FAILURE_TEXT["PROVIDER_UNAVAILABLE"],
         "retryable": False,
     }
 
@@ -135,6 +139,119 @@ async def test_fr_028_a_provider_pause_longer_than_the_backoff_is_waited_out(
     ((_, error, retry_at),) = queue.events
     assert error["retryable"] is True
     assert retry_at == NOW + waits
+
+
+async def test_a_job_that_crashes_keeps_the_raw_error_out_of_its_result(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    registry = TaskRegistry()
+    sql = "(psycopg.errors.UniqueViolation) [SQL: INSERT INTO sellers (id) VALUES (%(id)s)]"
+
+    @registry.task("catalog.import_products")
+    async def crash(ctx: JobContext) -> None:
+        raise RuntimeError(sql)
+
+    queue = FakeQueue([claimed(attempt=3)])
+    with caplog.at_level(logging.WARNING, logger="vitrina.jobs"):
+        await worker(queue, registry).run_once()
+
+    assert queue.events == [
+        (
+            "fail",
+            {
+                "code": "INTERNAL_ERROR",
+                "message": "Algo falló de nuestro lado. Intenta de nuevo.",
+                "retryable": False,
+            },
+            None,
+        )
+    ]
+    assert sql in caplog.text
+    assert str(JOB) in caplog.text
+
+
+async def test_a_refused_provider_call_stores_a_safe_message_and_logs_the_detail(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    registry = TaskRegistry()
+
+    @registry.task("catalog.import_products")
+    async def refused(ctx: JobContext) -> None:
+        raise ProviderError("400 key sk-synthetic rejected", provider="meta_model_api")
+
+    queue = FakeQueue([claimed()])
+    with caplog.at_level(logging.WARNING, logger="vitrina.jobs"):
+        await worker(queue, registry).run_once()
+
+    assert queue.events == [
+        (
+            "fail",
+            {
+                "code": "PROVIDER_ERROR",
+                "message": JOB_FAILURE_TEXT["PROVIDER_ERROR"],
+                "retryable": False,
+            },
+            None,
+        )
+    ]
+    assert "sk-synthetic" in caplog.text
+
+
+async def test_a_task_that_words_its_failure_for_the_seller_keeps_its_text() -> None:
+    registry = TaskRegistry()
+    spanish = "No pudimos leer los productos de la foto. Inténtalo de nuevo."
+
+    @registry.task("catalog.import_products")
+    async def unreadable(ctx: JobContext) -> None:
+        raise JobFailedError("PROVIDER_ERROR", spanish)
+
+    queue = FakeQueue([claimed()])
+    await worker(queue, registry).run_once()
+
+    assert queue.events[0][1]["message"] == spanish
+
+
+async def test_a_missing_setting_behind_a_failed_job_only_reaches_the_log(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    registry = TaskRegistry()
+
+    @registry.task("catalog.import_products")
+    async def unconfigured(ctx: JobContext) -> None:
+        try:
+            ctx.settings.model_id("agent")
+        except LookupError as error:
+            raise JobFailedError.safe("PROVIDER_UNAVAILABLE") from error
+
+    queue = FakeQueue([claimed()])
+    with caplog.at_level(logging.WARNING, logger="vitrina.jobs"):
+        await worker(queue, registry).run_once()
+
+    assert queue.events[0][1]["message"] == JOB_FAILURE_TEXT["PROVIDER_UNAVAILABLE"]
+    assert "MODEL_AGENT" in caplog.text
+
+
+def test_a_stored_internal_error_is_never_shown_as_written() -> None:
+    row = {
+        "id": JOB,
+        "kind": "brief",
+        "status": "failed",
+        "result_ref": None,
+        "created_at": NOW,
+        "started_at": NOW,
+        "finished_at": NOW,
+        "error": {
+            "code": "INTERNAL_ERROR",
+            "message": "ProgrammingError: [SQL: SELECT * FROM sellers]",
+            "retryable": False,
+        },
+    }
+
+    job = Job.from_row(row)
+
+    assert job.error is not None
+    assert job.error.code == "INTERNAL_ERROR"
+    assert "SQL" not in job.model_dump_json()
 
 
 async def test_job_failed_error_is_final_and_keeps_its_code() -> None:
@@ -171,6 +288,98 @@ async def test_a_job_that_exceeds_its_timeout_fails() -> None:
     await worker(queue, registry).run_once()
 
     assert queue.events[-1][1]["code"] == "TIMEOUT"
+
+
+def told_task(failure: BaseException | None = None, *, timeout_s: float = 600.0) -> TaskRegistry:
+    """One task that raises ``failure`` (or hangs) and tells the queue's events when it gives up."""
+    registry = TaskRegistry()
+
+    async def handler(ctx: JobContext) -> None:
+        if failure is None:
+            await asyncio.sleep(30)
+        else:
+            raise failure
+
+    async def told(ctx: JobContext, code: str) -> None:
+        assert isinstance(ctx.queue, FakeQueue)
+        ctx.queue.events.append(("told", ctx.job_id, code))
+
+    registry.add("catalog.import_products", handler, timeout_s=timeout_s, on_final_failure=told)
+    return registry
+
+
+@pytest.mark.parametrize(
+    ("failure", "attempt", "code"),
+    [
+        (
+            JobFailedError("PRODUCT_NOT_FOUND", "No encontramos el producto."),
+            1,
+            "PRODUCT_NOT_FOUND",
+        ),
+        (ProviderError("400 from images", provider="meta_model_api"), 1, "PROVIDER_ERROR"),
+        (
+            ProviderError("503 from images", provider="meta_model_api", retryable=True),
+            3,
+            "PROVIDER_UNAVAILABLE",
+        ),
+        (RuntimeError("a bug"), 3, "INTERNAL_ERROR"),
+    ],
+)
+async def test_fr_083_a_task_is_told_once_after_its_job_failed_for_good(
+    failure: BaseException, attempt: int, code: str
+) -> None:
+    queue = FakeQueue([claimed(attempt=attempt)])
+
+    await worker(queue, told_task(failure)).run_once()
+
+    assert [event[0] for event in queue.events] == ["fail", "told"]  # the queue records it first
+    assert queue.events[0][1]["code"] == code
+    assert queue.events[0][2] is None
+    assert queue.events[1] == ("told", JOB, code)
+
+
+async def test_fr_083_a_task_is_told_when_its_last_attempt_times_out() -> None:
+    queue = FakeQueue([claimed(attempt=3)])
+
+    await worker(queue, told_task(timeout_s=0.01)).run_once()
+
+    assert queue.events[-1] == ("told", JOB, "TIMEOUT")
+
+
+@pytest.mark.parametrize(
+    "failure",
+    [
+        ProviderError("503 from images", provider="meta_model_api", retryable=True),
+        RuntimeError("a bug"),
+        None,  # hangs until the timeout
+    ],
+)
+async def test_fr_083_a_task_is_not_told_while_attempts_remain(
+    failure: BaseException | None,
+) -> None:
+    queue = FakeQueue([claimed(attempt=1)])
+
+    await worker(queue, told_task(failure, timeout_s=0.01)).run_once()
+
+    assert [event[0] for event in queue.events] == ["fail"]
+    assert queue.events[0][2] is not None  # it comes back
+
+
+async def test_fr_083_a_failing_notice_leaves_the_job_failed_and_the_worker_running() -> None:
+    registry = TaskRegistry()
+
+    async def handler(ctx: JobContext) -> None:
+        raise JobFailedError("PRODUCT_NOT_FOUND", "No encontramos el producto.")
+
+    async def told(ctx: JobContext, code: str) -> None:
+        raise RuntimeError("the database went away")
+
+    registry.add("catalog.import_products", handler, on_final_failure=told)
+    queue = FakeQueue([claimed()])
+
+    assert await worker(queue, registry).run_once() is True
+
+    assert [event[0] for event in queue.events] == ["fail"]
 
 
 def test_task_names_are_unique() -> None:
@@ -316,3 +525,98 @@ def test_sweep_names_are_unique() -> None:
     registry.every("sweep", every_s=60, sweep=sweep)
     with pytest.raises(ValueError, match="already registered"):
         registry.every("sweep", every_s=60, sweep=sweep)
+
+
+INBOUND = "conversation.process_inbound"
+CAMPAIGN = "compliance.campaign_send"
+
+
+async def _noop(ctx: JobContext) -> None:
+    return None
+
+
+async def _no_sweep(sessions: Any, now: datetime) -> int:
+    return 0
+
+
+def lanes_registry() -> TaskRegistry:
+    registry = TaskRegistry()
+    registry.add(INBOUND, _noop)
+    registry.add(CAMPAIGN, _noop)
+    registry.every("catalog.expire_reservations", every_s=600, sweep=_no_sweep)
+    return registry
+
+
+async def test_a_worker_excluding_inbound_never_claims_it_even_when_it_is_oldest() -> None:
+    general = lanes_registry().narrowed(exclude={INBOUND})
+    queue = FakeQueue([claimed(task=INBOUND), claimed(task=CAMPAIGN)])
+
+    assert general.names() == {CAMPAIGN}
+    assert await worker(queue, general).run_once() is True
+    assert await worker(queue, general).run_once() is False
+    assert [job.task for job in queue.pending] == [INBOUND]
+
+
+async def test_a_worker_limited_to_inbound_claims_only_inbound() -> None:
+    inbound = lanes_registry().narrowed(only={INBOUND})
+    queue = FakeQueue([claimed(task=CAMPAIGN), claimed(task=INBOUND)])
+
+    assert inbound.names() == {INBOUND}
+    assert await worker(queue, inbound).run_once() is True
+    assert await worker(queue, inbound).run_once() is False
+    assert [job.task for job in queue.pending] == [CAMPAIGN]
+
+
+async def test_a_worker_with_no_limit_claims_every_task() -> None:
+    registry = lanes_registry().narrowed()
+    queue = FakeQueue([claimed(task=CAMPAIGN), claimed(task=INBOUND)])
+
+    assert registry.names() == {INBOUND, CAMPAIGN}
+    assert await worker(queue, registry).run_once() is True
+    assert await worker(queue, registry).run_once() is True
+    assert queue.pending == []
+
+
+def test_only_the_general_worker_keeps_the_sweeps() -> None:
+    names = [item.name for item in lanes_registry().narrowed(exclude={INBOUND}).periodic()]
+
+    assert names == ["catalog.expire_reservations"]
+    assert lanes_registry().narrowed(only={INBOUND}).periodic() == ()
+    assert len(lanes_registry().narrowed().periodic()) == 1
+
+
+@pytest.mark.parametrize("limit", ["only", "exclude"])
+def test_a_task_name_that_does_not_exist_is_refused(limit: str) -> None:
+    with pytest.raises(ValueError, match=r"unknown task.*conversation\.process_inbund"):
+        lanes_registry().narrowed(**{limit: {"conversation.process_inbund"}})
+
+
+def test_only_and_exclude_cannot_be_combined() -> None:
+    with pytest.raises(ValueError, match="either"):
+        lanes_registry().narrowed(only={INBOUND}, exclude={CAMPAIGN})
+
+
+def test_excluding_every_task_is_refused() -> None:
+    with pytest.raises(ValueError, match="no task left"):
+        lanes_registry().narrowed(exclude={INBOUND, CAMPAIGN})
+
+
+@pytest.mark.parametrize(
+    "limits", [{"only": {INBOUND}}, {"exclude": {INBOUND}}, {}], ids=["only", "exclude", "none"]
+)
+async def test_a_worker_requeues_only_the_stalled_jobs_of_the_tasks_it_claims(
+    limits: dict[str, set[str]],
+) -> None:
+    stop = asyncio.Event()
+
+    class OneLoop(FakeQueue):
+        async def claim(self, worker_id: str, tasks: frozenset[str]) -> ClaimedJob | None:
+            stop.set()
+            return None
+
+    registry = lanes_registry().narrowed(**limits)
+    queue = OneLoop()
+
+    await worker(queue, registry).run(stop)
+
+    assert queue.requeued_for == [registry.names()]

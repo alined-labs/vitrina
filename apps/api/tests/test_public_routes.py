@@ -8,8 +8,9 @@ from pydantic import SecretStr
 from starlette.requests import Request
 
 from vitrina_api.main import create_app
-from vitrina_api.routers.public import visitor_address
+from vitrina_api.routers.public import rate_limit_address, visitor_address
 from vitrina_core.settings import Settings
+from vitrina_creative.showcase import PRICE_MAX
 from vitrina_creative.testing import source_photo
 
 
@@ -28,6 +29,21 @@ def test_showcases_need_the_database_and_no_sign_in(client: TestClient) -> None:
 
     assert (created.status_code, created.json()["code"]) == (503, "PROVIDER_UNAVAILABLE")
     assert (fetched.status_code, fetched.json()["code"]) == (503, "PROVIDER_UNAVAILABLE")
+
+
+def test_as_8_2_a_price_the_page_cannot_hold_is_refused_and_no_photo_is_stored(
+    client: TestClient, tmp_path: Path
+) -> None:
+    response = client.post(
+        "/v1/public/showcases",
+        files={"image": ("bolso.png", source_photo().image.data, "image/png")},
+        data={"product_name": "Bolso tejido a mano", "price_cop": str(PRICE_MAX + 1)},
+    )
+
+    assert (response.status_code, response.json()["code"]) == (400, "VALIDATION_ERROR")
+    assert response.json()["errors"][0]["field"] == "price_cop"
+    assert "precio" in response.json()["detail"]
+    assert not [path for path in tmp_path.rglob("*") if path.is_file()]
 
 
 def test_a_malformed_slug_is_a_validation_error(client: TestClient) -> None:
@@ -77,3 +93,28 @@ def test_without_a_valid_visitor_header_the_client_address_counts() -> None:
     assert visitor_address(visitor_request(FROM_PROXY), PROXY) == "10.0.0.1"
     listed = visitor_request({**FROM_PROXY, "X-Vitrina-Visitor": "anything, 1.2.3.4"})
     assert visitor_address(listed, PROXY) == "10.0.0.1"
+
+
+def test_as_8_2_one_ipv6_network_is_one_visitor() -> None:
+    first = rate_limit_address("2001:db8:1:2:aaaa::1")
+    second = rate_limit_address("2001:db8:1:2:ffff:ffff:ffff:ffff")
+    next_network = rate_limit_address("2001:db8:1:3::1")
+
+    assert first == second == "2001:db8:1:2::/64"
+    assert next_network != first
+
+
+def test_as_8_2_ipv4_stays_per_address() -> None:
+    assert rate_limit_address("203.0.113.7") == "203.0.113.7"
+    assert rate_limit_address("203.0.113.8") == "203.0.113.8"
+
+
+def test_as_8_2_an_ipv4_address_written_as_ipv6_is_still_that_one_address() -> None:
+    # Every ::ffff:a.b.c.d sits in one /64: grouping them would make all such visitors one.
+    assert rate_limit_address("::ffff:203.0.113.7") == "203.0.113.7"
+    assert rate_limit_address("::ffff:203.0.113.8") == "203.0.113.8"
+
+
+def test_as_8_2_a_caller_with_no_readable_address_keeps_its_own_label() -> None:
+    assert rate_limit_address("unknown") == "unknown"
+    assert rate_limit_address("testclient") == "testclient"

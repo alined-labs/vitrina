@@ -43,7 +43,8 @@ products = sa.Table(
         "search_tsv",
         TSVECTOR,
         sa.Computed(
-            "to_tsvector('spanish', f_unaccent(coalesce(name, '') || ' ' || coalesce(description, '')))",
+            "to_tsvector('spanish', f_unaccent("
+            "f_product_search_text(name, description, price_cop, attributes)))",
             persisted=True,
         ),
     ),

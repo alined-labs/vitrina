@@ -17,7 +17,7 @@ from vitrina_catalog.sellers import (
 )
 from vitrina_catalog.tasks import VOICE_PROFILE
 from vitrina_catalog.voice import redact, seller_lines
-from vitrina_core.auth import SellerId, authenticator
+from vitrina_core.auth import SellerId, ServiceCaller, authenticator
 from vitrina_core.http import (
     FieldError,
     IdempotencyKey,
@@ -42,8 +42,8 @@ Store = Annotated[SellerStore, Depends(seller_store)]
 
 
 async def _signed_in_subject(request: Request) -> str | None:
-    """POST /sellers is open (security: []), but a dashboard user sends the Supabase token
-    so the new seller is linked to the account that will sign in."""
+    """The operator may also send the owner's Supabase token, so the new seller is linked to
+    the account that will sign in. That token alone never creates a seller."""
     scheme, _, token = request.headers.get("authorization", "").partition(" ")
     if scheme.lower() != "bearer" or not token:
         return None
@@ -56,10 +56,14 @@ async def _signed_in_subject(request: Request) -> str | None:
     status_code=201,
     operation_id="createSeller",
     summary="Create a seller account",
-    responses=problem_responses(400, 409),
+    responses=problem_responses(400, 401, 409),
 )
 async def create_seller(
-    request: Request, store: Store, seller: SellerCreate, _key: IdempotencyKey = None
+    request: Request,
+    store: Store,
+    seller: SellerCreate,
+    _operator: ServiceCaller,
+    _key: IdempotencyKey = None,
 ) -> Seller:
     try:
         return await store.create(seller, auth_subject=await _signed_in_subject(request))

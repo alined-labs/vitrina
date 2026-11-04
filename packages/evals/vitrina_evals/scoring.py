@@ -1,9 +1,9 @@
 """Scoring one conversation case and summarizing a run (AS-7.1, AS-7.2; plan.md §4.1).
 
 The rules are the engine's own, applied from outside: an amount in the reply is invented
-unless an active item the reply cites carries it, and so is a yes to an amount or a
-promotion the customer named (R2; amounts read by the shared money normalizer, the yes by
-the engine's own reading). Every reply of a case is checked for invented prices, and
+unless an active item the reply cites carries it, a deal unless one states it, and so is a yes
+to an amount or a promotion the customer named (R2; amounts and deals read by the shared
+readers, the yes by the engine's own reading). Every reply of a case is checked for invented prices, and
 ``invented_price_rate`` is the share of replies with one. The last reply is checked against
 the rest of what the case expects: a grounded reply cites every item the case expects and
 nothing inactive (R3); a handoff must happen exactly when the case says, with its reason
@@ -18,6 +18,7 @@ from uuid import UUID
 
 from vitrina_conversation.api import Agreement, agreed_offers
 from vitrina_core.money import amounts_cop
+from vitrina_core.offers import unsupported_offers
 from vitrina_evals.cases import ConversationCase, Scene
 from vitrina_evals.schemas import EvalCaseResult, EvalMetrics
 
@@ -97,7 +98,7 @@ def score_case(
     for number, (message, turn) in enumerate(
         zip(case.messages[len(case.messages) - len(turns) :], turns, strict=True), start=1
     ):
-        stated, agreed = _invented(scene, message, turn, expected.forbidden_amounts)
+        stated, agreed, offers = _invented(scene, message, turn, expected.forbidden_amounts)
         where = f"reply {number}: " if number < len(turns) else ""
         if stated:
             problems.append(
@@ -108,8 +109,10 @@ def score_case(
                 f"{where}says yes to the customer's price no cited item supports: "
                 + ", ".join(agreed.labels())
             )
+        if offers:
+            problems.append(f"{where}promises deals no cited item states: " + ", ".join(offers))
         invented |= {*stated, *agreed.amounts}
-        invented_replies += bool(stated or agreed.labels())
+        invented_replies += bool(stated or agreed.labels() or offers)
     found = amounts_cop(outcome.reply)
 
     predicted = outcome.handoff_reason is not None
@@ -152,8 +155,9 @@ def score_case(
 
 def _invented(
     scene: Scene, message: str, outcome: TurnOutcome, forbidden: Sequence[int]
-) -> tuple[tuple[int, ...], Agreement]:
-    """The amounts one reply states and the customer's prices it says yes to, unsupported."""
+) -> tuple[tuple[int, ...], Agreement, tuple[str, ...]]:
+    """The amounts one reply states, the customer's prices it says yes to and the deals it
+    promises, unsupported."""
     quotable = set().union(
         *(scene.allowed.get(item_id, frozenset()) for item_id in outcome.cited_ids)
     )
@@ -165,7 +169,13 @@ def _invented(
         }
     )
     texts = [scene.texts[item_id] for item_id in outcome.cited_ids if item_id in scene.texts]
-    return tuple(stated), agreed_offers(outcome.reply, message, quotable, texts)
+    agreement = agreed_offers(outcome.reply, message, quotable, texts)
+    offers = tuple(
+        offer
+        for offer in unsupported_offers(outcome.reply, texts)
+        if offer not in agreement.promotions
+    )
+    return tuple(stated), agreement, offers
 
 
 def error_case(case: ConversationCase, message: str) -> CaseScore:

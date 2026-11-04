@@ -1,6 +1,6 @@
 """Create the demo shop through the public API: the seller, its products, facts and photos.
 
-    uv run --env-file apps/dashboard/.env.local scripts/seed-demo.py \
+    SERVICE_TOKEN=... uv run --env-file apps/dashboard/.env.local scripts/seed-demo.py \
         --api https://<api address>/v1 --whatsapp-number <E.164> --sign-in <owner email> \
         [--photo mochila-azul=<path> ...]
 
@@ -13,7 +13,8 @@ is kept, and a product that has photos gets no more.
 The calls carry the owner's Supabase access token. ``--sign-in`` gets one with the owner's
 email and a password typed at the prompt, from NEXT_PUBLIC_SUPABASE_URL and the public
 NEXT_PUBLIC_SUPABASE_ANON_KEY (never the service-role key); without it the token is read from
-VITRINA_TOKEN (locally, from ``make dev-token``). Nothing secret is printed.
+VITRINA_TOKEN (locally, from ``make dev-token``). Creating the seller also needs the deployment's
+SERVICE_TOKEN in the environment; a shop that already exists does not. Nothing secret is printed.
 """
 
 import argparse
@@ -38,7 +39,12 @@ class SeedError(Exception):
 
 
 def seed(
-    client: httpx2.Client, shop: dict[str, Any], *, whatsapp_number: str, photos: dict[str, Path]
+    client: httpx2.Client,
+    shop: dict[str, Any],
+    *,
+    whatsapp_number: str,
+    photos: dict[str, Path],
+    service_token: str = "",
 ) -> dict[str, Any]:
     """Make the signed-in account's shop hold ``shop``; report what was created and kept."""
     keys = {item["key"]: item["name"] for item in shop["products"]}
@@ -49,8 +55,15 @@ def seed(
 
     me = client.get("/sellers/me")
     if me.status_code == 403:  # the account has no seller yet (POST /sellers links it)
+        if not service_token:
+            raise SeedError("creating the seller needs SERVICE_TOKEN in the environment")
         seller = {key: shop["seller"][key] for key in SELLER_KEYS}
-        _expect(client.post("/sellers", json={**seller, "whatsapp_number": whatsapp_number}), 201)
+        answer = client.post(
+            "/sellers",
+            json={**seller, "whatsapp_number": whatsapp_number},
+            headers={"X-Service-Token": service_token},
+        )
+        _expect(answer, 201)
         report["seller"] = "created"
     else:
         _expect(me, 200)
@@ -159,7 +172,13 @@ def main(argv: list[str] | None = None) -> int:
         shop = json.loads(args.fixture.read_text(encoding="utf-8"))
         headers = {"Authorization": f"Bearer {token}"}
         with httpx2.Client(base_url=args.api.rstrip("/"), headers=headers, timeout=60) as client:
-            report = seed(client, shop, whatsapp_number=args.whatsapp_number, photos=photos)
+            report = seed(
+                client,
+                shop,
+                whatsapp_number=args.whatsapp_number,
+                photos=photos,
+                service_token=os.environ.get("SERVICE_TOKEN", ""),
+            )
     except SeedError as error:
         print(f"seed-demo: {error}", file=sys.stderr)
         return 1

@@ -4,7 +4,8 @@ AS-2.4, plan.md §4.2 step 4. The engine plans the grid (every
 angle at least once, no hook and angle pair twice before all are used) and Spark writes one text
 per cell. Each text is checked outside the model: at most 300 characters, the ``{wa_link}``
 placeholder exactly once, no amount other than the product price or one in the seller's facts
-(the same normalizer as the price validator, R2), and no testimonials (constitution Art. IV.2).
+and no deal they do not state (the same readers as the price validator, R2), and no testimonials
+(constitution Art. IV.2).
 Failing cells are rewritten once with their problems listed; cells still failing are dropped
 and reported. Truthfulness also shapes the grid: ``scarcity`` needs a low, known stock, and
 ``handmade`` needs the product data to say so (Ley 1480). A job may narrow the grid to some
@@ -14,7 +15,7 @@ angles or hooks (``CreativeJobCreate``, e.g. from a brief). Brand-voice scoring 
 import json
 import re
 import unicodedata
-from collections.abc import Sequence
+from collections.abc import Iterable, Sequence
 from dataclasses import dataclass, field
 from typing import Literal, get_args
 
@@ -22,6 +23,7 @@ from pydantic import BaseModel
 
 from vitrina_core.jobs import JobFailedError
 from vitrina_core.money import amounts_cop, format_cop
+from vitrina_core.offers import unsupported_offers
 from vitrina_core.providers import ChatMessage, ChatModel, ChatRequest, ResponseFormat, with_backoff
 
 CopyHook = Literal["question", "bold_claim", "story", "social_proof_free", "scarcity", "benefit"]
@@ -98,11 +100,14 @@ class CopyError(JobFailedError):
     """No usable copy at all: a final job failure."""
 
 
+def says_handmade(*product_data: str) -> bool:
+    return bool(HANDMADE_WORDS.search(_fold(" ".join(product_data))))
+
+
 def is_handmade(item: CopyInput) -> bool:
     if item.handmade is not None:
         return item.handmade
-    text = " ".join([item.product_name, item.product_description, *item.attributes.values()])
-    return bool(HANDMADE_WORDS.search(_fold(text)))
+    return says_handmade(item.product_name, item.product_description, *item.attributes.values())
 
 
 def plan_grid(
@@ -140,9 +145,42 @@ def plan_grid(
     return cells
 
 
+def plan_copy(
+    item: CopyInput,
+    *,
+    count: int = 10,
+    angles: Sequence[CopyAngle] | None = None,
+    hooks: Sequence[CopyHook] | None = None,
+) -> list[tuple[CopyHook, CopyAngle]]:
+    """The grid this product can truthfully carry, or a CopyError. It calls no model, so a job
+    can ask before anything is paid for."""
+    return plan_grid(
+        count,
+        angles,
+        hooks,
+        allow_scarcity=item.stock is not None and 0 < item.stock <= LOW_STOCK,
+        allow_handmade=is_handmade(item),
+        allow_price=item.price_cop is not None,
+    )
+
+
 def allowed_amounts(item: CopyInput) -> set[int]:
-    """The product price, when published; the facts' amounts are added by the caller."""
-    return {item.price_cop} if item.price_cop is not None else set()
+    """The product price, when published, and any number in the names ("Bolso Viajero 1500");
+    the facts' amounts are added by the caller."""
+    price = {item.price_cop} if item.price_cop is not None else set()
+    return price | set(amounts_cop(f"{item.product_name}. {item.business_name}"))
+
+
+def offer_sources(item: CopyInput) -> tuple[str, ...]:
+    """What may state a deal: the product's own text, the seller's facts and the seller's brief."""
+    brief = (item.scene_brief,) if item.scene_brief else ()
+    return (
+        item.product_name,
+        item.product_description,
+        *item.attributes.values(),
+        *item.facts,
+        *brief,
+    )
 
 
 def price_rule(item: CopyInput) -> str:
@@ -158,8 +196,9 @@ def price_rule(item: CopyInput) -> str:
     )
 
 
-def check_copy(text: str, allowed_amounts: set[int]) -> list[str]:
-    """The problems of one text, in Spanish (they go back to the model in the rewrite)."""
+def check_copy(text: str, allowed_amounts: set[int], sources: Iterable[str] = ()) -> list[str]:
+    """The problems of one text, in Spanish (they go back to the model in the rewrite).
+    ``sources`` are the texts that may state a deal."""
     problems: list[str] = []
     if len(text) > MAX_CHARS:
         problems.append(f"tiene {len(text)} caracteres y el máximo es {MAX_CHARS}")
@@ -170,6 +209,9 @@ def check_copy(text: str, allowed_amounts: set[int]) -> list[str]:
         problems.append(
             "menciona montos que no están en los datos: " + ", ".join(map(format_cop, extra))
         )
+    offers = unsupported_offers(text, sources)
+    if offers:
+        problems.append("promete una oferta que no está en los datos: " + ", ".join(offers))
     if TESTIMONIAL.search(_fold(text)):
         problems.append("parece un testimonio, una reseña o una cifra de ventas; no se permiten")
     return problems
@@ -185,27 +227,23 @@ async def write_copy(
     model: str,
 ) -> CopyResult:
     """The grid for one product: ``count`` checked texts, or a CopyError when none survive."""
-    cells = plan_grid(
-        count,
-        angles,
-        hooks,
-        allow_scarcity=item.stock is not None and 0 < item.stock <= LOW_STOCK,
-        allow_handmade=is_handmade(item),
-        allow_price=item.price_cop is not None,
-    )
+    cells = plan_copy(item, count=count, angles=angles, hooks=hooks)
     allowed = allowed_amounts(item)
     for fact in item.facts:
         allowed.update(amounts_cop(fact))
 
     texts = await _write(item, cells, list(range(len(cells))), {}, writer=writer, model=model)
-    problems = {slot: check_copy(texts.get(slot, ""), allowed) for slot in range(len(cells))}
+    sources = offer_sources(item)
+    problems = {
+        slot: check_copy(texts.get(slot, ""), allowed, sources) for slot in range(len(cells))
+    }
     failing = [slot for slot, found in problems.items() if found]
     if failing:  # one rewrite of the failing cells, each with its problems
         retry = await _write(item, cells, failing, problems, writer=writer, model=model)
         for slot in failing:
             if slot in retry:
                 texts[slot] = retry[slot]
-                problems[slot] = check_copy(retry[slot], allowed)
+                problems[slot] = check_copy(retry[slot], allowed, sources)
 
     variants = tuple(
         CopyDraft(hook=cells[slot][0], angle=cells[slot][1], text=texts[slot])

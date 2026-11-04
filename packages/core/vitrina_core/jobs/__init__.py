@@ -2,6 +2,7 @@
 
 from vitrina_core.jobs.model import (
     API_KINDS,
+    JOB_FAILURE_TEXT,
     InternalKind,
     Job,
     JobErrorDetail,
@@ -16,6 +17,7 @@ from vitrina_core.jobs.worker import (
     Handler,
     JobContext,
     JobFailedError,
+    OnFinalFailure,
     Periodic,
     Sweep,
     Task,
@@ -27,6 +29,7 @@ from vitrina_core.jobs.worker import (
 
 __all__ = [
     "API_KINDS",
+    "JOB_FAILURE_TEXT",
     "STALLED_AFTER_S",
     "TASKS_ENTRY_POINT",
     "ClaimedJob",
@@ -40,6 +43,7 @@ __all__ = [
     "JobQueue",
     "JobReader",
     "JobStatus",
+    "OnFinalFailure",
     "Periodic",
     "PostgresJobQueue",
     "QueueKind",
