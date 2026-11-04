@@ -52,7 +52,11 @@ async def process_inbound_job(ctx: JobContext) -> str | None:
     except LookupError as error:  # MODEL_AGENT unset (Q01)
         raise JobFailedError.safe("PROVIDER_UNAVAILABLE") from error
     outcome = await process_stored_message(
-        deps, seller_id, UUID(str(ctx.payload["payload_id"])), str(ctx.payload["message_id"])
+        deps,
+        seller_id,
+        UUID(str(ctx.payload["payload_id"])),
+        str(ctx.payload["message_id"]),
+        can_retry=ctx.job.attempt < ctx.job.max_attempts,
     )
     if outcome is None:
         raise JobFailedError("NOT_FOUND", "the webhook payload or its message is no longer kept")

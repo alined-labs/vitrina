@@ -9,7 +9,8 @@ task never edits a shared file:
 A handler gets a ``JobContext`` and returns the job's ``result_ref`` (or None). Raise
 ``JobFailedError`` for a final failure with a stable code; its message reaches the seller as
 written, so never put an exception's text in it. Any other exception, a provider outage or a
-timeout is retried with backoff until ``max_attempts``, and the job's error says only
+timeout is retried with backoff until ``max_attempts``, waiting longer when the provider asked
+for a longer pause (``ProviderError.retry_after_s``), and the job's error says only
 ``JOB_FAILURE_TEXT``: the real error goes to the log under the job's id. A task with rows of its
 own passes ``on_final_failure`` to close them when its job fails for good; a process that is
 killed reaches no such code, so such a task also needs a sweep that reads the queue.
@@ -292,7 +293,9 @@ class Worker:
             )
         except ProviderError as error:
             if error.retryable:
-                await self._failed(job, task, "PROVIDER_UNAVAILABLE", str(error))
+                await self._failed(
+                    job, task, "PROVIDER_UNAVAILABLE", str(error), not_before_s=error.retry_after_s
+                )
             else:
                 logger.warning("job %s (%s) PROVIDER_ERROR: %s", job.id, job.task, error)
                 await self._give_up(
@@ -318,12 +321,21 @@ class Worker:
             job, self.queue, self.sessions, self.providers, self.storage, self.settings
         )
 
-    async def _failed(self, job: ClaimedJob, task: Task, code: str, detail: str) -> None:
+    async def _failed(
+        self,
+        job: ClaimedJob,
+        task: Task,
+        code: str,
+        detail: str,
+        *,
+        not_before_s: float | None = None,
+    ) -> None:
         logger.warning("job %s (%s) %s: %s", job.id, job.task, code, detail)
         retry = job.attempt < job.max_attempts
         error = {"code": code, "message": JOB_FAILURE_TEXT[code], "retryable": retry}
         if retry:
-            await self.queue.fail(job.id, error, self.clock() + backoff(job.attempt))
+            wait = max(backoff(job.attempt), timedelta(seconds=not_before_s or 0))
+            await self.queue.fail(job.id, error, self.clock() + wait)
         else:
             await self._give_up(job, task, error)
 

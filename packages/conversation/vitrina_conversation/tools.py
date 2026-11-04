@@ -248,6 +248,7 @@ class ToolBox:
         ad_assets: AdAssets | None = None,
         bookings: BookingStore | None = None,
         clock: Callable[[], datetime] = lambda: datetime.now(UTC),
+        actions: TurnActions | None = None,
     ) -> None:
         self.catalog = catalog
         self.seller = seller
@@ -260,7 +261,7 @@ class ToolBox:
         self.ad_assets = ad_assets
         self.bookings = bookings
         self.clock = clock
-        self.actions = TurnActions()
+        self.actions = TurnActions() if actions is None else actions
         self.records: list[ToolCallRecord] = []
 
     async def run(self, call: ToolCall) -> ToolCallRecord:

@@ -111,7 +111,7 @@ Replay plays back model outputs recorded from live calls, so these figures show 
 
 - **WhatsApp test number.** The business behind this demo is not verified with Meta. The demo and the deployment use Meta's WhatsApp test number, which can message only verified recipients (up to five). Running the WhatsApp Business app and the Cloud API on one number (coexistence) is out of scope: it needs a verified business and a Tech Provider.
 - **Price and offer check.** The check fails closed on the forms it recognises: amounts, currencies, percentages, 2x1, instalments, discounts and free shipping must come from a cited fact. It does not catch every invented price. Still passing: an uncited product name next to a cited price, a bundle such as "Las dos te quedan en $85.000", and slang or spelled-out amounts it does not read.
-- **Reply after a failed attempt.** If a reply fails after the customer's message was taken, that message can go unanswered until the customer writes again. A fix is written but not merged.
+- **Reply after a crash.** A failed attempt now ends in a reply or a handoff. If the process dies after a reply was sent but before it was recorded, the reply is not sent again: the customer may not get it, and the owner gets a handoff with its text. A turn re-run after a crash runs its tools again, so a reservation can be held twice until the extra hold expires.
 - **Photo metadata.** Photos that need no rotation keep their EXIF data, including any GPS location.
 - **Eval runs.** `GET /evals/runs` lists every seller's runs to any signed-in seller.
 - **Handoff summaries.** When the agent hands a chat to the owner, the summary goes to the dashboard's waiting list, not to the owner's own WhatsApp.

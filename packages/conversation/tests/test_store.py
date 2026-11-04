@@ -91,6 +91,26 @@ async def test_fr_028_status_callbacks_never_move_a_message_backwards() -> None:
     assert not await store.apply_status(uuid4(), "wamid.VITRINA-MEM-OUT", "failed")
 
 
+async def test_as_3_1_a_message_is_found_by_either_id_for_its_seller_only() -> None:
+    store = InMemoryConversationStore()
+    conversation = await store.open_conversation(SELLER, CONTACT)
+    stored = await store.add_message(
+        SELLER,
+        conversation.id,
+        direction="inbound",
+        sender="customer",
+        type="text",
+        text="Hola",
+        wa_message_id="wamid.VITRINA-MEM-FIND",
+    )
+    assert stored is not None
+
+    assert await store.message(SELLER, stored.id) == stored
+    assert await store.message_by_wa_id(SELLER, "wamid.VITRINA-MEM-FIND") == stored
+    assert await store.message(uuid4(), stored.id) is None
+    assert await store.message_by_wa_id(uuid4(), "wamid.VITRINA-MEM-FIND") is None
+
+
 async def test_art_v_3_a_conversation_belongs_to_its_seller() -> None:
     store = InMemoryConversationStore()
     conversation = await store.open_conversation(SELLER, CONTACT)

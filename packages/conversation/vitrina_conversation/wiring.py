@@ -222,7 +222,12 @@ def memory_pipeline(
 
 
 async def process_stored_message(
-    deps: PipelineDeps, seller_id: UUID, payload_id: UUID, message_id: str
+    deps: PipelineDeps,
+    seller_id: UUID,
+    payload_id: UUID,
+    message_id: str,
+    *,
+    can_retry: bool = False,
 ) -> InboundOutcome | None:
     """Answer one message of a kept webhook body; None when the body or message is gone."""
     body = await deps.store.webhook(payload_id)
@@ -246,6 +251,7 @@ async def process_stored_message(
             wa_type=message.wa_type,
             raw_payload_id=payload_id,
             media_id=message.media.media_id if message.media else None,
+            can_retry=can_retry,
         ),
         deps,
     )

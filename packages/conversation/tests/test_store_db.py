@@ -82,6 +82,49 @@ async def test_db_as_3_1_one_row_per_whatsapp_message(ctx: Ctx) -> None:
     assert again.id == conversation.id
 
 
+async def test_db_as_3_1_a_message_is_found_by_either_id_for_its_seller_only(ctx: Ctx) -> None:
+    conversation = await ctx.store.open_conversation(ctx.seller_id, ctx.contact_id)
+    stored = await ctx.store.add_message(
+        ctx.seller_id,
+        conversation.id,
+        direction="inbound",
+        sender="customer",
+        type="text",
+        text="Hola",
+        wa_message_id="wamid.VITRINA-DB-IN-FIND",
+    )
+    assert stored is not None
+
+    found = await ctx.store.message(ctx.seller_id, stored.id)
+    by_wa_id = await ctx.store.message_by_wa_id(ctx.seller_id, "wamid.VITRINA-DB-IN-FIND")
+
+    assert found is not None
+    assert found.text == "Hola"
+    assert by_wa_id == found
+    assert await ctx.store.message(new_id(), stored.id) is None
+    assert await ctx.store.message_by_wa_id(new_id(), "wamid.VITRINA-DB-IN-FIND") is None
+
+
+async def test_db_as_3_1_a_reply_can_go_back_to_no_delivery_status(ctx: Ctx) -> None:
+    conversation = await ctx.store.open_conversation(ctx.seller_id, ctx.contact_id)
+    reply = await ctx.store.add_message(
+        ctx.seller_id,
+        conversation.id,
+        direction="outbound",
+        sender="agent",
+        type="text",
+        text="¡Hola!",
+    )
+    assert reply is not None
+
+    await ctx.store.set_delivery(ctx.seller_id, reply.id, status="queued")
+    await ctx.store.set_delivery(ctx.seller_id, reply.id, status=None)
+
+    found = await ctx.store.message(ctx.seller_id, reply.id)
+    assert found is not None
+    assert found.delivery_status is None
+
+
 async def test_db_fr_024_recent_messages_come_oldest_first(ctx: Ctx) -> None:
     conversation = await ctx.store.open_conversation(ctx.seller_id, ctx.contact_id)
     await inbound(ctx, conversation.id, "wamid.VITRINA-DB-IN-0002", "Hola")
