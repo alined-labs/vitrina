@@ -191,8 +191,11 @@ async def test_a_task_that_words_its_failure_for_the_seller_keeps_its_text() -> 
 
 
 async def test_a_missing_setting_behind_a_failed_job_only_reaches_the_log(
-    caplog: pytest.LogCaptureFixture,
+    caplog: pytest.LogCaptureFixture, monkeypatch: pytest.MonkeyPatch
 ) -> None:
+    # The setting must be missing whatever the developer's `.env` or shell holds.
+    monkeypatch.delenv("MODEL_AGENT", raising=False)
+    settings = Settings(_env_file=None)  # type: ignore[call-arg]
     registry = TaskRegistry()
 
     @registry.task("catalog.import_products")
@@ -203,8 +206,11 @@ async def test_a_missing_setting_behind_a_failed_job_only_reaches_the_log(
             raise JobFailedError.safe("PROVIDER_UNAVAILABLE") from error
 
     queue = FakeQueue([claimed()])
+    unconfigured_worker = Worker(
+        queue, registry, settings=settings, worker_id="worker-test", clock=lambda: NOW
+    )
     with caplog.at_level(logging.WARNING, logger="vitrina.jobs"):
-        await worker(queue, registry).run_once()
+        await unconfigured_worker.run_once()
 
     assert queue.events[0][1]["message"] == JOB_FAILURE_TEXT["PROVIDER_UNAVAILABLE"]
     assert "MODEL_AGENT" in caplog.text
