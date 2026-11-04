@@ -21,7 +21,7 @@ Vitrina is a closed-loop AI storefront for WhatsApp sellers in Colombia, built i
   <img src="docs/infographics/loop-light.webp" width="100%" alt="The Vitrina loop in four steps. 1 Catalog: the seller pastes prices and FAQ and uploads phone photos, which gives facts the agent may cite. 2 Ads: scenes and copy are generated and checked against the real product, which gives an ad such as #A7 with a WhatsApp link. 3 Chats: a customer writes from the ad and the agent answers only from the catalog, which gives a cited reply or a handoff to the owner. 4 Learning: objections are recorded per ad and a weekly brief reads them, which says which ads to make next. The brief starts the next ads and prepares a campaign, and customers are messaged again only with recorded consent, in legal hours.">
 </picture>
 
-| | |
+| At a glance | |
 | --- | --- |
 | **For** | Small sellers in Colombia who sell on WhatsApp |
 | **Starts from** | Phone photos and a price list |
