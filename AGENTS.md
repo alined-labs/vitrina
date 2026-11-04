@@ -1,6 +1,6 @@
 # AGENTS.md — how coding agents work in this repository
 
-Vitrina is built during the Meta Global AI Developer Hackathon (Oct 27 – Nov 4, 2026) by one human, Daniel, with coding-agent sessions. This file is the standing instruction for every agent session in this repo. Each session works on the modules its instructions name; everything needed to run or understand the product is in this repository.
+Vitrina is built during the Meta Global AI Developer Hackathon (Oct 26 – Nov 4, 2026) by one human, Daniel, with coding-agent sessions. This file is the standing instruction for every agent session in this repo. Each session works on the modules its instructions name; everything needed to run or understand the product is in this repository.
 
 ## Read before you write
 

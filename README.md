@@ -77,12 +77,13 @@ Constitution Article I: every line of product code was committed after the kicko
 | Oct 29 | Price check reads more Colombian price forms ("palos", spelled short prices, lists of prices). Consent: Colombian yeses, longer opt-out requests, and an opt-out that wins over a later yes. The first fallback hands the chat to the owner. Hardening: request size limits, pixel-bomb refusal, media downloads, security headers. Vitrina's logo, type and design tokens. Deploy scripts and the demo-shop seed |
 | Oct 30 – Nov 1 | Deployed: API and workers on Azure Container Apps, dashboard on Cloudflare Workers, database and storage on Supabase |
 | Nov 3 | Fixes from a full code audit. Seller creation needs a service token. The price and offer check fails closed. Daily limits and a spend limit on paid model calls. Customer messages get their own worker. Stuck creative jobs end. Large photos are verified in memory and kept upright. The seller reads and answers a conversation in the dashboard. Eval runs fail below target |
+| Nov 4 | Every customer message ends in a reply or a handoff, even after a failed attempt. A retry resumes the reply already made. A send that fails opens a handoff for the owner. Final eval run |
 
 ## Evaluation
 
 The suites live in `evals/fixtures`: Spanish conversations, consent and scheduler cases, and webhook payloads. `make evals` replays recorded model outputs with no network.
 
-Final run: `make evals` on `main` at `6901284`, November 3, 2026, in replay mode. Every case passed in all four suites.
+Final run: `make evals` on `main` at `07863d5`, November 4, 2026, in replay mode. Every case passed in all four suites.
 
 | Metric | Target | Result |
 | --- | --- | --- |
@@ -112,7 +113,7 @@ Replay plays back model outputs recorded from live calls, so these figures show 
 - **WhatsApp test number.** The business behind this demo is not verified with Meta. The demo and the deployment use Meta's WhatsApp test number, which can message only verified recipients (up to five). Running the WhatsApp Business app and the Cloud API on one number (coexistence) is out of scope: it needs a verified business and a Tech Provider.
 - **Price and offer check.** The check fails closed on the forms it recognises: amounts, currencies, percentages, 2x1, instalments, discounts and free shipping must come from a cited fact. It does not catch every invented price. Still passing: an uncited product name next to a cited price, a bundle such as "Las dos te quedan en $85.000", and slang or spelled-out amounts it does not read.
 - **Reply after a crash.** A failed attempt now ends in a reply or a handoff. If the process dies after a reply was sent but before it was recorded, the reply is not sent again: the customer may not get it, and the owner gets a handoff with its text. A turn re-run after a crash runs its tools again, so a reservation can be held twice until the extra hold expires.
-- **Photo metadata.** Photos that need no rotation keep their EXIF data, including any GPS location.
+- **Photo metadata.** Stored photos that need no rotation keep their EXIF data, including any GPS location. Only the signed-in seller can reach them. A public showcase never serves the upload: its scenes are new images, and the upload is deleted when the job ends.
 - **Eval runs.** `GET /evals/runs` lists every seller's runs to any signed-in seller.
 - **Handoff summaries.** When the agent hands a chat to the owner, the summary goes to the dashboard's waiting list, not to the owner's own WhatsApp.
 - **Consent wording.** The consent and opt-out texts follow Ley 1581 and Ley 2300, but no lawyer has reviewed them.
