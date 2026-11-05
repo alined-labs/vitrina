@@ -7,8 +7,8 @@ Vitrina is a sales assistant for small sellers in Colombia who sell on WhatsApp.
 ## Access
 
 - Live site: **https://vitrina.alinedlabs.co**
-- Judge login: the email and password are in the submission form.
-- The judge account owns its own copy of the demo shop, **Mochilas Ana** (woven bags, Medellín). Change anything you like.
+- Login, needed for every page except `/foto`: email `alinedmooner@gmail.com`, password `H3{0B=@q_8>M`.
+- That account holds the demo shop, **Mochilas Ana** (woven bags, Medellín). Change anything you like. Other visitors share it, so you may see their changes.
 - Paid model calls have daily limits per shop. If you hit one, a Spanish notice asks you to try again later.
 
 ## 1 · Play the customer (3 min)

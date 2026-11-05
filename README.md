@@ -26,7 +26,7 @@ Vitrina is a closed-loop AI storefront for WhatsApp sellers in Colombia, built i
 | **For** | Small sellers in Colombia who sell on WhatsApp |
 | **Starts from** | Phone photos and a price list |
 | **Gives them** | Ads checked against the real product, a sales agent that answers only from their catalog, and a weekly brief on which ad to make next |
-| **Try it** | [Live site](https://vitrina.alinedlabs.co), or [/foto](https://vitrina.alinedlabs.co/foto) with no account. The demo uses Meta's WhatsApp test number, so visitors play the customer in the dashboard |
+| **Try it** | [Live site](https://vitrina.alinedlabs.co): sign in with email `alinedmooner@gmail.com` and password `H3{0B=@q_8>M`, a shared demo account, then follow the [ten-minute guide](JUDGING.md). [/foto](https://vitrina.alinedlabs.co/foto) needs no login. The demo uses Meta's WhatsApp test number, so you play the customer in the dashboard |
 
 ## What it does
 
