@@ -30,7 +30,7 @@ SECRET = "reactivation-db-test-secret-with-32-bytes"
 SERVICE_TOKEN = "service-token-for-tests"
 SUBJECT = "6b2f0c1e-3d4a-4e5b-8f6a-7b8c9d0e1f2a"
 PROMPT = "¿Te aviso cuando llegue tu talla o haya promo? Responde SÍ"
-NEXT_WEDNESDAY_10 = datetime(2026, 11, 4, 10, 0, tzinfo=BOGOTA)
+FUTURE_WEDNESDAY_10 = datetime(2099, 6, 3, 10, 0, tzinfo=BOGOTA)  # never in the past on a test run
 
 
 def bearer() -> dict[str, str]:
@@ -103,7 +103,7 @@ async def test_db_as_6_7_a_campaign_from_preview_to_the_worker(
             "/v1/reactivation/campaigns",
             json={
                 "template_name": "vitrina_reactivacion",
-                "scheduled_for": NEXT_WEDNESDAY_10.isoformat(),
+                "scheduled_for": FUTURE_WEDNESDAY_10.isoformat(),
             },
             headers=bearer(),
         )
@@ -162,7 +162,7 @@ async def test_db_as_6_7_a_campaign_from_preview_to_the_worker(
                     sa.select(jobs.c.kind, jobs.c.run_after).where(jobs.c.kind == "campaign_send")
                 )
             ).one()
-            assert queued.run_after == NEXT_WEDNESDAY_10
+            assert queued.run_after == FUTURE_WEDNESDAY_10
             await session.execute(
                 sa.update(jobs)
                 .where(jobs.c.kind == "campaign_send")
@@ -180,7 +180,7 @@ async def test_db_as_6_7_a_campaign_from_preview_to_the_worker(
 
         decision = client.post(
             "/v1/reactivation/eligibility",
-            json={"contact_id": str(contacts[True]), "at": NEXT_WEDNESDAY_10.isoformat()},
+            json={"contact_id": str(contacts[True]), "at": FUTURE_WEDNESDAY_10.isoformat()},
             headers=bearer(),
         )
         unknown = client.post(
