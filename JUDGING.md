@@ -45,16 +45,16 @@ Open **Probar como cliente** (*try as a customer*) in the left menu.
 
 ## 4 · Consent and Colombian marketing law (1 min)
 
-- **Contactos** (*contacts*): each customer's consent, stored with the exact question asked and the customer's literal answer (Ley 1581).
-- **Campañas** (*campaigns*): a reactivation preview gives every contact a decision with its legal reason. Examples:
+- **Contactos** (*contacts*): each customer's consent, stored with the exact question asked and the customer's literal answer (Ley 1581). The replayed conversations leave customers with consent granted, revoked and never asked.
+- **Campañas** (*campaigns*): a reactivation preview gives every eligible contact a decision with its legal reason:
   - *Sin autorización* (no consent): Ley 1581.
   - *Fuera del horario legal* (outside legal marketing hours): Ley 2300, with the next allowed time.
 
-  Nothing is sent from the preview.
+  In this demo the preview comes out empty: the deployment has no live customers (Meta's test number), and replayed test chats are deliberately excluded from marketing. The decision rules run in the consent eval suite (40 of 40 cases) and are drawn in the README's consent graphic. Nothing is sent from the preview.
 
 ## 5 · Learning and measurement (2 min)
 
-- **Informe semanal** (*weekly brief*): Muse Wonder reads the objections and which ad brought each chat, and proposes the next ads. **Crear estos anuncios y la campaña** (*create these ads and the campaign*) starts those creative jobs.
+- **Informe semanal** (*weekly brief*): Muse Wonder reads the objections and which ad brought each chat, and proposes the next ads. A brief is already there; generating a new one needs at least ten chats attributed to ads in the period. **Crear estos anuncios y la campaña** (*create these ads and the campaign*) starts those creative jobs.
 - **Métricas** (*metrics*): agent quality, verifier results and model cost per shop.
 - The README's Evaluation table has the final run: 0 % invented prices across 336 recorded cases, and 100 % of altered scenes blocked.
 
