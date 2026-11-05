@@ -1,0 +1,249 @@
+<!doctype html>
+<!-- Source of the README's infographics. render.sh screenshots one panel per theme:
+     source.html?panel=loop&theme=dark -->
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Vitrina infographics</title>
+<style>
+@font-face { font-family: Bricolage; src: url(../../apps/dashboard/src/fonts/bricolage-grotesque-latin.woff2); font-weight: 200 800; }
+@font-face { font-family: Atkinson; src: url(../../apps/dashboard/src/fonts/atkinson-hyperlegible-next-latin.woff2); font-weight: 200 800; }
+:root {
+  --canvas: #faf8f5; --surface: #ffffff; --sunken: #f3f0eb; --line: #e7e2da;
+  --fg: #201c18; --muted: #5e564c; --primary: #0a6170; --primary-fg: #0b4f5b; --soft: #eef9fb;
+  --glass: #ffae1a; --track: #e7e2da; --tick: #201c18;
+  --ok: #146c3a; --ok-bg: #e6f4ec; --warn: #8a5b00; --warn-bg: #fff4d9; --bad: #a32424; --bad-bg: #fcebea;
+  --bubble: #e6f4ec; --bubble-fg: #201c18;
+}
+[data-theme=dark] {
+  --canvas: #062c33; --surface: #0b3a43; --sunken: #0b3a43; --line: #1d5560;
+  --fg: #faf8f5; --muted: #d6f1f5; --primary: #2ba9be; --primary-fg: #8fdcea; --soft: #0f4954;
+  --track: #2a6672; --tick: #faf8f5;
+  --ok: #7fe0a6; --ok-bg: #0f4a3c; --warn: #f9cf74; --warn-bg: #4a3f16; --bad: #ffaca6; --bad-bg: #552a30;
+  --bubble: #0f4a3c; --bubble-fg: #faf8f5;
+}
+* { box-sizing: border-box; margin: 0; }
+html, body { background: transparent; }
+body { width: 1280px; font: 400 20px/1.35 Atkinson, sans-serif; color: var(--fg); }
+.panel { display: none; width: 1280px; padding: 44px; background: var(--canvas); border-radius: 24px; border: 2px solid var(--line); }
+.panel.on { display: block; }
+h2 { font: 700 38px/1.15 Bricolage, sans-serif; letter-spacing: -.01em; }
+h3 { font: 650 26px/1.15 Bricolage, sans-serif; }
+.head { display: flex; align-items: center; gap: 18px; margin-bottom: 30px; }
+.head svg { flex: none; }
+.sub { color: var(--muted); font-size: 21px; margin-top: 4px; }
+.card { background: var(--surface); border: 2px solid var(--line); border-radius: 16px; padding: 22px; }
+.num { display: inline-grid; place-items: center; width: 38px; height: 38px; border-radius: 50%; background: var(--primary); color: #fff; font: 700 21px Bricolage, sans-serif; flex: none; }
+[data-theme=dark] .num { color: #062c33; }
+.chip { display: inline-block; padding: 3px 12px; border-radius: 999px; background: var(--soft); color: var(--primary-fg); font-weight: 600; font-size: 18px; white-space: nowrap; }
+.note { color: var(--muted); font-size: 19px; margin-top: 22px; }
+code { font: 600 18px ui-monospace, "DejaVu Sans Mono", monospace; }
+.badge { display: inline-flex; align-items: center; gap: 8px; padding: 5px 14px; border-radius: 999px; font-weight: 700; font-size: 20px; white-space: nowrap; }
+.badge svg { width: 18px; height: 18px; flex: none; }
+.ok { color: var(--ok); background: var(--ok-bg); } .bad { color: var(--bad); background: var(--bad-bg); } .warn { color: var(--warn); background: var(--warn-bg); }
+.info { color: var(--primary-fg); background: var(--soft); }
+
+/* loop */
+.ring { display: grid; grid-template-columns: repeat(4, 1fr); gap: 34px; position: relative; }
+.ring .card { display: flex; flex-direction: column; gap: 12px; position: relative; }
+.ring .card:not(:last-child)::after { content: ""; position: absolute; right: -28px; top: 50%; width: 20px; height: 20px; border-top: 5px solid var(--primary); border-right: 5px solid var(--primary); transform: translateY(-50%) rotate(45deg); }
+.ring .top { display: flex; align-items: center; gap: 12px; }
+.ring p { flex: 1; font-size: 20px; }
+.gives { background: var(--sunken); border-radius: 10px; padding: 10px 12px; font-weight: 600; font-size: 19px; }
+[data-theme=dark] .gives { background: #062c33; }
+.gives small { display: block; font-weight: 400; color: var(--muted); font-size: 17px; }
+.chips { display: flex; flex-wrap: wrap; gap: 6px; }
+.back { position: relative; height: 84px; }
+.back svg { position: absolute; inset: 0; }
+.back span { position: absolute; left: 746px; top: 40px; transform: translateX(-50%); background: var(--canvas); padding: 0 18px; font-weight: 700; font-size: 22px; color: var(--primary-fg); white-space: nowrap; }
+.strip { display: flex; align-items: center; gap: 16px; background: var(--soft); border-radius: 14px; padding: 14px 20px; margin-top: 10px; font-size: 20px; }
+
+/* fidelity */
+.fid { display: grid; grid-template-columns: 300px 1fr 1fr; gap: 24px; align-items: stretch; }
+.fid img { width: 100%; aspect-ratio: 1; object-fit: cover; border-radius: 12px; display: block; }
+.fid .card { padding: 18px; display: flex; flex-direction: column; gap: 12px; }
+.fid .row { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+.fid .pics { display: flex; flex-direction: column; gap: 12px; }
+.how { padding-left: 24px; display: flex; flex-direction: column; gap: 12px; font-size: 20px; }
+.meter { font-size: 19px; }
+.meter .t { display: flex; justify-content: space-between; gap: 8px; }
+.meter b { font-weight: 700; }
+.bar { position: relative; height: 10px; border-radius: 5px; background: var(--track); margin: 6px 0 2px; }
+.bar i { position: absolute; left: 0; top: 0; bottom: 0; border-radius: 5px; }
+.bar u { position: absolute; top: -5px; bottom: -5px; width: 3px; background: var(--tick); }
+.fillok { background: var(--ok); } .fillbad { background: var(--bad); }
+.need { color: var(--muted); font-size: 17px; }
+
+/* reply */
+.steps { display: grid; grid-template-columns: repeat(4, 1fr); gap: 14px; margin-bottom: 24px; }
+.steps > div { background: var(--surface); border: 2px solid var(--line); border-radius: 14px; padding: 14px 16px; }
+.steps .h { display: flex; align-items: center; gap: 10px; font: 650 22px/1.1 Bricolage, sans-serif; margin-bottom: 6px; }
+.steps .num { width: 32px; height: 32px; font-size: 18px; }
+.steps p { font-size: 18px; color: var(--muted); }
+.cases { display: grid; grid-template-columns: 430px 1fr auto; gap: 12px 20px; align-items: center; }
+.cases .hd { font-weight: 700; color: var(--muted); font-size: 18px; }
+.bubble { background: var(--bubble); color: var(--bubble-fg); border-radius: 14px 14px 14px 4px; padding: 10px 14px; font-weight: 600; }
+.bubble small { display: block; font-weight: 400; font-size: 17px; opacity: .85; }
+.cases .b { justify-self: start; }
+
+/* consent */
+.cons { display: grid; grid-template-columns: 1fr 1fr; gap: 28px; }
+.lad { display: flex; flex-direction: column; gap: 9px; margin-top: 14px; }
+.lad > div { display: flex; align-items: center; gap: 12px; }
+.lad .num { width: 32px; height: 32px; font-size: 18px; }
+.lad .q { flex: 1; font-size: 20px; line-height: 1.15; }
+.lad .q small { display: block; color: var(--muted); font-size: 17px; }
+.lad .badge { font-size: 18px; padding: 4px 12px; }
+.lad .send { border-top: 2px solid var(--line); padding-top: 11px; margin-top: 3px; font-weight: 700; }
+.hours { display: grid; grid-template-columns: 92px 1fr; gap: 9px 10px; align-items: center; margin-top: 14px; }
+.track { position: relative; height: 36px; background: var(--sunken); border-radius: 6px; }
+[data-theme=dark] .track { background: #062c33; }
+.track i { position: absolute; top: 0; bottom: 0; background: var(--primary); border-radius: 6px; display: grid; place-items: center; color: #fff; font-weight: 700; font-size: 18px; font-style: normal; }
+[data-theme=dark] .track i { color: #062c33; }
+.track em { position: absolute; inset: 0; display: grid; place-items: center; font-style: normal; color: var(--muted); font-size: 18px; }
+.axis { position: relative; height: 22px; color: var(--muted); font-size: 16px; }
+.axis span { position: absolute; transform: translateX(-50%); }
+
+/* scoreboard */
+.tiles { display: grid; grid-template-columns: repeat(3, 1fr); gap: 16px; }
+.tile { background: var(--surface); border: 2px solid var(--line); border-radius: 16px; padding: 18px 22px; }
+.tile b { display: block; font: 700 54px/1.05 Bricolage, sans-serif; color: var(--primary-fg); }
+.tile span { display: block; font-weight: 600; font-size: 21px; margin-top: 4px; }
+.tile small { display: block; color: var(--muted); font-size: 18px; }
+</style>
+</head>
+<body>
+<svg width="0" height="0" style="position:absolute">
+  <symbol id="yes" viewBox="0 0 20 20"><path d="M4 10.5 8.5 15 16 5.5" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/></symbol>
+  <symbol id="no" viewBox="0 0 20 20"><path d="M5 5l10 10M15 5 5 15" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round"/></symbol>
+  <symbol id="wait" viewBox="0 0 20 20"><circle cx="10" cy="10" r="7.5" fill="none" stroke="currentColor" stroke-width="2.6"/><path d="M10 5.5V10l3 2" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"/></symbol>
+  <symbol id="hand" viewBox="0 0 20 20"><path d="M3 10h12M10.5 5 15.5 10l-5 5" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/></symbol>
+</svg>
+
+<section class="panel" id="loop">
+  <div class="head">
+    <svg width="58" height="58" viewBox="0 0 32 32"><path d="M4 28V14a12 12 0 0 1 24 0v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2Z" fill="var(--primary)"/><path d="M7.5 26.5V14a8.5 8.5 0 0 1 17 0v12.5Z" fill="#ffae1a"/><path d="M11 14.5 16 23l5-8.5" fill="none" stroke="var(--primary)" stroke-width="3.4" stroke-linecap="round" stroke-linejoin="round"/></svg>
+    <div><h2>One loop: every conversation improves the next ad</h2>
+    <p class="sub">A small seller in Colombia starts with phone photos and a price list.</p></div>
+  </div>
+  <div class="ring">
+    <div class="card"><div class="top"><span class="num">1</span><h3>Catalog</h3></div>
+      <p>The seller pastes prices and FAQ and uploads phone photos.</p>
+      <div class="gives"><small>Gives</small>Facts the agent may cite</div>
+      <div class="chips"><span class="chip">Muse Spark</span></div></div>
+    <div class="card"><div class="top"><span class="num">2</span><h3>Ads</h3></div>
+      <p>Scenes and copy are generated, and each scene is checked against the real product.</p>
+      <div class="gives"><small>Gives</small>Ad #A7 with a WhatsApp link</div>
+      <div class="chips"><span class="chip">SAM 3.1</span><span class="chip">Muse Image</span><span class="chip">Muse Spark</span></div></div>
+    <div class="card"><div class="top"><span class="num">3</span><h3>Chats</h3></div>
+      <p>A customer writes from the ad. The agent answers only from the catalog.</p>
+      <div class="gives"><small>Gives</small>A cited reply, or a handoff to the owner</div>
+      <div class="chips"><span class="chip">Muse Spark</span><span class="chip">Voice Transcribe</span></div></div>
+    <div class="card"><div class="top"><span class="num">4</span><h3>Learning</h3></div>
+      <p>Objections are recorded per ad, and a weekly brief reads them.</p>
+      <div class="gives"><small>Gives</small>Which ads to make next</div>
+      <div class="chips"><span class="chip">Muse Wonder</span></div></div>
+  </div>
+  <div class="back">
+    <svg width="1188" height="84" viewBox="0 0 1188 84"><path d="M1052 2V40a14 14 0 0 1-14 14H455a14 14 0 0 1-14-14V14" fill="none" stroke="var(--primary)" stroke-width="5" stroke-linecap="round"/><path d="M429 18 441 3l12 15" fill="none" stroke="var(--primary)" stroke-width="5" stroke-linecap="round" stroke-linejoin="round"/></svg>
+    <span>The brief starts the next ads</span>
+  </div>
+  <div class="strip"><span class="chip">Reactivation</span><span>The brief also prepares a campaign. Customers are messaged again only with recorded consent, in legal hours.</span></div>
+</section>
+
+<section class="panel" id="fidelity">
+  <div class="head"><div><h2>An ad cannot show a product the seller does not sell</h2>
+  <p class="sub">Every generated scene is compared with the seller's photo. A changed product never becomes an ad.</p></div></div>
+  <div class="fid">
+    <div class="card pics"><h3>Seller's photo</h3><img src="../../evals/fixtures/fidelity/source.jpg" alt="">
+      <ol class="how">
+        <li><b>SAM 3.1</b> cuts the product out.</li>
+        <li><b>Muse Image</b> composes scenes around it.</li>
+        <li>The <b>verifier</b> segments each scene again and runs three checks.</li>
+        <li>Failing any one blocks the scene.</li>
+      </ol></div>
+    <div class="card">
+      <div class="row"><h3>Scene A</h3><span class="badge ok"><svg><use href="#yes"/></svg>Passed</span></div>
+      <img src="../../evals/fixtures/fidelity/good/g09.jpg" alt="">
+      <div class="meter"><div class="t"><span>Shape overlap</span><b>0.98</b></div><div class="bar"><i class="fillok" style="width:97.9%"></i><u style="left:85%"></u></div><div class="need">must reach 0.85</div></div>
+      <div class="meter"><div class="t"><span>Color distance</span><b>0.04</b></div><div class="bar"><i class="fillok" style="width:3.5%"></i><u style="left:25%"></u></div><div class="need">must stay under 0.25</div></div>
+      <div class="meter"><div class="t"><span>Visual review</span><b>No change</b></div></div>
+    </div>
+    <div class="card">
+      <div class="row"><h3>Scene B</h3><span class="badge bad"><svg><use href="#no"/></svg>Blocked</span></div>
+      <img src="../../evals/fixtures/fidelity/altered/a10.jpg" alt="">
+      <div class="meter"><div class="t"><span>Shape overlap</span><b>0.98</b></div><div class="bar"><i class="fillok" style="width:97.7%"></i><u style="left:85%"></u></div><div class="need">must reach 0.85</div></div>
+      <div class="meter"><div class="t"><span>Color distance</span><b>0.98</b></div><div class="bar"><i class="fillbad" style="width:97.8%"></i><u style="left:25%"></u></div><div class="need">must stay under 0.25</div></div>
+      <div class="meter"><div class="t"><span>Visual review</span><b>Colors changed</b></div></div>
+    </div>
+  </div>
+  <p class="note">Scores from the <code>fidelity</code> eval suite, cases g09 and a10: a synthetic test photo and an altered test scene. The tick on each bar is the limit.</p>
+</section>
+
+<section class="panel" id="reply">
+  <div class="head"><div><h2>The agent drafts. Rules decide what the customer gets.</h2>
+  <p class="sub">Customer messages go through these steps, and the checks run outside the agent.</p></div></div>
+  <div class="steps">
+    <div><div class="h"><span class="num">1</span>Keywords</div><p>BAJA and BORRAR MIS DATOS are handled before anything else.</p></div>
+    <div><div class="h"><span class="num">2</span>Scope</div><p>Anything off topic is declined, whatever the draft says.</p></div>
+    <div><div class="h"><span class="num">3</span>Draft</div><p>Muse Spark answers from catalog facts and cites them.</p></div>
+    <div><div class="h"><span class="num">4</span>Checks</div><p>Price, groundedness and confidence decide if it is sent.</p></div>
+  </div>
+  <div class="cases">
+    <span class="hd">The customer writes</span><span class="hd">What happens</span><span class="hd">Result</span>
+    <div class="bubble">¿Cuánto vale la mochila azul?<small>How much is the blue bag?</small></div><div>The price, $85.000, is cited from the catalog.</div><span class="b badge ok"><svg><use href="#yes"/></svg>Answered</span>
+    <div class="bubble">¿Me deja la mochila azul en 60 mil?<small>Will you let me have it for 60,000?</small></div><div>No fact gives that price, so the agent will not agree.</div><span class="b badge info"><svg><use href="#hand"/></svg>Handed to owner</span>
+    <div class="bubble">¿Me ayudas con mi tarea de matemáticas?<small>Help with my math homework?</small></div><div>It is not about this shop.</div><span class="b badge warn"><svg><use href="#no"/></svg>Declined</span>
+    <div class="bubble">BAJA<small>Unsubscribe</small></div><div>The opt-out is recorded at once, before the agent runs.</div><span class="b badge ok"><svg><use href="#yes"/></svg>Opted out</span>
+  </div>
+  <p class="note">A reply that breaks the price rule gets one guided retry. If it breaks it again, a safe reply goes out and the owner takes over.</p>
+</section>
+
+<section class="panel" id="consent">
+  <div class="head"><div><h2>Marketing needs consent and legal hours</h2>
+  <p class="sub">The first check that fails decides. Each decision is logged with its reason, and no API call can override the hours.</p></div></div>
+  <div class="cons">
+    <div class="card"><h3>Five checks, always in this order</h3>
+      <div class="lad">
+        <div><span class="num">1</span><div class="q">Not opted out?</div><span class="badge bad"><svg><use href="#no"/></svg>Blocked</span></div>
+        <div><span class="num">2</span><div class="q">Recorded consent?<small>Ley 1581. Silence never counts.</small></div><span class="badge bad"><svg><use href="#no"/></svg>Blocked</span></div>
+        <div><span class="num">3</span><div class="q">No marketing message in 7 days?</div><span class="badge bad"><svg><use href="#no"/></svg>Blocked</span></div>
+        <div><span class="num">4</span><div class="q">Inside legal hours?<small>Ley 2300, with the next allowed time.</small></div><span class="badge warn"><svg><use href="#wait"/></svg>Deferred</span></div>
+        <div><span class="num">5</span><div class="q">An approved ad that fits?</div><span class="badge bad"><svg><use href="#no"/></svg>Blocked</span></div>
+        <div class="send"><div class="q">All five pass, and the template is approved</div><span class="badge ok"><svg><use href="#yes"/></svg>Allowed</span></div>
+      </div>
+    </div>
+    <div class="card"><h3>When marketing may be sent</h3><p class="need">Ley 2300 de 2023, America/Bogota time</p>
+      <div class="hours">
+        <span>Mon–Fri</span><div class="track"><i style="left:29.17%;width:50%">07:00–19:00</i></div>
+        <span>Saturday</span><div class="track"><i style="left:33.33%;width:29.17%">08:00–15:00</i></div>
+        <span>Sunday</span><div class="track"><em>None</em></div>
+        <span>Holidays</span><div class="track"><em>None</em></div>
+        <span></span><div class="axis"><span style="left:0;transform:none">00</span><span style="left:25%">06</span><span style="left:50%">12</span><span style="left:75%">18</span><span style="left:100%;transform:translateX(-100%)">24</span></div>
+      </div>
+      <p class="note">BAJA opts out at once. BORRAR MIS DATOS erases the customer's data within 24 hours.</p>
+    </div>
+  </div>
+</section>
+
+<section class="panel" id="results">
+  <div class="head"><div><h2>Final eval run: every case passed</h2>
+  <p class="sub"><code>make evals</code> replays recorded model outputs with no network. Anyone can run it.</p></div></div>
+  <div class="tiles">
+    <div class="tile"><b>0 %</b><span>Invented prices</span><small>336 cases, CI gate</small></div>
+    <div class="tile"><b>100 %</b><span>Consent and hours correct</span><small>40 of 40 cases, CI gate</small></div>
+    <div class="tile"><b>100 %</b><span>Altered scenes blocked</span><small>10 of 10, CI gate</small></div>
+    <div class="tile"><b>100 %</b><span>Faithful scenes passed</span><small>10 of 10, target 80 %</small></div>
+    <div class="tile"><b>100 %</b><span>Grounded replies</span><small>target 95 %</small></div>
+    <div class="tile"><b>1.0 / 1.0</b><span>Handoff precision / recall</span><small>target 0.9 / 0.9</small></div>
+  </div>
+  <p class="note">These figures show the rules on recorded behavior at <code>07863d5</code>. They do not measure how the live models behave today. Brand voice is not measured.</p>
+</section>
+
+<script>
+const q = new URLSearchParams(location.search);
+document.documentElement.dataset.theme = q.get("theme") || "light";
+document.getElementById(q.get("panel") || "loop").classList.add("on");
+</script>
+</body>
+</html>

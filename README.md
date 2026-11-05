@@ -16,6 +16,18 @@ Vitrina is a closed-loop AI storefront for WhatsApp sellers in Colombia, built i
 
 **Live:** [vitrina.alinedlabs.co](https://vitrina.alinedlabs.co). The public "Foto → Vitrina" page at [/foto](https://vitrina.alinedlabs.co/foto) turns one product photo into a shareable showcase, with no account.
 
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="docs/infographics/loop-dark.webp">
+  <img src="docs/infographics/loop-light.webp" width="100%" alt="The Vitrina loop in four steps. 1 Catalog: the seller pastes prices and FAQ and uploads phone photos, which gives facts the agent may cite. 2 Ads: scenes and copy are generated and checked against the real product, which gives an ad such as #A7 with a WhatsApp link. 3 Chats: a customer writes from the ad and the agent answers only from the catalog, which gives a cited reply or a handoff to the owner. 4 Learning: objections are recorded per ad and a weekly brief reads them, which says which ads to make next. The brief starts the next ads and prepares a campaign, and customers are messaged again only with recorded consent, in legal hours.">
+</picture>
+
+| At a glance | |
+| --- | --- |
+| **For** | Small sellers in Colombia who sell on WhatsApp |
+| **Starts from** | Phone photos and a price list |
+| **Gives them** | Ads checked against the real product, a sales agent that answers only from their catalog, and a weekly brief on which ad to make next |
+| **Try it** | [Live site](https://vitrina.alinedlabs.co), or [/foto](https://vitrina.alinedlabs.co/foto) with no account. The demo uses Meta's WhatsApp test number, so visitors play the customer in the dashboard |
+
 ## What it does
 
 1. **Catalog.** The seller pastes prices and FAQ and uploads two or three phone photos per product. A menu photo can be imported as draft products, which the seller approves before the agent may cite them.
@@ -33,6 +45,16 @@ Vitrina is a closed-loop AI storefront for WhatsApp sellers in Colombia, built i
 - **The evaluation harness lives in the API.** CI replays recorded model outputs and fails on a single invented price or consent error, or on a missed target.
 
 The agent is scoped to one seller's business and declines everything else, in line with WhatsApp's policy on general-purpose assistants.
+
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="docs/infographics/reply-dark.webp">
+  <img src="docs/infographics/reply-light.webp" width="100%" alt="How a customer message is handled: keywords first, then the scope check, the Muse Spark draft, and checks on price, groundedness and confidence. Examples: asking the price of the blue bag is answered with $85.000, cited from the catalog. Asking for it at 60,000 is handed to the owner, because no fact gives that price. Asking for math homework help is declined. BAJA opts the customer out at once, before the agent runs. A reply that breaks the price rule gets one guided retry; a second failure sends a safe reply and the owner takes over.">
+</picture>
+
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="docs/infographics/fidelity-dark.webp">
+  <img src="docs/infographics/fidelity-light.webp" width="100%" alt="The fidelity verifier on a woven bag. SAM 3.1 cuts the product out of the seller's photo, Muse Image composes scenes, and the verifier runs three checks. Scene A passes: shape overlap 0.98 (must reach 0.85), color distance 0.04 (must stay under 0.25), visual review finds no change. Scene B, the same bag recolored blue and turquoise, is blocked: shape overlap 0.98, color distance 0.98, visual review finds the colors changed.">
+</picture>
 
 ## Architecture
 
@@ -81,6 +103,11 @@ Constitution Article I: every line of product code was committed after the kicko
 
 ## Evaluation
 
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="docs/infographics/results-dark.webp">
+  <img src="docs/infographics/results-light.webp" width="100%" alt="Final eval run, replaying recorded model outputs: 0 % invented prices in 336 cases, 100 % of consent and hours cases correct (40 of 40), 100 % of altered scenes blocked (10 of 10), 100 % of faithful scenes passed (10 of 10), 100 % grounded replies, handoff precision and recall 1.0 and 1.0. These figures do not measure how the live models behave today, and brand voice is not measured.">
+</picture>
+
 The suites live in `evals/fixtures`: Spanish conversations, consent and scheduler cases, and webhook payloads. `make evals` replays recorded model outputs with no network.
 
 Final run: `make evals` on `main` at `07863d5`, November 4, 2026, in replay mode. Every case passed in all four suites.
@@ -98,6 +125,11 @@ Final run: `make evals` on `main` at `07863d5`, November 4, 2026, in replay mode
 Replay plays back model outputs recorded from live calls, so these figures show the validators and rules on recorded behavior. They do not measure how the live models behave today.
 
 ## Legal by design
+
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="docs/infographics/consent-dark.webp">
+  <img src="docs/infographics/consent-light.webp" width="100%" alt="Marketing eligibility: five checks in a fixed order, and the first that fails decides. Not opted out, recorded consent under Ley 1581, and no marketing message in 7 days each block when they fail. Legal hours under Ley 2300 defer to the next allowed time. An approved ad that fits blocks when missing. If all five pass and the template is approved, the send is allowed. Marketing may be sent Monday to Friday 07:00 to 19:00 and Saturday 08:00 to 15:00, America/Bogota time, and never on Sundays or holidays.">
+</picture>
 
 - **Ley 1581 de 2012 and Decreto 1377 de 2013.** Prior, express, informed consent is recorded verbatim. A contact without consent is `blocked` with `NO_CONSENT_LEY_1581`.
 - **Ley 2300 de 2023.** Marketing is sent only Monday–Friday 07:00–19:00 and Saturday 08:00–15:00 (America/Bogota), never on Sundays or public holidays. Outside the window a send is `deferred` with `next_allowed_at`.
@@ -161,6 +193,7 @@ Live mode needs a Meta Model API key (`META_API_KEY`, `MODEL_*`), a WhatsApp Clo
 - `apps/api` (FastAPI routers), `apps/worker` (jobs), `apps/dashboard` (Next.js, typed client generated from `openapi.yaml`)
 - `packages/{core,catalog,creative,conversation,compliance,learning,evals}`
 - `providers/{meta_model_api,whatsapp,local_mock,modal_glimmer,baseten}`
+- `docs/infographics` (the images in this README: `source.html`, rendered by `render.sh`)
 - `evals/fixtures` (recorded cases), `specs/001-vitrina-api/` (spec, plan, tasks, contracts), `constitution.md`, `AGENTS.md`
 
 ## Credits
