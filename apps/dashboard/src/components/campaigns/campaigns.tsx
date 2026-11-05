@@ -183,7 +183,7 @@ function CampaignDetail({ id, onChange }: { id: string; onChange: () => Promise<
       if (data) setCampaign(data);
       else setMessage(problemMessage(error, "No pudimos cargar la campaña."));
     });
-    void api.GET("/contacts", { params: { query: { limit: 200 } } }).then(({ data }) => {
+    void api.GET("/contacts", { params: { query: { limit: 100 } } }).then(({ data }) => {
       if (data) setNames(Object.fromEntries((data.items ?? []).map((c) => [c.id, c.display_name ?? c.phone_masked ?? "Cliente"])));
     });
   }, [id]);
